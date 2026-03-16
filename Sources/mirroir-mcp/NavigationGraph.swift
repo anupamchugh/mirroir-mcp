@@ -65,6 +65,11 @@ struct ScreenNode: Sendable {
     var visitedElements: Set<String>
     /// Extracted nav bar title for fast screen identity comparison.
     let navBarTitle: String?
+    /// Whether this screen has infinite scroll (every scroll reveals new content).
+    /// Set during calibration when scrolling never exhausts.
+    var isInfiniteScroll: Bool = false
+    /// Whether scroll exhaustion was reached (no new elements after scrolling).
+    var scrollExhausted: Bool = false
 }
 
 /// A directed edge in the navigation graph representing a navigation action.
@@ -93,28 +98,40 @@ struct GraphSnapshot: Sendable {
     let edges: [NavigationEdge]
     /// Fingerprint of the root (first) screen.
     let rootFingerprint: String
+    /// Edges that produced dead taps (no screen change), as "fromFP:elementText" keys.
+    let deadEdges: Set<String>
+    /// Recovery events logged during exploration.
+    let recoveryEvents: [RecoveryEvent]
+    /// CEGAR refinement levels per fingerprint.
+    var refinementLevels: [String: StateAbstraction.RefinementLevel] = [:]
 }
 
 /// Thread-safe directed graph tracking screen navigation during app exploration.
 /// Follows the Session Accumulator pattern: explicit lifecycle with NSLock protection.
 final class NavigationGraph: @unchecked Sendable {
 
-    private var nodes: [String: ScreenNode] = [:]
-    private var edges: [NavigationEdge] = []
-    private var currentFP: String = ""
-    private var rootFP: String = ""
-    private var isStarted: Bool = false
-    private var scrollCounts: [String: Int] = [:]
-    private var scoutResultsMap: [String: [String: ScoutResult]] = [:]
-    private var traversalPhases: [String: TraversalPhase] = [:]
-    private var screenPlans: [String: [RankedElement]] = [:]
-    private var tapCaches: [String: TapAreaCache] = [:]
+    var nodes: [String: ScreenNode] = [:]
+    var edges: [NavigationEdge] = []
+    var currentFP: String = ""
+    var rootFP: String = ""
+    var isStarted: Bool = false
+    var scrollCounts: [String: Int] = [:]
+    var scoutResultsMap: [String: [String: ScoutResult]] = [:]
+    var traversalPhases: [String: TraversalPhase] = [:]
+    var screenPlans: [String: [RankedElement]] = [:]
+    var tapCaches: [String: TapAreaCache] = [:]
     /// Labels of breadth_navigation components (e.g. tab bar items) registered during calibration.
-    private var breadthLabels: Set<String> = []
+    var breadthLabels: Set<String> = []
     /// Labels of breadth_navigation components already explored. Shared across all screens
     /// so tab bars are not re-tapped from every child screen.
-    private var globalVisited: Set<String> = []
-    private let lock = NSLock()
+    var globalVisited: Set<String> = []
+    /// Edges that produced dead taps (no screen change), keyed by "fromFP:elementText".
+    var deadEdges: Set<String> = []
+    /// Recovery events logged during exploration for post-hoc diagnosis.
+    var recoveryEvents: [RecoveryEvent] = []
+    /// Refinement levels per fingerprint for CEGAR-style adaptive abstraction.
+    var refinementLevels: [String: StateAbstraction.RefinementLevel] = [:]
+    let lock = NSLock()
 
     // MARK: - Lifecycle
 
@@ -138,6 +155,9 @@ final class NavigationGraph: @unchecked Sendable {
         tapCaches = [:]
         breadthLabels = []
         globalVisited = []
+        deadEdges = []
+        recoveryEvents = []
+        refinementLevels = [:]
 
         let fp = StructuralFingerprint.compute(elements: rootElements, icons: icons)
         let title = StructuralFingerprint.extractNavBarTitle(from: rootElements)
@@ -191,11 +211,32 @@ final class NavigationGraph: @unchecked Sendable {
         }
 
         // Check if this screen matches any known node (by similarity, not just hash)
-        let matchingFP = findMatchingNode(elements: elements)
+        var matchingFP = findMatchingNode(elements: elements)
 
+        // CEGAR refinement: if the match is behaviorally different, refine the fingerprint
+        if let existingFP = matchingFP, let existingNode = nodes[existingFP],
+           !StateAbstraction.areBehaviorallyEquivalent(
+               existingElements: existingNode.elements, newElements: elements
+           ) {
+            if let level = StateAbstraction.findDistinguishingLevel(
+                existingElements: existingNode.elements, newElements: elements
+            ) {
+                let refinedFP = StateAbstraction.computeRefinedFingerprint(
+                    elements: elements, icons: icons, level: level
+                )
+                if nodes[refinedFP] == nil {
+                    DebugLog.log("graph", "CEGAR refine: \(existingFP.prefix(8)) → " +
+                        "\(refinedFP.prefix(8)) at level \(level)")
+                    refinementLevels[refinedFP] = level
+                    matchingFP = nil // treat as new screen with refined fingerprint
+                }
+            }
+        }
+
+        let targetFP = matchingFP ?? newFP
         let edge = NavigationEdge(
             fromFingerprint: currentFP,
-            toFingerprint: matchingFP ?? newFP,
+            toFingerprint: targetFP,
             actionType: actionType,
             elementText: elementText,
             displayLabel: displayLabel ?? elementText,
@@ -208,11 +249,12 @@ final class NavigationGraph: @unchecked Sendable {
             return .revisited(fingerprint: existingFP)
         }
 
-        // New screen: add node
+        // New screen: use refined fingerprint if CEGAR refinement occurred
+        let effectiveFP = refinementLevels[targetFP] != nil ? targetFP : newFP
         let currentDepth = nodes[currentFP]?.depth ?? 0
         let title = StructuralFingerprint.extractNavBarTitle(from: elements)
         let node = ScreenNode(
-            fingerprint: newFP,
+            fingerprint: effectiveFP,
             elements: elements,
             icons: icons,
             hints: hints,
@@ -222,10 +264,10 @@ final class NavigationGraph: @unchecked Sendable {
             visitedElements: [],
             navBarTitle: title
         )
-        nodes[newFP] = node
-        currentFP = newFP
+        nodes[effectiveFP] = node
+        currentFP = effectiveFP
 
-        return .newScreen(fingerprint: newFP)
+        return .newScreen(fingerprint: effectiveFP)
     }
 
     /// Mark an element as visited on the specified screen.
@@ -242,7 +284,10 @@ final class NavigationGraph: @unchecked Sendable {
         return GraphSnapshot(
             nodes: nodes,
             edges: edges,
-            rootFingerprint: rootFP
+            rootFingerprint: rootFP,
+            deadEdges: deadEdges,
+            recoveryEvents: recoveryEvents,
+            refinementLevels: refinementLevels
         )
     }
 
@@ -303,52 +348,6 @@ final class NavigationGraph: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return nodes[fingerprint]
-    }
-
-    // MARK: - Scroll Support
-
-    /// Merge scrolled elements into a screen node using composite key dedup. Returns novel count.
-    /// Composite key = text + quantized X, preventing false dedup of same-text elements
-    /// at different horizontal positions (e.g., multiple "icon" labels).
-    func mergeScrolledElements(fingerprint: String, newElements: [TapPoint]) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let node = nodes[fingerprint] else { return 0 }
-        // Simple composite key dedup — no pageY proximity check here because
-        // elements arrive without scroll-adjusted pageY. The sophisticated
-        // pageY proximity dedup lives in OverlapDeduplicator.merge() which
-        // CalibrationScroller uses with properly tracked scroll offsets.
-        let existingKeys = Set(node.elements.map { OverlapDeduplicator.compositeKey($0) })
-        let novel = newElements.filter { !existingKeys.contains(OverlapDeduplicator.compositeKey($0)) }
-        guard !novel.isEmpty else { return 0 }
-        var updatedElements = node.elements
-        updatedElements.append(contentsOf: novel)
-        nodes[fingerprint] = ScreenNode(
-            fingerprint: node.fingerprint,
-            elements: updatedElements,
-            icons: node.icons,
-            hints: node.hints,
-            depth: node.depth,
-            screenType: node.screenType,
-            screenshotBase64: node.screenshotBase64,
-            visitedElements: node.visitedElements,
-            navBarTitle: node.navBarTitle
-        )
-        return novel.count
-    }
-
-    /// Get the number of scroll actions performed on a screen.
-    func scrollCount(for fingerprint: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return scrollCounts[fingerprint, default: 0]
-    }
-
-    /// Increment the scroll count for a screen.
-    func incrementScrollCount(for fingerprint: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        scrollCounts[fingerprint, default: 0] += 1
     }
 
     /// Get the screen type of the root node.
@@ -498,35 +497,4 @@ final class NavigationGraph: @unchecked Sendable {
         return tapCaches[fingerprint]?.count ?? 0
     }
 
-    // MARK: - Node Matching
-
-    /// Find a node with similar structural elements using title-aware similarity.
-    /// Iterates in sorted key order for deterministic matching across runs.
-    func findMatchingNode(elements: [TapPoint]) -> String? {
-        for (fp, node) in nodes.sorted(by: { $0.key < $1.key }) {
-            let sim = StructuralFingerprint.titleAwareSimilarity(elements, node.elements)
-            if sim >= StructuralFingerprint.similarityThreshold {
-                return fp
-            }
-        }
-        return nil
-    }
-
-    /// Find a node matching the viewport using both Jaccard similarity and containment.
-    /// Containment catches the case where a viewport (~40 elements) is a subset of a
-    /// calibrated full-page set (~90 elements) — Jaccard fails because the union is large.
-    /// Iterates in sorted key order for deterministic matching across runs.
-    func findMatchingNodeWithContainment(elements: [TapPoint]) -> String? {
-        if let fp = findMatchingNode(elements: elements) {
-            return fp
-        }
-        for (fp, node) in nodes.sorted(by: { $0.key < $1.key }) {
-            if StructuralFingerprint.viewportContainedIn(
-                viewport: elements, reference: node.elements
-            ) {
-                return fp
-            }
-        }
-        return nil
-    }
 }

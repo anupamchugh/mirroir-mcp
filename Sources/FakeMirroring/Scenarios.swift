@@ -18,6 +18,11 @@ enum FakeScenario: String, CaseIterable {
     case login = "Login"
     case detailWithBack = "Detail (Back)"
     case health = "Health"
+    case storage = "Storage"
+    case notifications = "Notifications"
+    case permissionAlert = "Permission Alert"
+    case scrollableList = "Scrollable List"
+    case longFeed = "Long Feed"
 }
 
 /// A Health/Santé-style summary card with colored accent, title, value, and subtitle.
@@ -107,6 +112,16 @@ enum ScenarioContent {
             return detailWithBackScenario()
         case .health:
             return healthScenario()
+        case .storage:
+            return storageScenario()
+        case .notifications:
+            return notificationsScenario()
+        case .permissionAlert:
+            return permissionAlertScenario()
+        case .scrollableList:
+            return scrollableListScenario()
+        case .longFeed:
+            return longFeedScenario()
         }
     }
 
@@ -225,6 +240,115 @@ enum ScenarioContent {
         )
     }
 
+    /// Storage detail screen (depth 3: Settings → General → Storage).
+    /// Exercises: deep backtracking (3 levels), dead taps (non-navigating rows).
+    private static func storageScenario() -> ScenarioData {
+        ScenarioData(
+            header: "Storage",
+            rows: [
+                ("System", CGPoint(x: 100, y: 250)),
+                ("Apps", CGPoint(x: 100, y: 310)),
+                ("Photos", CGPoint(x: 100, y: 370)),
+                ("Messages", CGPoint(x: 105, y: 430)),
+                ("Other", CGPoint(x: 100, y: 490)),
+            ],
+            hasTabBar: false,
+            hasBackChevron: true
+        )
+    }
+
+    /// Notifications settings with permission-triggering row.
+    /// Exercises: modal navigation (→ permission alert), back navigation.
+    private static func notificationsScenario() -> ScenarioData {
+        ScenarioData(
+            header: "Notifications",
+            rows: [
+                ("Allow Notifications", CGPoint(x: 140, y: 250)),
+                ("Sounds", CGPoint(x: 100, y: 310)),
+                ("Badges", CGPoint(x: 100, y: 370)),
+                ("Lock Screen", CGPoint(x: 115, y: 430)),
+                ("Banner Style", CGPoint(x: 115, y: 490)),
+            ],
+            hasTabBar: false,
+            hasBackChevron: true
+        )
+    }
+
+    /// Permission alert modal (presented over notifications screen).
+    /// Exercises: alert dismissal, modal edge classification.
+    private static func permissionAlertScenario() -> ScenarioData {
+        let btnW: CGFloat = 170, btnH: CGFloat = 44
+        return ScenarioData(
+            header: "Allow Notifications?",
+            rows: [],
+            hasTabBar: false,
+            plainTexts: [
+                ("This app would like to send", CGPoint(x: 60, y: 300)),
+                ("you notifications.", CGPoint(x: 110, y: 325)),
+            ],
+            buttons: [
+                ("Don't Allow", CGRect(x: 20, y: 400, width: btnW, height: btnH)),
+                ("Allow", CGRect(x: 210, y: 400, width: btnW, height: btnH)),
+            ]
+        )
+    }
+
+    /// Long scrollable list with 20 rows extending well below the 898pt fold.
+    /// Exercises: scroll exhaustion detection, novelty ratio computation, canonical ordering.
+    private static func scrollableListScenario() -> ScenarioData {
+        let startY: CGFloat = 200
+        let spacing: CGFloat = 60
+        let items = [
+            "Airplane Mode", "Wi-Fi", "Bluetooth", "Cellular", "Personal Hotspot",
+            "Notifications", "Sounds", "Focus", "Screen Time", "General",
+            "Control Center", "Display", "Home Screen", "Accessibility", "Wallpaper",
+            "Siri & Search", "Face ID", "Emergency SOS", "Battery", "Privacy",
+        ]
+        let rows = items.enumerated().map { (idx, text) in
+            (text, CGPoint(x: 100, y: startY + CGFloat(idx) * spacing))
+        }
+        return ScenarioData(
+            header: "All Settings",
+            rows: rows,
+            hasTabBar: false,
+            hasBackChevron: true
+        )
+    }
+
+    /// Very long social feed with 8 posts extending to ~2400pt.
+    /// Exercises: many scroll cycles before exhaustion, infinite scroll heuristic
+    /// (high novelty on each scroll since every viewport is different).
+    private static func longFeedScenario() -> ScenarioData {
+        var texts: [(String, CGPoint)] = []
+        var placeholders: [CGRect] = []
+        let authors = [
+            "alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi",
+        ]
+        let captions = [
+            "Morning coffee", "Beach sunset", "City lights", "Mountain trail",
+            "Rainy day vibes", "Street food tour", "Garden flowers", "Skyline view",
+        ]
+        var y: CGFloat = 180
+        for i in 0..<8 {
+            texts.append((authors[i], CGPoint(x: 60, y: y)))
+            y += 25
+            placeholders.append(CGRect(x: 20, y: y, width: 370, height: 200))
+            y += 210
+            texts.append(("Like", CGPoint(x: 30, y: y)))
+            texts.append(("Comment", CGPoint(x: 120, y: y)))
+            texts.append(("Share", CGPoint(x: 240, y: y)))
+            y += 25
+            texts.append((captions[i], CGPoint(x: 20, y: y)))
+            y += 40
+        }
+        return ScenarioData(
+            header: "Explore",
+            rows: [],
+            hasTabBar: true,
+            plainTexts: texts
+        )
+    }
+
     /// Returns the hit regions for a scenario, mapping tappable rects to their labels.
     /// Used by FakeScreenView's mouseUp to determine which element was clicked.
     static func hitRegions(for scenario: FakeScenario) -> [(label: String, rect: CGRect)] {
@@ -312,7 +436,10 @@ enum NavigationMap {
             case "General": return .detail
             case "About": return .detailWithBack
             case "Display", "Privacy": return .detail
+            case "Software Update": return .scrollableList
             case "Profile": return .profile            // tab bar
+            case "Feed": return .longFeed              // tab bar
+            case "Developer": return .notifications
             default: return nil
             }
         case .settingsUpdated:
@@ -324,6 +451,7 @@ enum NavigationMap {
             switch label {
             case "<": return .settings                  // back chevron
             case "Home": return .feed                   // tab bar
+            case "Storage": return .storage             // depth 3
             default: return nil
             }
         case .detailWithBack:
@@ -352,6 +480,34 @@ enum NavigationMap {
             switch label {
             case "Steps", "Heart Rate", "Sleep": return .detailWithBack
             default: return nil
+            }
+        case .storage:
+            switch label {
+            case "<": return .detail                    // back to General
+            default: return nil                         // all rows are dead taps
+            }
+        case .notifications:
+            switch label {
+            case "<": return .settings                  // back to Settings
+            case "Allow Notifications": return .permissionAlert  // modal
+            default: return nil
+            }
+        case .permissionAlert:
+            switch label {
+            case "Allow", "Don't Allow": return .notifications  // dismiss modal
+            default: return nil
+            }
+        case .scrollableList:
+            switch label {
+            case "<": return .settings                  // back to Settings
+            case "General": return .detail              // one navigable row
+            default: return nil                         // remaining rows are dead taps (scroll test)
+            }
+        case .longFeed:
+            switch label {
+            case "Profile": return .profile             // tab bar
+            case "Home": return .feed                   // tab bar
+            default: return nil                         // feed items are non-navigating
             }
         case .empty:
             return nil

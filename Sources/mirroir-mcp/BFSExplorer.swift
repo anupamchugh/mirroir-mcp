@@ -7,11 +7,9 @@
 import Foundation
 import HelperLib
 
-/// BFS explorer that systematically traverses app screens layer by layer.
-/// Explores all elements at the current depth before moving deeper.
-/// Each call to `step()` performs one exploration action: navigate a path segment,
-/// tap an element and record the result, or tap back toward root.
-/// Follows the Session Accumulator pattern with NSLock protection.
+/// BFS explorer: traverses app screens layer by layer. Each `step()` call
+/// performs one action (navigate, tap, or return to root).
+/// Session Accumulator pattern with NSLock protection.
 final class BFSExplorer: @unchecked Sendable {
 
     let graph: NavigationGraph
@@ -19,16 +17,13 @@ final class BFSExplorer: @unchecked Sendable {
     let budget: ExplorationBudget
     let windowSize: CGSize
     let appName: String
-    /// Loaded component definitions for grouping OCR elements into UI components.
     let componentDefinitions: [ComponentDefinition]
-    /// Classifier for grouping OCR elements into components. nil uses legacy element-level planning.
     let classifier: (any ComponentClassifying)?
-    /// Window bridge for calibration scroll (CalibrationScroller needs window info).
     let bridge: (any WindowBridging)?
 
     private var frontier: [FrontierScreen] = []
     private var frontierIndex: Int = 0
-    private var phase: BFSPhase = .atRoot
+    var phase: BFSPhase = .atRoot
     private var actionsOnCurrentScreen: Int = 0
     private var startTime: Date = Date()
     /// Fingerprints of screens that have been calibrated (full-page scroll + component detection).
@@ -41,24 +36,19 @@ final class BFSExplorer: @unchecked Sendable {
     var cacheHitsPerScreen: [String: Int] = [:]
     var actionCount: Int = 0
     var isFinished: Bool = false
+    let coverageMonitor = CoverageMonitor()
+    /// Seeded PRNG for deterministic exploration ordering. nil = system random.
+    let rng: ExplorationRNG
     let lock = NSLock()
 
-    /// Initialize the BFS explorer.
-    ///
-    /// - Parameters:
-    ///   - session: The exploration session tracking screens and graph state.
-    ///   - budget: Exploration budget limits.
-    ///   - windowSize: Size of the target window for coordinate computation.
-    ///   - componentDefinitions: Component definitions for grouping OCR elements.
-    ///   - classifier: Component classifier to use. nil falls back to legacy per-element planning.
-    ///   - bridge: Window bridge for CalibrationScroller. nil falls back to simple scroll calibration.
     init(
         session: ExplorationSession,
         budget: ExplorationBudget,
         windowSize: CGSize = CGSize(width: 410, height: 890),
         componentDefinitions: [ComponentDefinition] = [],
         classifier: (any ComponentClassifying)? = nil,
-        bridge: (any WindowBridging)? = nil
+        bridge: (any WindowBridging)? = nil,
+        seed: UInt64? = nil
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -68,6 +58,7 @@ final class BFSExplorer: @unchecked Sendable {
         self.componentDefinitions = componentDefinitions
         self.classifier = classifier
         self.bridge = bridge
+        self.rng = seed.map { ExplorationRNG(seed: $0) } ?? ExplorationRNG()
     }
 
     /// Record start time and seed frontier with the root screen. Call once after initial capture.
@@ -75,6 +66,7 @@ final class BFSExplorer: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         startTime = Date()
+        coverageMonitor.start()
         if graph.started {
             let rootFP = graph.rootFingerprint
             frontier = [FrontierScreen(fingerprint: rootFP, pathFromRoot: [], depth: 0)]
@@ -106,6 +98,12 @@ final class BFSExplorer: @unchecked Sendable {
             return .finished(bundle: generateBundle())
         }
 
+        // Coverage exhaustion — stop if no new screens for extended period
+        if coverageMonitor.currentPhase == .exhaustion {
+            lock.lock(); isFinished = true; lock.unlock()
+            return .finished(bundle: generateBundle())
+        }
+
         switch phase {
         case .atRoot:
             return stepAtRoot(describer: describer, input: input, strategy: strategy)
@@ -132,16 +130,9 @@ final class BFSExplorer: @unchecked Sendable {
         return isFinished
     }
 
-    /// Current exploration statistics.
     var stats: (nodeCount: Int, edgeCount: Int, actionCount: Int, elapsedSeconds: Int) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (
-            nodeCount: graph.nodeCount,
-            edgeCount: graph.edgeCount,
-            actionCount: actionCount,
-            elapsedSeconds: Int(Date().timeIntervalSince(startTime))
-        )
+        lock.lock(); defer { lock.unlock() }
+        return (graph.nodeCount, graph.edgeCount, actionCount, Int(Date().timeIntervalSince(startTime)))
     }
 
     func generateBundle() -> SkillBundle {
@@ -296,8 +287,9 @@ final class BFSExplorer: @unchecked Sendable {
 
         // Build plan from viewport if calibration didn't produce one (e.g. non-scrollable screen)
         if graph.screenPlan(for: currentFP) == nil {
+            let canonicalElements = ExplorationRNG.canonicalOrder(viewportElements)
             let classified = ElementClassifier.classify(
-                viewportElements, budget: budget, screenHeight: windowSize.height
+                canonicalElements, budget: budget, screenHeight: windowSize.height
             )
             let visitedElements = graph.node(for: currentFP)?.visitedElements ?? []
             let plan = buildScreenPlan(
@@ -412,12 +404,18 @@ final class BFSExplorer: @unchecked Sendable {
             elements: afterResult.elements, hints: afterResult.hints
         )
 
-        // Record transition in graph (raw text for visited-state, displayLabel for naming)
+        // Classify edge type for intelligent backtracking, then record transition
+        let edgeType = graph.node(for: currentFP).map { sourceNode in
+            EdgeClassifier.classify(
+                sourceNode: sourceNode, destinationElements: afterResult.elements,
+                destinationHints: afterResult.hints, tappedElement: target,
+                screenHeight: windowSize.height)
+        } ?? .push
         let transition = graph.recordTransition(
             elements: afterResult.elements, icons: afterResult.icons,
             hints: afterResult.hints, screenshot: afterResult.screenshotBase64,
             actionType: "tap", elementText: target.text, displayLabel: label,
-            screenType: screenType
+            screenType: screenType, edgeType: edgeType
         )
 
         // Record in session for flat screen list
@@ -450,7 +448,7 @@ final class BFSExplorer: @unchecked Sendable {
 
         switch transition {
         case .newScreen(let fp):
-            // Add child to frontier for later exploration
+            coverageMonitor.recordDiscovery()
             let childDepth = screen.depth + 1
             if childDepth < budget.maxDepth && graph.nodeCount < budget.maxScreens {
                 let newPath = screen.pathFromRoot + [PathSegment(
@@ -486,44 +484,15 @@ final class BFSExplorer: @unchecked Sendable {
             return .continue(description: "Tapped \"\(label)\" → revisited screen")
 
         case .duplicate:
-            // Didn't navigate — stay on current screen, no back-tap needed
-            return .continue(description: "Tapped \"\(label)\" → no navigation")
+            // Mark this edge as dead so future exploration plans skip it
+            graph.markEdgeDead(fromFingerprint: currentFP, elementText: label)
+            graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
+                category: .deadTap,
+                screenFingerprint: currentFP,
+                description: "Tapped \"\(label)\" but screen did not change"
+            ))
+            DebugLog.log("bfs", "dead tap: \"\(label)\" on \(currentFP.prefix(8))")
+            return .continue(description: "Tapped \"\(label)\" → dead tap (marked)")
         }
     }
-
-    // MARK: - Phase: Returning
-
-    /// Tap back one level toward root. Each step reduces depth by one.
-    private func stepReturning(
-        depthRemaining: Int,
-        describer: ScreenDescribing,
-        input: InputProviding
-    ) -> ExploreStepResult {
-        // Get current screen elements for back button detection
-        let elements: [TapPoint]
-        if let result = ExplorerUtilities.dismissAlertIfPresent(
-            describer: describer, input: input
-        ) {
-            elements = result.elements
-        } else {
-            elements = []
-        }
-
-        ExplorerUtilities.tapBackButton(
-            elements: elements, input: input, windowSize: windowSize
-        )
-
-        let remaining = depthRemaining - 1
-        if remaining > 0 {
-            phase = .returning(depthRemaining: remaining)
-        } else {
-            phase = .atRoot
-            graph.setCurrentFingerprint(graph.rootFingerprint)
-        }
-
-        return .continue(
-            description: "Returning to root (\(remaining) level\(remaining == 1 ? "" : "s") remaining)"
-        )
-    }
-
 }
