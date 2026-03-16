@@ -39,6 +39,8 @@ final class BFSExplorer: @unchecked Sendable {
     let coverageMonitor = CoverageMonitor()
     /// Seeded PRNG for deterministic exploration ordering. nil = system random.
     let rng: ExplorationRNG
+    /// Skip component detection during calibration (scroll still runs).
+    let skipCalibration: Bool
     let lock = NSLock()
 
     init(
@@ -48,7 +50,8 @@ final class BFSExplorer: @unchecked Sendable {
         componentDefinitions: [ComponentDefinition] = [],
         classifier: (any ComponentClassifying)? = nil,
         bridge: (any WindowBridging)? = nil,
-        seed: UInt64? = nil
+        seed: UInt64? = nil,
+        skipCalibration: Bool = false
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -59,6 +62,7 @@ final class BFSExplorer: @unchecked Sendable {
         self.classifier = classifier
         self.bridge = bridge
         self.rng = seed.map { ExplorationRNG(seed: $0) } ?? ExplorationRNG()
+        self.skipCalibration = skipCalibration
     }
 
     /// Record start time and seed frontier with the root screen. Call once after initial capture.
@@ -260,11 +264,13 @@ final class BFSExplorer: @unchecked Sendable {
 
         if let exit = handleContextEscape(elements: result.elements, input: input, describer: describer) { return exit }
 
-        // Calibrate this screen if not already done (scroll full page + component detect + plan)
+        // Calibrate this screen if not already done: scroll full page to discover all
+        // elements, then optionally run component detection + validation.
         var viewportElements = result.elements
         if !calibratedScreens.contains(currentFP) {
             let calResult = calibrateScreen(
-                fingerprint: currentFP, describer: describer, input: input
+                fingerprint: currentFP, describer: describer, input: input,
+                skipComponentDetection: skipCalibration
             )
             calibratedScreens.insert(currentFP)
             switch calResult {

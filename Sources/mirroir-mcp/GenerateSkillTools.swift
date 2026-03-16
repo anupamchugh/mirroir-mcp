@@ -114,6 +114,13 @@ extension MirroirMCP {
                             "Seed for deterministic exploration ordering. " +
                             "Same seed produces identical exploration sequences."),
                     ]),
+                    "skip_calibration": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Skip component detection and validation during calibration. " +
+                            "Full-page scrolling still runs to discover below-fold elements. " +
+                            "Useful with vision describers that produce clean semantic elements. Default: false."),
+                    ]),
                 ]),
                 "required": .array([.string("action")]),
             ],
@@ -394,6 +401,7 @@ extension MirroirMCP {
         let goal = args["goal"]?.asString() ?? ""
         let fresh = args["fresh"]?.asBool() ?? false
         let seed = args["seed"]?.asInt().map { UInt64($0) }
+        let skipCalibration = args["skip_calibration"]?.asBool() ?? false
         let explicitStrategy = args["strategy"]?.asString()
         let strategyChoice = StrategyDetector.detect(
             targetType: ctx.targetType,
@@ -429,7 +437,8 @@ extension MirroirMCP {
             componentDefinitions: componentDefinitions,
             classifier: classifier,
             bridge: ctx.bridge,
-            seed: seed
+            seed: seed,
+            skipCalibration: skipCalibration
         )
         explorer.markStarted()
 

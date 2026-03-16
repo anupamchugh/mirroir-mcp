@@ -93,26 +93,21 @@ extension BFSExplorer {
             scoutResults: [:], screenHeight: windowSize.height)
     }
 
-    // MARK: - Calibration Pipeline: Calibrate → Detect → Validate → Plan
+    // MARK: - Calibration Pipeline
 
-    /// Calibrate a screen: scroll full page, run component detection on all elements,
-    /// validate classification quality, and build the exploration plan.
+    /// Calibrate a screen: scroll full page, then build an exploration plan.
     ///
-    /// Pipeline: Calibrate (scroll + collect) → Detect (component matching) →
-    /// Validate (quality gate) → Plan (ranked exploration items).
-    ///
-    /// - Parameters:
-    ///   - fingerprint: Fingerprint of the screen to calibrate.
-    ///   - describer: Screen describer for OCR.
-    ///   - input: Input provider for swipe gestures.
-    /// - Returns: `.ok` on success, `.failed` with diagnostic message on validation failure.
+    /// When `skipComponentDetection` is false (default), runs the full pipeline:
+    /// scroll → component detection → validation → component plan.
+    /// When true, skips component matching and the validation gate, building
+    /// the plan directly from classified elements (for vision describers).
     func calibrateScreen(
-        fingerprint: String, describer: ScreenDescribing, input: InputProviding
+        fingerprint: String, describer: ScreenDescribing, input: InputProviding,
+        skipComponentDetection: Bool = false
     ) -> CalibrationResult {
-        // Stage 1: Calibrate — scroll and collect all elements
+        // Stage 1: Scroll full page and collect all elements (always runs).
         let scrollData = scrollAndCollect(fingerprint: fingerprint, describer: describer, input: input)
 
-        // Stage 2: Detect — run component detection on the full element set
         let allElements = graph.node(for: fingerprint)?.elements ?? []
         guard !allElements.isEmpty else {
             DebugLog.log("bfs", "calibration: no elements after scroll — skipping detection")
@@ -121,20 +116,36 @@ extension BFSExplorer {
 
         let scrolledWithNovelContent = scrollData.scrollCount > 0 && scrollData.novelCount > 0
 
+        // Stage 2: Classify all elements as interactive/non-interactive.
         let classified = ElementClassifier.classify(
             allElements, budget: budget, screenHeight: windowSize.height
         )
 
-        guard !componentDefinitions.isEmpty else {
-            // No component definitions — build legacy plan from full element set
+        // Fast path: skip component detection + validation, build plan from elements directly.
+        if skipComponentDetection || componentDefinitions.isEmpty {
             let plan = ScreenPlanner.buildPlan(
                 classified: classified, visitedElements: [],
                 scoutResults: [:], screenHeight: windowSize.height)
             graph.setScreenPlan(for: fingerprint, plan: plan)
+            DebugLog.log("bfs", "calibration (scroll-only): \(plan.count) plan items " +
+                "from \(allElements.count) elements")
             storeSummary(scrollData: scrollData, fingerprint: fingerprint)
             return .ok(viewportMayHaveShifted: scrolledWithNovelContent)
         }
 
+        // Full path: component detection → validation → component plan.
+        return calibrateWithComponents(
+            fingerprint: fingerprint, scrollData: scrollData,
+            classified: classified, scrolledWithNovelContent: scrolledWithNovelContent
+        )
+    }
+
+    /// Full component detection pipeline: match elements to component definitions,
+    /// validate classification quality, and build a component-based exploration plan.
+    private func calibrateWithComponents(
+        fingerprint: String, scrollData: ScrollCollectionData,
+        classified: [ClassifiedElement], scrolledWithNovelContent: Bool
+    ) -> CalibrationResult {
         let rawComponents = classifier?.classify(
             classified: classified, definitions: componentDefinitions,
             screenHeight: windowSize.height
@@ -158,7 +169,7 @@ extension BFSExplorer {
             DebugLog.log("bfs", "registered \(breadthLabels.count) breadth labels: \(breadthLabels.sorted())")
         }
 
-        // Stage 3: Validate — check unclassified ratio in content zone
+        // Validate: check unclassified ratio in content zone.
         let validation = CalibrationValidator.validate(
             components: components, screenHeight: windowSize.height
         )
@@ -176,7 +187,7 @@ extension BFSExplorer {
                 "New component definitions may be needed.\n\n\(validation.report)")
         }
 
-        // Stage 4: Plan — build exploration plan from component map
+        // Build exploration plan from matched components.
         let plan = ScreenPlanner.buildComponentPlan(
             components: components, visitedElements: [],
             scoutResults: [:], screenHeight: windowSize.height)
