@@ -137,6 +137,67 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           shasum -a 256 mirroir-mcp-darwin-arm64.tar.gz > SHA256SUMS
 
+      - name: Generate release notes
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+
+          echo "## What's Changed" > release-notes.md
+          echo "" >> release-notes.md
+
+          # Collect commits by type (two-pass sed: first handles scoped, second handles unscoped)
+          FEATS=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^feat(\(.*\))?:" | sed 's/^feat(\([^)]*\)): /- **\1:** /' | sed 's/^feat: /- /' || true)
+          FIXES=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^fix(\(.*\))?:" | sed 's/^fix(\([^)]*\)): /- **\1:** /' | sed 's/^fix: /- /' || true)
+          PERFS=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^perf(\(.*\))?:" | sed 's/^perf(\([^)]*\)): /- **\1:** /' | sed 's/^perf: /- /' || true)
+          DOCS=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^docs(\(.*\))?:" | sed 's/^docs(\([^)]*\)): /- **\1:** /' | sed 's/^docs: /- /' || true)
+          REFACTORS=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^refactor(\(.*\))?:" | sed 's/^refactor(\([^)]*\)): /- **\1:** /' | sed 's/^refactor: /- /' || true)
+          CHORES=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^chore(\(.*\))?:" | sed 's/^chore(\([^)]*\)): /- **\1:** /' | sed 's/^chore: /- /' || true)
+          CI=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^ci(\(.*\))?:" | sed 's/^ci(\([^)]*\)): /- **\1:** /' | sed 's/^ci: /- /' || true)
+
+          if [ -n "$FEATS" ]; then
+            echo "### Features" >> release-notes.md
+            echo "$FEATS" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> release-notes.md
+            echo "$FIXES" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          if [ -n "$PERFS" ]; then
+            echo "### Performance" >> release-notes.md
+            echo "$PERFS" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          if [ -n "$DOCS" ]; then
+            echo "### Documentation" >> release-notes.md
+            echo "$DOCS" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          if [ -n "$REFACTORS" ]; then
+            echo "### Refactoring" >> release-notes.md
+            echo "$REFACTORS" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          if [ -n "$CHORES" ]; then
+            echo "### Chores" >> release-notes.md
+            echo "$CHORES" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          if [ -n "$CI" ]; then
+            echo "### CI" >> release-notes.md
+            echo "$CI" >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...v${VERSION}" >> release-notes.md
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,7 +207,7 @@ jobs:
             mirroir-mcp-darwin-arm64.tar.gz \
             SHA256SUMS \
             --title "v$VERSION" \
-            --generate-notes
+            --notes-file release-notes.md
 
   update-homebrew:
     needs: release
