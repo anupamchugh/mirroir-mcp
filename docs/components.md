@@ -154,6 +154,8 @@ The highest score wins. Unmatched rows become individual "unclassified" componen
 
 ## Calibration
 
+During BFS exploration, the calibration phase runs component detection on each new screen to build an exploration plan. When using AI vision mode (`screenDescriberMode: "vision"`), the vision model produces clean semantic elements that may not need component-based classification. Pass `skip_calibration: true` on `generate_skill(action: "explore")` to bypass component detection and validation — full-page scrolling still runs to discover below-fold elements, and elements are classified directly into an exploration plan without component matching.
+
 The `calibrate_component` tool tests a definition against the current live screen without running a full exploration. Point it at a `.md` file and it reports what matched, what didn't, and why.
 
 ### Workflow

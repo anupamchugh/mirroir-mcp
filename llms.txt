@@ -46,7 +46,7 @@ Requires macOS 15+ and an iPhone connected via iPhone Mirroring.
 
 ### Screen (read-only, always available)
 - `screenshot` — Capture iPhone screen as base64 PNG
-- `describe_screen` — OCR via Apple Vision returning text elements with tap coordinates plus grid-overlaid screenshot. `scroll: true` does full-page scroll and deduplication. Detects unlabeled icons via pixel clustering.
+- `describe_screen` — Analyze the screen using local OCR (Apple Vision) or AI vision (embacle FFI) depending on `screenDescriberMode`. Returns UI elements with tap coordinates plus grid-overlaid screenshot. `scroll: true` does full-page scroll and deduplication. Detects unlabeled icons via pixel clustering.
 - `start_recording` / `stop_recording` — Video recording of the mirrored screen
 
 ### Input (mutating, requires permission)
@@ -82,7 +82,7 @@ Requires macOS 15+ and an iPhone connected via iPhone Mirroring.
 - `get_skill` — Read skill file with ${VAR} env substitution
 
 ### Skill Generation & Compilation
-- `generate_skill` — AI explores an app and produces SKILL.md. Session-based: start -> capture -> finish. `action: "explore"` runs autonomous BFS exploration with component-aware planning.
+- `generate_skill` — AI explores an app and produces SKILL.md. Session-based: start -> capture -> finish. `action: "explore"` runs autonomous BFS exploration with component-aware planning, edge classification (push/tab/modal/dead), and smart scrolling with exhaustion detection. `skip_calibration: true` bypasses component detection (useful with AI vision describers).
 - `record_step` / `save_compiled` — Record compiled steps during AI-driven skill execution for zero-OCR replay
 
 ### Component Detection (read-only)
@@ -206,7 +206,9 @@ swift test               # run all tests
 - `Sources/mirroir-mcp/CGKeyMap.swift` — Character → macOS virtual keycode mapping
 
 ### Screen Operations
-- `Sources/mirroir-mcp/ScreenDescriber.swift` — Apple Vision OCR pipeline
+- `Sources/mirroir-mcp/ScreenDescriber.swift` — Apple Vision OCR pipeline (local)
+- `Sources/mirroir-mcp/VisionScreenDescriber.swift` — AI vision screen describer via embacle FFI
+- `Sources/mirroir-mcp/EmbacleFFI.swift` — Rust FFI bridge to embedded embacle runtime
 - `Sources/mirroir-mcp/ScreenCapture.swift` — screencapture CLI wrapper
 - `Sources/mirroir-mcp/IconDetector.swift` — Unlabeled icon detection via pixel clustering + Vision saliency
 
@@ -219,10 +221,13 @@ swift test               # run all tests
 
 ### Autonomous Exploration
 - `Sources/mirroir-mcp/BFSExplorer.swift` — Breadth-first exploration with frontier queue and path replay (default explorer)
+- `Sources/mirroir-mcp/BFSExplorerHelpers.swift` — Calibration pipeline (scroll, classify, component detect, plan)
 - `Sources/mirroir-mcp/DFSExplorer.swift` — Depth-first exploration with backtrack stack
 - `Sources/mirroir-mcp/NavigationGraph.swift` — Directed screen graph (nodes=screens, edges=transitions, structural fingerprinting)
+- `Sources/mirroir-mcp/EdgeClassifier.swift` — Classify navigation edges (push/tab/modal/dead/external)
 - `Sources/mirroir-mcp/ExplorationSession.swift` — Thread-safe session accumulator
 - `Sources/mirroir-mcp/MobileAppStrategy.swift` — iOS app exploration heuristics
+- `Sources/mirroir-mcp/CalibrationScroller.swift` — Content-aware scrolling with exhaustion detection
 
 ### Component Detection
 - `Sources/mirroir-mcp/ComponentLoader.swift` — Discovers and loads component definition .md files from disk

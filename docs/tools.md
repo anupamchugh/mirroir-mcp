@@ -7,7 +7,7 @@ All 32 tools exposed by the MCP server. Mutating tools require [permission](perm
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `screenshot` | — | Capture the iPhone screen as base64 PNG |
-| `describe_screen` | `scroll`? | OCR the screen and return text elements with tap coordinates plus a grid-overlaid screenshot. `scroll: true` does a full-page scroll to capture all elements. |
+| `describe_screen` | `scroll`? | Analyze the screen and return UI elements with tap coordinates plus a grid-overlaid screenshot. Uses local OCR or AI vision depending on `screenDescriberMode`. `scroll: true` does a full-page scroll to capture all elements. |
 | `start_recording` | `output_path`? | Start video recording of the mirrored screen |
 | `stop_recording` | — | Stop recording and return the .mov file path |
 | `tap` | `x`, `y`, `cursor_mode`? | Tap at coordinates (relative to mirroring window) |
@@ -32,7 +32,7 @@ All 32 tools exposed by the MCP server. Mutating tools require [permission](perm
 | `check_health` | — | Comprehensive setup diagnostic: mirroring, accessibility, screen capture |
 | `list_skills` | — | List available skills (SKILL.md and YAML) from project-local and global config dirs |
 | `get_skill` | `name` | Read a skill file (SKILL.md or YAML) with ${VAR} env substitution. Appends compilation status. |
-| `generate_skill` | `action`, `app_name`?, `goal`?, `goals`?, `arrived_via`?, `action_type`?, `max_depth`?, `max_screens`?, `max_time`?, `strategy`? | Generate a SKILL.md by exploring an app. Session-based: start → capture → finish. `action: "explore"` runs autonomous BFS exploration. |
+| `generate_skill` | `action`, `app_name`?, `goal`?, `goals`?, `arrived_via`?, `action_type`?, `max_depth`?, `max_screens`?, `max_time`?, `strategy`?, `skip_calibration`? | Generate a SKILL.md by exploring an app. Session-based: start → capture → finish. `action: "explore"` runs autonomous BFS exploration. |
 | `list_targets` | — | List all configured automation targets with status and window size |
 | `switch_target` | `target` | Switch active target for subsequent tool calls |
 | `calibrate_component` | `component_path`, `target`?, `scroll`? | Test a component definition (.md) against the current screen and return a diagnostic report |
@@ -45,7 +45,10 @@ Coordinates are in points relative to the mirroring window's top-left corner. Us
 
 ## Describe Screen
 
-`describe_screen` returns detected elements with their tap coordinates, plus a grid-overlaid screenshot for visual context. By default it runs Apple Vision OCR for text recognition. If a YOLO CoreML model is installed in `~/.mirroir-mcp/models/`, the server auto-detects it and merges icon detections — giving the AI tap targets for non-text elements (buttons, toggles, icons) that text-only OCR misses. See [Icon Detection](../README.md#icon-detection) for setup.
+`describe_screen` returns detected elements with their tap coordinates, plus a grid-overlaid screenshot for visual context. The backend depends on `screenDescriberMode`:
+
+- **Local OCR (default)** — Apple Vision OCR for text recognition. If a YOLO CoreML model is installed in `~/.mirroir-mcp/models/`, the server auto-detects it and merges icon detections — giving the AI tap targets for non-text elements (buttons, toggles, icons) that text-only OCR misses. See [Icon Detection](../README.md#icon-detection-yolo-coreml) for setup.
+- **AI Vision** — When `screenDescriberMode` is `"vision"` (or `"auto"` with the embacle FFI linked), the screenshot is sent to an AI vision model that identifies UI elements semantically — cards, tabs, buttons, navigation structure — instead of raw text fragments. See [AI Vision Mode](../README.md#ai-vision-mode-embacle) for setup.
 
 Set `scroll: true` to perform a full-page scroll before returning results. The server scrolls through the entire page, deduplicates elements across viewports, and returns all detected elements — not just those visible in the initial viewport.
 

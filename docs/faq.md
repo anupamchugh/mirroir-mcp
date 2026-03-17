@@ -84,3 +84,29 @@ To disable: **iPhone Settings > General > Keyboard > Auto-Correction > Off**.
 ## Can multiple agents control the phone at once?
 
 No. The MCP server communicates via stdin/stdout, so each MCP client session connects to one server instance. Multiple server instances posting CGEvent input simultaneously would cause unpredictable behavior — macOS routes events to the frontmost window, not to specific processes. Use one MCP session at a time.
+
+## What is embacle and do I need it?
+
+[embacle](https://github.com/dravr-ai/dravr-embacle) is an optional AI vision runtime that can be embedded into mirroir-mcp via Rust FFI. When installed, `describe_screen` uses an AI vision model instead of local OCR, producing richer semantic descriptions of UI elements (buttons, cards, tabs, navigation structure) rather than raw text fragments.
+
+embacle routes requests through already-authenticated CLI tools (GitHub Copilot, Claude Code) — no separate API key needed. It is **not required** — local OCR works without it and is the default.
+
+Install via:
+```bash
+brew tap dravr-ai/tap
+brew install embacle-ffi
+swift build -c release  # rebuild to link the FFI
+```
+
+See [AI Vision Mode](../README.md#ai-vision-mode-embacle) for full setup.
+
+## Should I use AI vision mode or local OCR?
+
+| | Local OCR (default) | AI Vision (embacle) |
+|---|---|---|
+| Speed | ~200-500ms per screen | ~1-3s per screen |
+| Cost | Free, offline | Uses API credits via CLI agent |
+| Output | Raw text fragments with coordinates | Semantic UI elements (buttons, cards, tabs) |
+| Best for | Speed-critical skill execution, regression testing, CI | Exploration of unfamiliar apps, complex layouts |
+
+Use local OCR when speed matters and text is sufficient. Use AI vision when the agent needs to understand UI structure — especially during `generate_skill(action: "explore")` where semantic elements produce better exploration plans. You can combine both: use vision for exploration, then switch to OCR for compiled skill replay.

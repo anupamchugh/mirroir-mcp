@@ -253,6 +253,8 @@ Skill files should be validated for:
 
 Skills are maintained in the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repository. Install them via the plugin system (see [Plugin Discovery](#plugin-discovery) above) or clone manually into `~/.mirroir-mcp/skills/`.
 
+The mirroir-skills repository is automatically tagged and released with each mirroir-mcp release. Plugin marketplace installations always get a compatible version. If you cloned manually, run `git pull` after upgrading mirroir-mcp to stay in sync.
+
 ## Contributing a Skill
 
 Checklist for adding a new skill:
