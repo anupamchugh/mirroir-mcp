@@ -432,13 +432,16 @@ extension MirroirMCP {
         let componentDefinitions = ComponentLoader.loadAll()
         let detectionMode = ComponentDetectionMode(rawValue: EnvConfig.componentDetection) ?? .llmFirstScreen
         let classifier = detectionMode.buildClassifier(server: server)
+        let advisor: any ExplorationAdvising = EmbacleFFI.isAvailable
+            ? VisionExplorationAdvisor() : HeuristicExplorationAdvisor()
         let explorer = BFSExplorer(
             session: session, budget: budget, windowSize: windowSize,
             componentDefinitions: componentDefinitions,
             classifier: classifier,
             bridge: ctx.bridge,
             seed: seed,
-            skipCalibration: skipCalibration
+            skipCalibration: skipCalibration,
+            advisor: advisor
         )
         explorer.markStarted()
 

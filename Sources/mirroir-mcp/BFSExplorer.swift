@@ -24,8 +24,8 @@ final class BFSExplorer: @unchecked Sendable {
     private var frontier: [FrontierScreen] = []
     private var frontierIndex: Int = 0
     var phase: BFSPhase = .atRoot
-    private var actionsOnCurrentScreen: Int = 0
-    private var startTime: Date = Date()
+    var actionsOnCurrentScreen: Int = 0
+    var startTime: Date = Date()
     /// Fingerprints of screens that have been calibrated (full-page scroll + component detection).
     var calibratedScreens: Set<String> = []
     /// Report data: calibration summary, collected during calibration phase.
@@ -36,7 +36,10 @@ final class BFSExplorer: @unchecked Sendable {
     var cacheHitsPerScreen: [String: Int] = [:]
     var actionCount: Int = 0
     var isFinished: Bool = false
-    let coverageMonitor = CoverageMonitor()
+    let coverageMonitor: CoverageMonitor
+    /// AI advisor for plateau-phase guidance. Suggests which elements to tap
+    /// when systematic exploration stalls.
+    let advisor: (any ExplorationAdvising)?
     /// Seeded PRNG for deterministic exploration ordering. nil = system random.
     let rng: ExplorationRNG
     /// Skip component detection during calibration (scroll still runs).
@@ -51,7 +54,9 @@ final class BFSExplorer: @unchecked Sendable {
         classifier: (any ComponentClassifying)? = nil,
         bridge: (any WindowBridging)? = nil,
         seed: UInt64? = nil,
-        skipCalibration: Bool = false
+        skipCalibration: Bool = false,
+        advisor: (any ExplorationAdvising)? = nil,
+        coverageMonitor: CoverageMonitor = CoverageMonitor()
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -63,6 +68,8 @@ final class BFSExplorer: @unchecked Sendable {
         self.bridge = bridge
         self.rng = seed.map { ExplorationRNG(seed: $0) } ?? ExplorationRNG()
         self.skipCalibration = skipCalibration
+        self.advisor = advisor
+        self.coverageMonitor = coverageMonitor
     }
 
     /// Record start time and seed frontier with the root screen. Call once after initial capture.
@@ -125,28 +132,6 @@ final class BFSExplorer: @unchecked Sendable {
                 depthRemaining: depthRemaining, describer: describer, input: input
             )
         }
-    }
-
-    /// Whether the exploration has completed.
-    var completed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return isFinished
-    }
-
-    var stats: (nodeCount: Int, edgeCount: Int, actionCount: Int, elapsedSeconds: Int) {
-        lock.lock(); defer { lock.unlock() }
-        return (graph.nodeCount, graph.edgeCount, actionCount, Int(Date().timeIntervalSince(startTime)))
-    }
-
-    func generateBundle() -> SkillBundle {
-        guard let data = session.finalize() else {
-            return SkillBundle(appName: "", skills: [], manifest: nil)
-        }
-        return SkillBundleGenerator.generate(
-            appName: data.appName, goal: data.goal,
-            snapshot: data.graphSnapshot, allScreens: data.screens
-        )
     }
 
     // MARK: - Phase: At Root
@@ -334,6 +319,15 @@ final class BFSExplorer: @unchecked Sendable {
                 actionsOnCurrentScreen = 0
                 lock.unlock()
                 return scrollResult
+            }
+
+            // Plateau advisory: if discovery has stalled, ask the AI advisor
+            // for untapped elements that might lead to new screens.
+            if let advisorResult = tryPlateauAdvisor(
+                fingerprint: currentFP, screenshotBase64: result.screenshotBase64,
+                viewportElements: viewportElements, input: input
+            ) {
+                return advisorResult
             }
 
             // Done with this screen

@@ -1,7 +1,7 @@
 // Copyright 2026 jfarcand@apache.org
 // Licensed under the Apache License, Version 2.0
 //
-// ABOUTME: Post-backtrack position verification and modal recovery for BFS exploration.
+// ABOUTME: Post-backtrack verification, modal recovery, and plateau advisory for BFS exploration.
 // ABOUTME: Detects when the explorer is lost and attempts recovery before cascading errors.
 
 import Foundation
@@ -265,6 +265,69 @@ extension BFSExplorer {
 
         return .continue(
             description: "Returning to root (\(remaining) level\(remaining == 1 ? "" : "s") remaining)"
+        )
+    }
+
+    // MARK: - Accessors
+
+    /// Whether the exploration has completed.
+    var completed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isFinished
+    }
+
+    var stats: (nodeCount: Int, edgeCount: Int, actionCount: Int, elapsedSeconds: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (graph.nodeCount, graph.edgeCount, actionCount, Int(Date().timeIntervalSince(startTime)))
+    }
+
+    // MARK: - Bundle Generation
+
+    func generateBundle() -> SkillBundle {
+        guard let data = session.finalize() else {
+            return SkillBundle(appName: "", skills: [], manifest: nil)
+        }
+        return SkillBundleGenerator.generate(
+            appName: data.appName, goal: data.goal,
+            snapshot: data.graphSnapshot, allScreens: data.screens
+        )
+    }
+
+    // MARK: - Plateau Advisory
+
+    /// Ask the AI advisor for guidance when the plan is exhausted and coverage
+    /// has plateaued. Returns nil if no advisor is configured, we're not in
+    /// plateau phase, or the advisor has no actionable suggestion.
+    func tryPlateauAdvisor(
+        fingerprint: String,
+        screenshotBase64: String,
+        viewportElements: [TapPoint],
+        input: InputProviding
+    ) -> ExploreStepResult? {
+        guard coverageMonitor.currentPhase == .plateau, let advisor = advisor else {
+            return nil
+        }
+        let visited = graph.node(for: fingerprint)?.visitedElements ?? []
+        let suggestions = advisor.suggest(
+            screenshotBase64: screenshotBase64,
+            elements: viewportElements,
+            visitedElements: visited,
+            exploredScreenCount: graph.nodeCount
+        )
+        coverageMonitor.recordLLMAction()
+        guard let suggestion = suggestions.first,
+              let target = viewportElements.first(where: { $0.text == suggestion.elementText }) else {
+            return nil
+        }
+        DebugLog.log("bfs", "plateau advisor: \"\(suggestion.elementText)\" " +
+            "(\(suggestion.reasoning), confidence=\(suggestion.confidence))")
+        graph.markElementVisited(fingerprint: fingerprint, elementText: target.text)
+        _ = input.tap(x: target.tapX, y: target.tapY)
+        usleep(EnvConfig.stepSettlingDelayMs * 1000)
+        lock.lock(); actionCount += 1; actionsOnCurrentScreen += 1; lock.unlock()
+        return .continue(
+            description: "Plateau advisor: tapped \"\(suggestion.elementText)\""
         )
     }
 }
