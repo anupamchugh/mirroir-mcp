@@ -244,6 +244,38 @@ The `generate_skill` tool lets an AI agent explore an app and produce SKILL.md f
 
 Exploration is bounded — it does not discover every reachable screen in large apps. Depth, screen count, and time limits keep runs practical. For targeted flows, provide a `goal` to focus the traversal.
 
+```mermaid
+graph TD
+    A["Launch App"] --> B["Describe Screen"]
+    B --> C{"Calibrated?"}
+    C -- No --> D["Scroll Full Page"]
+    D --> E{"skip_calibration?"}
+    E -- No --> F["Component Detect +\nClassify + Validate"]
+    E -- Yes --> G["Classify Elements\nDirectly"]
+    F --> H["Build Plan"]
+    G --> H
+    C -- Yes --> H
+
+    H --> I{"Untried\nElements?"}
+    I -- Yes --> J["Tap Element"]
+    I -- No --> K["Return to Root"]
+
+    J --> M["Describe +\nClassify Edge"]
+    M --> N{"Transition"}
+    N -- new screen --> O["Add to Frontier"]
+    O --> P["Backtrack"]
+    N -- revisited/dead --> P
+
+    P -- push: tap back --> H
+    P -- modal: tap close --> H
+    P -- tab: tap prev --> H
+
+    K --> Q{"Frontier\nEmpty?"}
+    Q -- No --> R["Next Frontier\nScreen"]
+    R --> B
+    Q -- Yes --> S["Generate SKILL.md"]
+```
+
 ### Generate
 
 Two modes: **autonomous exploration** (BFS) and **guided session** (manual step-by-step).
@@ -265,6 +297,7 @@ This calls `generate_skill(action: "explore", app_name: "Settings", goal: "check
 | `max_screens` | 30 | Maximum screens to visit |
 | `max_time` | 300 | Maximum seconds before stopping |
 | `strategy` | auto | `"mobile"` (default), `"social"` (Reddit, Instagram), or `"desktop"` (macOS windows) |
+| `skip_calibration` | false | Skip component detection during calibration. Scrolling still runs. Useful with AI vision describers that produce clean semantic elements |
 
 **Guided session** — the AI navigates manually, capturing each screen:
 
