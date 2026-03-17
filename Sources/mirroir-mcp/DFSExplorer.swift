@@ -490,4 +490,24 @@ final class DFSExplorer: @unchecked Sendable {
             snapshot: data.graphSnapshot, allScreens: data.screens
         )
     }
+
+    /// Generate a summary report of the DFS exploration.
+    func generateReport() -> String {
+        let s = stats
+        lock.lock()
+        let depth = backtrackStack.count - 1
+        lock.unlock()
+        var lines = [
+            "## DFS Exploration Report",
+            "- Screens: \(s.nodeCount), Edges: \(s.edgeCount)",
+            "- Actions: \(s.actionCount), Duration: \(s.elapsedSeconds)s",
+            "- Max depth reached: \(depth)",
+        ]
+        let events = graph.finalize().recoveryEvents
+        if !events.isEmpty {
+            lines.append("\n### Recovery Events")
+            for event in events { lines.append("- [\(event.category)] \(event.description)") }
+        }
+        return lines.joined(separator: "\n")
+    }
 }

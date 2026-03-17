@@ -21,7 +21,7 @@ extension MirroirMCP {
                 (1) action="start" \u{2014} launch app + OCR. \
                 (2) Navigate with tap/swipe/type_text, then action="capture" per screen. \
                 (3) action="finish" \u{2014} emit SKILL.md. \
-                Use action="explore" for autonomous BFS exploration. \
+                Use action="explore" for autonomous exploration (BFS default, or DFS). \
                 Set fresh=true to discard persisted graph and explore from scratch. \
                 WARNING: Exploration steals Mac keyboard focus (global HID events). \
                 SECURITY: May navigate into sensitive screens. Do not run unattended.
@@ -35,7 +35,7 @@ extension MirroirMCP {
                             "Session action: \"start\" to launch app and begin, " +
                             "\"capture\" to OCR current screen and append, " +
                             "\"finish\" to generate SKILL.md from all captures, " +
-                            "\"explore\" for autonomous BFS exploration."),
+                            "\"explore\" for autonomous exploration (BFS or DFS)."),
                         "enum": .array([
                             .string("start"),
                             .string("capture"),
@@ -120,6 +120,16 @@ extension MirroirMCP {
                             "Skip component detection and validation during calibration. " +
                             "Full-page scrolling still runs to discover below-fold elements. " +
                             "Useful with vision describers that produce clean semantic elements. Default: false."),
+                    ]),
+                    "explorer": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Exploration algorithm: \"bfs\" (breadth-first, default) " +
+                            "or \"dfs\" (depth-first)."),
+                        "enum": .array([
+                            .string("bfs"),
+                            .string("dfs"),
+                        ]),
                     ]),
                 ]),
                 "required": .array([.string("action")]),
@@ -402,6 +412,7 @@ extension MirroirMCP {
         let fresh = args["fresh"]?.asBool() ?? false
         let seed = args["seed"]?.asInt().map { UInt64($0) }
         let skipCalibration = args["skip_calibration"]?.asBool() ?? false
+        let explorerChoice = args["explorer"]?.asString() ?? "bfs"
         let explicitStrategy = args["strategy"]?.asString()
         let strategyChoice = StrategyDetector.detect(
             targetType: ctx.targetType,
@@ -427,30 +438,37 @@ extension MirroirMCP {
             screenshotBase64: firstResult.screenshotBase64
         )
 
-        // Create BFS explorer and run exploration loop
+        // Create explorer (BFS or DFS) and run exploration loop
         let windowSize = ctx.bridge.getWindowInfo()?.size ?? CGSize(width: 410, height: 890)
-        let componentDefinitions = ComponentLoader.loadAll()
-        let detectionMode = ComponentDetectionMode(rawValue: EnvConfig.componentDetection) ?? .llmFirstScreen
-        let classifier = detectionMode.buildClassifier(server: server)
-        let advisor: any ExplorationAdvising = EmbacleFFI.isAvailable
-            ? VisionExplorationAdvisor() : HeuristicExplorationAdvisor()
-        let explorer = BFSExplorer(
-            session: session, budget: budget, windowSize: windowSize,
-            componentDefinitions: componentDefinitions,
-            classifier: classifier,
-            bridge: ctx.bridge,
-            seed: seed,
-            skipCalibration: skipCalibration,
-            advisor: advisor
-        )
+        let explorer: any Exploring
+        if explorerChoice == "dfs" {
+            explorer = DFSExplorer(
+                session: session, budget: budget, windowSize: windowSize
+            )
+        } else {
+            let componentDefinitions = ComponentLoader.loadAll()
+            let detectionMode = ComponentDetectionMode(rawValue: EnvConfig.componentDetection) ?? .llmFirstScreen
+            let classifier = detectionMode.buildClassifier(server: server)
+            let advisor: any ExplorationAdvising = EmbacleFFI.isAvailable
+                ? VisionExplorationAdvisor() : HeuristicExplorationAdvisor()
+            explorer = BFSExplorer(
+                session: session, budget: budget, windowSize: windowSize,
+                componentDefinitions: componentDefinitions,
+                classifier: classifier,
+                bridge: ctx.bridge,
+                seed: seed,
+                skipCalibration: skipCalibration,
+                advisor: advisor
+            )
+        }
         explorer.markStarted()
 
         var stepResults: [String] = [
-            "Autonomous exploration started for '\(appName)'.",
+            "Autonomous \(explorerChoice.uppercased()) exploration started for '\(appName)'.",
             "Budget: depth=\(maxDepth), screens=\(maxScreens), time=\(maxTime)s",
         ]
 
-        // Run BFS loop using detected strategy
+        // Run exploration loop using detected strategy
         while !explorer.completed {
             let result: ExploreStepResult
             switch strategyChoice {

@@ -25,7 +25,7 @@ enum ExplorationResultFormatter {
     }
 
     /// Format the final exploration result with stats, skill content, and detailed report.
-    static func formatExploreResult(bundle: SkillBundle, explorer: BFSExplorer) -> String {
+    static func formatExploreResult(bundle: SkillBundle, explorer: any Exploring) -> String {
         let stats = explorer.stats
         let statLine = "(\(stats.nodeCount) screens, \(stats.actionCount) actions, \(stats.elapsedSeconds)s)"
         guard !bundle.skills.isEmpty else {

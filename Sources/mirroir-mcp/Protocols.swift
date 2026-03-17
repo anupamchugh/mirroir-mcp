@@ -191,6 +191,34 @@ protocol ComponentClassifying: Sendable {
     ) -> [ScreenComponent]?
 }
 
+/// Common interface for app exploration algorithms (BFS, DFS).
+/// Both explorers follow the Session Accumulator pattern: `markStarted()` begins the
+/// lifecycle, `step()` advances one action, and `generateBundle()` produces the final output.
+protocol Exploring: AnyObject, Sendable {
+    /// Perform one exploration step using the given strategy.
+    func step<S: ExplorationStrategy>(
+        describer: ScreenDescribing, input: InputProviding, strategy: S.Type
+    ) -> ExploreStepResult
+
+    /// Record the exploration start time. Call once after the initial screen capture.
+    func markStarted()
+
+    /// Whether the exploration has completed (budget exhausted or all reachable screens visited).
+    var completed: Bool { get }
+
+    /// Current exploration statistics: screens discovered, edges, actions performed, elapsed time.
+    var stats: (nodeCount: Int, edgeCount: Int, actionCount: Int, elapsedSeconds: Int) { get }
+
+    /// The navigation graph tracking screen transitions and visited elements.
+    var graph: NavigationGraph { get }
+
+    /// Generate the final skill bundle from the exploration session.
+    func generateBundle() -> SkillBundle
+
+    /// Generate a human-readable exploration report summarizing what was explored.
+    func generateReport() -> String
+}
+
 // MARK: - Conformances
 
 extension MirroringBridge: MenuActionCapable {}
@@ -210,3 +238,7 @@ extension CompositeTextRecognizer: TextRecognizing {}
 extension ScreenDescriber: ScreenDescribing {}
 
 extension VisionScreenDescriber: ScreenDescribing {}
+
+extension BFSExplorer: Exploring {}
+
+extension DFSExplorer: Exploring {}
