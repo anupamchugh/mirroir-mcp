@@ -1,7 +1,7 @@
 // Copyright 2026 jfarcand@apache.org
 // Licensed under the Apache License, Version 2.0
 //
-// ABOUTME: Protocol abstractions for system boundaries (mirroring bridge, input, capture, recording, OCR).
+// ABOUTME: Protocol abstractions for system boundaries (mirroring bridge, input, capture, recording, OCR, navigation graph).
 // ABOUTME: Enables dependency injection for testing without requiring real macOS system APIs.
 
 import AppKit
@@ -210,13 +210,170 @@ protocol Exploring: AnyObject, Sendable {
     var stats: (nodeCount: Int, edgeCount: Int, actionCount: Int, elapsedSeconds: Int) { get }
 
     /// The navigation graph tracking screen transitions and visited elements.
-    var graph: NavigationGraph { get }
+    var graph: any NavigationGraphing { get }
 
     /// Generate the final skill bundle from the exploration session.
     func generateBundle() -> SkillBundle
 
     /// Generate a human-readable exploration report summarizing what was explored.
     func generateReport() -> String
+}
+
+/// Abstracts the navigation graph used during app exploration.
+/// Enables swappable graph implementations for testing and alternative strategies.
+protocol NavigationGraphing: AnyObject, Sendable {
+
+    // MARK: - Lifecycle
+
+    /// Initialize the graph with the root screen, resetting all state.
+    func start(
+        rootElements: [TapPoint],
+        icons: [IconDetector.DetectedIcon],
+        hints: [String],
+        screenshot: String,
+        screenType: ScreenType
+    )
+
+    /// Record a navigation transition. Returns whether the screen is new, revisited, or duplicate.
+    func recordTransition(
+        elements: [TapPoint],
+        icons: [IconDetector.DetectedIcon],
+        hints: [String],
+        screenshot: String,
+        actionType: String,
+        elementText: String,
+        displayLabel: String?,
+        screenType: ScreenType,
+        edgeType: EdgeType
+    ) -> TransitionResult
+
+    /// Export an immutable snapshot of the current graph state.
+    func finalize() -> GraphSnapshot
+
+    // MARK: - Properties
+
+    /// Number of distinct screens discovered.
+    var nodeCount: Int { get }
+
+    /// Number of navigation edges recorded.
+    var edgeCount: Int { get }
+
+    /// Fingerprint of the current screen.
+    var currentFingerprint: String { get }
+
+    /// Fingerprint of the root (first) screen.
+    var rootFingerprint: String { get }
+
+    /// Whether the graph has been initialized with a root screen.
+    var started: Bool { get }
+
+    /// The set of labels marked globally visited (breadth_navigation items).
+    var globalVisitedLabels: Set<String> { get }
+
+    // MARK: - Node Access
+
+    /// Get the node for a given fingerprint.
+    func node(for fingerprint: String) -> ScreenNode?
+
+    /// Get the most recent incoming edge that led to a given screen fingerprint.
+    func incomingEdge(to fingerprint: String) -> NavigationEdge?
+
+    /// Find a node with similar structural elements using title-aware similarity.
+    func findMatchingNode(elements: [TapPoint]) -> String?
+
+    /// Find a node matching the viewport using both Jaccard similarity and containment.
+    func findMatchingNodeWithContainment(elements: [TapPoint]) -> String?
+
+    // MARK: - Visited State
+
+    /// Mark an element as visited on the specified screen.
+    func markElementVisited(fingerprint: String, elementText: String)
+
+    /// Update the current fingerprint after backtracking to sync graph state.
+    func setCurrentFingerprint(_ fingerprint: String)
+
+    // MARK: - Screen Plans
+
+    /// Store a ranked exploration plan for a screen.
+    func setScreenPlan(for fingerprint: String, plan: [RankedElement])
+
+    /// Get the exploration plan for a screen, if one has been built.
+    func screenPlan(for fingerprint: String) -> [RankedElement]?
+
+    /// Get the next unvisited plan element, skipping per-screen and global visited sets.
+    func nextPlannedElement(for fingerprint: String) -> RankedElement?
+
+    /// Clear the exploration plan for a screen, forcing a rebuild on next access.
+    func clearScreenPlan(for fingerprint: String)
+
+    // MARK: - Scout Phase
+
+    /// Record the result of scouting an element on a screen.
+    func recordScoutResult(fingerprint: String, elementText: String, result: ScoutResult)
+
+    /// Get all scout results for a screen.
+    func scoutResults(for fingerprint: String) -> [String: ScoutResult]
+
+    /// Get the current traversal phase for a screen.
+    func traversalPhase(for fingerprint: String) -> TraversalPhase
+
+    /// Set the traversal phase for a screen.
+    func setTraversalPhase(for fingerprint: String, phase: TraversalPhase)
+
+    // MARK: - Breadth Navigation
+
+    /// Register breadth_navigation labels (e.g. tab bar items) for global tracking.
+    func registerBreadthLabels(_ labels: Set<String>)
+
+    /// Check if a displayLabel belongs to a breadth_navigation component.
+    func isBreadthLabel(_ label: String) -> Bool
+
+    /// Mark a breadth_navigation component as globally visited across all screens.
+    func markGloballyVisited(label: String)
+
+    // MARK: - Tap Area Cache
+
+    /// Record a tap at the given coordinates on a screen.
+    func recordTap(fingerprint: String, x: Double, y: Double)
+
+    /// Check whether a point was already tapped on a screen (within proximity radius).
+    func wasAlreadyTapped(fingerprint: String, x: Double, y: Double) -> Bool
+
+    /// Number of tapped areas recorded for a screen.
+    func tapCount(for fingerprint: String) -> Int
+
+    // MARK: - Dead Edge Tracking
+
+    /// Mark an edge as dead (tap had no effect on the screen).
+    func markEdgeDead(fromFingerprint: String, elementText: String)
+
+    // MARK: - Recovery Events
+
+    /// Append a recovery event for post-hoc diagnosis.
+    func appendRecoveryEvent(_ event: RecoveryEvent)
+
+    // MARK: - Scroll Support
+
+    /// Merge scrolled elements into a screen node. Returns novel count.
+    func mergeScrolledElements(fingerprint: String, newElements: [TapPoint]) -> Int
+
+    /// Get the number of scroll actions performed on a screen.
+    func scrollCount(for fingerprint: String) -> Int
+
+    /// Increment the scroll count for a screen.
+    func incrementScrollCount(for fingerprint: String)
+
+    /// Mark a screen as having infinite scroll (content never exhausts).
+    func markInfiniteScroll(fingerprint: String)
+
+    /// Mark a screen as scroll-exhausted (all content has been revealed).
+    func markScrollExhausted(fingerprint: String)
+
+    /// Check if a screen has been marked as having infinite scroll.
+    func isInfiniteScroll(fingerprint: String) -> Bool
+
+    /// Check if a screen has been marked as scroll-exhausted.
+    func isScrollExhausted(fingerprint: String) -> Bool
 }
 
 // MARK: - Conformances
@@ -242,3 +399,5 @@ extension VisionScreenDescriber: ScreenDescribing {}
 extension BFSExplorer: Exploring {}
 
 extension DFSExplorer: Exploring {}
+
+extension NavigationGraph: NavigationGraphing {}

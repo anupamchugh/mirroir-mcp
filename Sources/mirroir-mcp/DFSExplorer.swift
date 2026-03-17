@@ -25,7 +25,7 @@ enum ExploreStepResult: Sendable {
 /// Follows the Session Accumulator pattern with NSLock protection.
 final class DFSExplorer: @unchecked Sendable {
 
-    let graph: NavigationGraph
+    let graph: any NavigationGraphing
     let session: ExplorationSession
     let budget: ExplorationBudget
     let windowSize: CGSize
@@ -405,8 +405,8 @@ final class DFSExplorer: @unchecked Sendable {
             _ = graph.recordTransition(
                 elements: afterResult.elements, icons: afterResult.icons,
                 hints: afterResult.hints, screenshot: afterResult.screenshotBase64,
-                actionType: "tap", elementText: target.text, screenType: screenType,
-                edgeType: scoutEdgeType
+                actionType: "tap", elementText: target.text, displayLabel: nil,
+                screenType: screenType, edgeType: scoutEdgeType
             )
             // Record in session for flat screen list.
             // Skip graph transition since the explorer manages the graph directly above.

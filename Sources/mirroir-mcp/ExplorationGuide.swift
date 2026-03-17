@@ -263,7 +263,7 @@ enum ExplorationGuide {
     /// Produces guidance from graph state + strategy instead of keyword matching.
     static func analyzeWithStrategy<S: ExplorationStrategy>(
         strategy: S.Type,
-        graph: NavigationGraph,
+        graph: any NavigationGraphing,
         elements: [TapPoint],
         icons: [IconDetector.DetectedIcon],
         hints: [String],

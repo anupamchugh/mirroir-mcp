@@ -46,7 +46,7 @@ enum FrontierPlanner {
     ///   - screenHeight: Height of the target window for element scoring.
     /// - Returns: The highest-scoring frontier target, or nil if no unvisited elements remain.
     static func bestTarget(
-        graph: NavigationGraph,
+        graph: any NavigationGraphing,
         backtrackStack: [String],
         screenHeight: Double
     ) -> FrontierTarget? {

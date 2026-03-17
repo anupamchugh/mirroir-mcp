@@ -42,7 +42,7 @@ enum ExplorationGuidanceHelper {
     /// Dispatch strategy-based guidance analysis using the session's detected strategy.
     static func analyzeWithDetectedStrategy(
         session: ExplorationSession,
-        graph: NavigationGraph,
+        graph: any NavigationGraphing,
         elements: [TapPoint],
         icons: [IconDetector.DetectedIcon],
         hints: [String]

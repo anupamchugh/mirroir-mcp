@@ -12,7 +12,7 @@ import HelperLib
 /// Session Accumulator pattern with NSLock protection.
 final class BFSExplorer: @unchecked Sendable {
 
-    let graph: NavigationGraph
+    let graph: any NavigationGraphing
     let session: ExplorationSession
     let budget: ExplorationBudget
     let windowSize: CGSize

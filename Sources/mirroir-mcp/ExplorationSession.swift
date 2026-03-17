@@ -151,7 +151,7 @@ final class ExplorationSession: @unchecked Sendable {
                     elements: elements, icons: icons, hints: hints,
                     screenshot: screenshotBase64, actionType: actionType,
                     elementText: arrivedVia, displayLabel: displayLabel,
-                    screenType: screenType
+                    screenType: screenType, edgeType: .push
                 )
             }
         }
@@ -298,7 +298,7 @@ final class ExplorationSession: @unchecked Sendable {
     }
 
     /// The navigation graph for the current exploration session.
-    var currentGraph: NavigationGraph {
+    var currentGraph: any NavigationGraphing {
         lock.lock()
         defer { lock.unlock() }
         return graph
