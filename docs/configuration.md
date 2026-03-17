@@ -85,14 +85,6 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | `commandTimeoutSeconds` | `60` | Timeout for command-based AI agent processes |
 | `defaultAIMaxTokens` | `1024` | Maximum tokens for AI model responses |
 
-## App Identity
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `mirroringBundleID` | `"com.apple.ScreenContinuity"` | Bundle ID of the mirroring target app |
-| `mirroringProcessName` | `"iPhone Mirroring"` | Process name of the mirroring target app |
-| `cursorFreeInput` | `false` | Post mouse events directly to target PID (works for macOS apps, not iPhone Mirroring) |
-
 ## Advanced Tuning
 
 Additional low-level tuning constants (icon detection, scroll deduplication, tap point calculation, grid overlay) are available in [`TimingConstants.swift`](../Sources/HelperLib/TimingConstants.swift) and [`EnvConfigFeatures.swift`](../Sources/HelperLib/EnvConfigFeatures.swift).
