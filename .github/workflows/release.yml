@@ -263,6 +263,7 @@ jobs:
         with:
           repository: jfarcand/mirroir-skills
           token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 0
 
       - name: Bump version in marketplace.json files
         env:
@@ -284,10 +285,36 @@ jobs:
           git push
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
+
+          # Generate changelog from conventional commits since previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          NOTES="## What's Changed\n\n"
+          for TYPE_HEADER in "feat:Features" "fix:Bug Fixes" "docs:Documentation" "chore:Chores"; do
+            TYPE="${TYPE_HEADER%%:*}"
+            HEADER="${TYPE_HEADER#*:}"
+            ITEMS=$(git log "$RANGE" --pretty=format:"%s" | grep -E "^${TYPE}(\(.*\))?:" | \
+              sed "s/^${TYPE}(\([^)]*\)): /- **\1:** /" | \
+              sed "s/^${TYPE}: /- /" || true)
+            if [ -n "$ITEMS" ]; then
+              NOTES="${NOTES}### ${HEADER}\n${ITEMS}\n\n"
+            fi
+          done
+          NOTES="${NOTES}Synchronized with [mirroir-mcp v${VERSION}](https://github.com/jfarcand/mirroir-mcp/releases/tag/v${VERSION}).\n\n"
+          if [ -n "$PREV_TAG" ]; then
+            NOTES="${NOTES}**Full Changelog**: https://github.com/jfarcand/mirroir-skills/compare/${PREV_TAG}...v${VERSION}"
+          fi
+
+          echo -e "$NOTES" > /tmp/skills-notes.md
           gh release create "v${VERSION}" \
             --repo jfarcand/mirroir-skills \
             --title "v${VERSION}" \
-            --notes "Synchronized with [mirroir-mcp v${VERSION}](https://github.com/jfarcand/mirroir-mcp/releases/tag/v${VERSION})."
+            --notes-file /tmp/skills-notes.md
 
   publish-npm:
     needs: release
