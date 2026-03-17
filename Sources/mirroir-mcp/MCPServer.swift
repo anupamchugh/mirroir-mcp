@@ -101,7 +101,7 @@ final class MCPServer: Sendable {
             ]),
             "serverInfo": .object([
                 "name": .string("mirroir-mcp"),
-                "version": .string("0.27.0"),
+                "version": .string("0.28.0"),
             ]),
         ])
         return JSONRPCResponse(id: request.id, result: result, error: nil)
