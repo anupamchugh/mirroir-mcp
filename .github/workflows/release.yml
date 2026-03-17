@@ -272,15 +272,22 @@ jobs:
             .claude-plugin/marketplace.json \
             .github/plugin/marketplace.json
 
-      - name: Commit and push
+      - name: Commit, tag, and release
         env:
           VERSION: ${{ github.event.inputs.version }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .claude-plugin/marketplace.json .github/plugin/marketplace.json
           git commit -m "chore: bump version to ${VERSION}"
           git push
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+          gh release create "v${VERSION}" \
+            --repo jfarcand/mirroir-skills \
+            --title "v${VERSION}" \
+            --notes "Synchronized with [mirroir-mcp v${VERSION}](https://github.com/jfarcand/mirroir-mcp/releases/tag/v${VERSION})."
 
   publish-npm:
     needs: release
