@@ -48,16 +48,23 @@ extension BFSExplorer {
                 screenFingerprint: graph.currentFingerprint,
                 description: "App escaped during BFS exploration, relaunched"
             ))
-            lock.lock(); isFinished = true; lock.unlock()
-            return .finished(bundle: generateBundle())
+            // App was relaunched — reset to root and continue exploring
+            graph.setCurrentFingerprint(graph.rootFingerprint)
+            phase = .atRoot
+            return .continue(description: "App escaped — relaunched and continuing from root")
         case .failed(let reason):
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
                 category: .appEscape,
                 screenFingerprint: graph.currentFingerprint,
                 description: "App escaped during BFS exploration: \(reason)"
             ))
-            lock.lock(); isFinished = true; lock.unlock()
-            return .paused(reason: "Left app: \(reason)")
+            // Force-quit and relaunch the app to recover from stuck state
+            DebugLog.log("bfs", "context escape failed — resetting app \(appName)")
+            _ = input.launchApp(name: appName)
+            usleep(EnvConfig.toolSettlingDelayUs)
+            graph.setCurrentFingerprint(graph.rootFingerprint)
+            phase = .atRoot
+            return .continue(description: "App stuck — reset and continuing from root")
         }
     }
 

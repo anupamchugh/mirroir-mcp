@@ -194,21 +194,18 @@ extension BFSExplorer {
             return nil
 
         case .lost:
-            // Instead of giving up, press Home to return to a known state
-            // and continue exploring the next frontier screen from root.
-            DebugLog.log("bfs", "LOST — pressing Home to recover and continue from root")
-            if let menuBridge = bridge as? MenuActionCapable {
-                _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-            }
+            // Force relaunch the app to recover from stuck/modal state.
+            DebugLog.log("bfs", "LOST — relaunching \(appName) to recover")
+            _ = input.launchApp(name: appName)
             usleep(EnvConfig.toolSettlingDelayUs)
             graph.setCurrentFingerprint(graph.rootFingerprint)
             phase = .atRoot
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
                 category: .backtrackFailed,
                 screenFingerprint: expectedFP,
-                description: "Lost after backtrack — recovered via Home"
+                description: "Lost after backtrack — relaunched app to recover"
             ))
-            return .continue(description: "Lost after backtrack — recovered via Home, continuing")
+            return .continue(description: "Lost after backtrack — relaunched app, continuing")
         }
     }
 
