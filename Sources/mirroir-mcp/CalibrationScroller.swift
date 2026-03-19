@@ -11,10 +11,21 @@ import HelperLib
 /// Pure transformation for deduplication; stateful scroll loop for collection.
 enum CalibrationScroller {
 
+    /// A snapshot of one scroll position with its visible elements.
+    struct Viewpoint: Sendable {
+        /// Zero-based index of this viewpoint (0 = initial viewport, no scrolling).
+        let index: Int
+        /// Elements visible in this viewport, with viewport-relative coordinates.
+        let elements: [TapPoint]
+    }
+
     /// Result of a full-page scroll collection.
     struct ScrollResult {
         /// All unique elements found across all viewports.
         let elements: [TapPoint]
+        /// Ordered viewpoints: each scroll position with its visible elements.
+        /// Viewpoint 0 is the initial viewport (top of page).
+        let viewpoints: [Viewpoint]
         /// Number of scroll operations performed.
         let scrollCount: Int
         /// Base64-encoded screenshot of the final viewport.
@@ -63,6 +74,7 @@ enum CalibrationScroller {
         guard let windowInfo = bridge.getWindowInfo() else {
             return ScrollResult(
                 elements: firstResult.elements,
+                viewpoints: [Viewpoint(index: 0, elements: firstResult.elements)],
                 scrollCount: 0,
                 screenshotBase64: lastScreenshot,
                 totalScrollOffset: 0.0,
@@ -79,6 +91,7 @@ enum CalibrationScroller {
 
         // Start with first viewport elements (page-absolute Y = viewport Y for first frame)
         var allElements = firstResult.elements
+        var viewpoints = [Viewpoint(index: 0, elements: firstResult.elements)]
 
         // Track scroll exhaustion: true when novelty drops below threshold
         var exhaustionReached = false
@@ -177,6 +190,7 @@ enum CalibrationScroller {
                 el.tapY > contentTop && el.tapY < contentBottom
             }
 
+            viewpoints.append(Viewpoint(index: scrollCount, elements: result.elements))
             allElements = OverlapDeduplicator.merge(
                 accumulated: allElements, newViewport: contentElements,
                 cumulativeOffset: cumulativeOffset,
@@ -204,6 +218,7 @@ enum CalibrationScroller {
 
         return ScrollResult(
             elements: deduped,
+            viewpoints: viewpoints,
             scrollCount: scrollCount,
             screenshotBase64: lastScreenshot,
             totalScrollOffset: cumulativeOffset,

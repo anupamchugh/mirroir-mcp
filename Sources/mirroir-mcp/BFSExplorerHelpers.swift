@@ -248,33 +248,29 @@ extension BFSExplorer {
             }
         }
 
-        // Pass 2: No candidates visible in viewport. Try scrolling to reveal them.
-        var scrollAttempts = 0
+        // Pass 2: Scroll through viewpoints in calibration order to find candidates.
+        // Each scroll advances one viewport. After scrolling, check ALL remaining
+        // candidates against the fresh viewport — tap the first match found.
         let maxScrollAttempts = budget.scrollLimit
-
-        for candidate in candidates {
-            guard scrollAttempts < maxScrollAttempts else {
-                DebugLog.log("bfs", "resolve: scroll budget exhausted (\(scrollAttempts) attempts), " +
-                    "\(candidates.count - candidates.firstIndex(where: { $0.displayLabel == candidate.displayLabel })!) items deferred")
-                return nil
+        for scrollIdx in 0..<maxScrollAttempts {
+            guard let freshElements = scrollToReveal(input: input, describer: describer) else {
+                break
             }
-
-            if let freshElements = scrollToReveal(input: input, describer: describer) {
-                scrollAttempts += 1
-                let retryResolution = PlanCoordinateResolver.resolve(
+            DebugLog.log("bfs", "resolve: scroll \(scrollIdx + 1)/\(maxScrollAttempts), " +
+                "\(freshElements.count) elements in viewport")
+            for candidate in candidates {
+                let resolution = PlanCoordinateResolver.resolve(
                     planItem: candidate, viewportElements: freshElements
                 )
-                if case .found(let freshPoint) = retryResolution {
+                if case .found(let freshPoint) = resolution {
                     return PlanCoordinateResolver.withFreshCoordinates(
                         planItem: candidate, freshPoint: freshPoint
                     )
                 }
             }
-            // Not found after scroll — skip for now but do NOT mark as visited.
-            // The element may appear at a different scroll position on a future attempt.
-            DebugLog.log("bfs", "resolve: skip \"\(candidate.displayLabel)\" — not in viewport after scroll")
         }
 
+        DebugLog.log("bfs", "resolve: no candidates found after \(maxScrollAttempts) scrolls")
         return nil
     }
 
@@ -364,6 +360,10 @@ extension BFSExplorer {
             let novelCount = graph.mergeScrolledElements(
                 fingerprint: fingerprint, newElements: scrollResult.elements
             )
+            // Store viewpoints for ordered viewport-by-viewport traversal
+            if let navGraph = graph as? NavigationGraph {
+                navGraph.viewpointsMap[fingerprint] = scrollResult.viewpoints
+            }
 
             // Propagate scroll state to graph node
             if scrollResult.isInfiniteScroll {

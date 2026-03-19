@@ -112,6 +112,8 @@ final class NavigationGraph: @unchecked Sendable {
     var scoutResultsMap: [String: [String: ScoutResult]] = [:]
     var traversalPhases: [String: TraversalPhase] = [:]
     var screenPlans: [String: [RankedElement]] = [:]
+    /// Viewpoints captured during calibration: ordered scroll positions with visible elements.
+    var viewpointsMap: [String: [CalibrationScroller.Viewpoint]] = [:]
     var tapCaches: [String: TapAreaCache] = [:]
     /// Labels of breadth_navigation components (e.g. tab bar items) registered during calibration.
     var breadthLabels: Set<String> = []
@@ -146,6 +148,7 @@ final class NavigationGraph: @unchecked Sendable {
         scoutResultsMap = [:]
         traversalPhases = [:]
         screenPlans = [:]
+        viewpointsMap = [:]
         tapCaches = [:]
         breadthLabels = []
         globalVisited = []
