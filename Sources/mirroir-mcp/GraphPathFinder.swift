@@ -25,11 +25,7 @@ enum GraphPathFinder {
     static func findInterestingPaths(in snapshot: GraphSnapshot) -> [NamedPath] {
         guard !snapshot.nodes.isEmpty else { return [] }
 
-        // Build adjacency list: fingerprint -> [edges from that fingerprint]
-        var adjacency: [String: [NavigationEdge]] = [:]
-        for edge in snapshot.edges {
-            adjacency[edge.fromFingerprint, default: []].append(edge)
-        }
+        let adjacency = snapshot.adjacency
 
         // Find leaf nodes: nodes that appear as destinations but have no outgoing edges
         let leafFingerprints = findLeafNodes(snapshot: snapshot, adjacency: adjacency)
@@ -103,6 +99,17 @@ enum GraphPathFinder {
         }
 
         return screens
+    }
+
+    /// Find the shortest path (by hop count) from one screen to another using BFS.
+    /// Returns the edge sequence, or nil if unreachable. Public wrapper around the
+    /// internal `reconstructPath` for use by explorers and skill generators.
+    static func shortestPath(
+        from source: String,
+        to target: String,
+        adjacency: [String: [NavigationEdge]]
+    ) -> [NavigationEdge]? {
+        reconstructPath(from: source, to: target, adjacency: adjacency)
     }
 
     // MARK: - Private

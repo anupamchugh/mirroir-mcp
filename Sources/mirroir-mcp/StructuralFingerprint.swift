@@ -76,11 +76,14 @@ enum StructuralFingerprint {
     /// Extract the set of structural text elements, filtering out dynamic content.
     /// Structural elements are stable across captures: headers, labels, menu items.
     /// Dynamic elements change between captures: timestamps, counters, badges.
+    /// Compound labels with embedded timestamps are normalized (timestamp stripped).
     static func extractStructural(from elements: [TapPoint]) -> Set<String> {
         var result = Set<String>()
         for el in elements {
             guard passesStructuralFilter(el) else { continue }
-            result.insert(el.text)
+            // Normalize: strip embedded timestamps from compound labels
+            let normalized = stripEmbeddedTimestamp(el.text)
+            result.insert(normalized)
         }
         return result
     }
@@ -184,6 +187,19 @@ enum StructuralFingerprint {
         guard !isDatePattern(el.text) else { return false }
 
         return true
+    }
+
+    /// Strip embedded timestamps from compound labels, keeping the stable prefix.
+    /// "Activité, 19:08" → "Activité", "Pas 18:31" → "Pas".
+    /// Returns the original text if no embedded timestamp is found.
+    static func stripEmbeddedTimestamp(_ text: String) -> String {
+        let pattern = #"[,\s]+\d{1,2}:\d{2}\s*$"#
+        guard let range = text.range(of: pattern, options: .regularExpression) else {
+            return text
+        }
+        let stripped = String(text[text.startIndex..<range.lowerBound])
+            .trimmingCharacters(in: .whitespaces)
+        return stripped.isEmpty ? text : stripped
     }
 
     /// Check if text matches common date/day patterns that change over time.

@@ -54,6 +54,7 @@ struct SerializableScreenNode: Codable, Sendable {
     let navBarTitle: String?
     let isInfiniteScroll: Bool
     let scrollExhausted: Bool
+    let visualHash: UInt64?
 
     init(from node: ScreenNode) {
         self.fingerprint = node.fingerprint
@@ -66,6 +67,7 @@ struct SerializableScreenNode: Codable, Sendable {
         self.navBarTitle = node.navBarTitle
         self.isInfiniteScroll = node.isInfiniteScroll
         self.scrollExhausted = node.scrollExhausted
+        self.visualHash = node.visualHash
     }
 
     func toScreenNode() -> ScreenNode {
@@ -80,7 +82,8 @@ struct SerializableScreenNode: Codable, Sendable {
             visitedElements: Set(visitedElements),
             navBarTitle: navBarTitle,
             isInfiniteScroll: isInfiniteScroll,
-            scrollExhausted: scrollExhausted
+            scrollExhausted: scrollExhausted,
+            visualHash: visualHash
         )
     }
 }
@@ -93,6 +96,8 @@ struct SerializableEdge: Codable, Sendable {
     let elementText: String
     let displayLabel: String
     let edgeType: String
+    /// Learned action-value estimate. Optional for backward compatibility with v1 graphs.
+    let qValue: Double?
 
     init(from edge: NavigationEdge) {
         self.fromFingerprint = edge.fromFingerprint
@@ -101,6 +106,7 @@ struct SerializableEdge: Codable, Sendable {
         self.elementText = edge.elementText
         self.displayLabel = edge.displayLabel
         self.edgeType = edge.edgeType.rawValue
+        self.qValue = edge.qValue
     }
 
     func toNavigationEdge() -> NavigationEdge {
@@ -110,7 +116,8 @@ struct SerializableEdge: Codable, Sendable {
             actionType: actionType,
             elementText: elementText,
             displayLabel: displayLabel,
-            edgeType: EdgeType(rawValue: edgeType) ?? .push
+            edgeType: EdgeType(rawValue: edgeType) ?? .push,
+            qValue: qValue ?? 1.0
         )
     }
 }
@@ -208,9 +215,15 @@ enum GraphPersistence {
                 nodes[screenNode.fingerprint] = screenNode
             }
 
+            let loadedEdges = serializable.edges.map { $0.toNavigationEdge() }
+            var adjacency: [String: [NavigationEdge]] = [:]
+            for edge in loadedEdges {
+                adjacency[edge.fromFingerprint, default: []].append(edge)
+            }
             let snapshot = GraphSnapshot(
                 nodes: nodes,
-                edges: serializable.edges.map { $0.toNavigationEdge() },
+                edges: loadedEdges,
+                adjacency: adjacency,
                 rootFingerprint: serializable.rootFingerprint,
                 deadEdges: Set(serializable.deadEdges),
                 recoveryEvents: [],

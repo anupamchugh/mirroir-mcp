@@ -7,6 +7,36 @@
 import Foundation
 import HelperLib
 
+/// Immutable export of the navigation graph state for downstream consumers.
+struct GraphSnapshot: Sendable {
+    /// All screen nodes keyed by fingerprint.
+    let nodes: [String: ScreenNode]
+    /// All navigation edges in discovery order.
+    let edges: [NavigationEdge]
+    /// Adjacency list for O(1) outgoing edge lookup.
+    let adjacency: [String: [NavigationEdge]]
+    /// Fingerprint of the root (first) screen.
+    let rootFingerprint: String
+    /// Edges that produced dead taps (no screen change), as "fromFP:elementText" keys.
+    let deadEdges: Set<String>
+    /// Recovery events logged during exploration.
+    let recoveryEvents: [RecoveryEvent]
+    /// CEGAR refinement levels per fingerprint.
+    var refinementLevels: [String: StateAbstraction.RefinementLevel] = [:]
+}
+
+/// An action that can be taken to backtrack in the navigation stack.
+enum BacktrackAction: Sendable {
+    /// Send Cmd+[ keyboard shortcut (works for desktop apps, not iPhone Mirroring).
+    case pressBack
+    /// Press the home button to return to app root.
+    case pressHome
+    /// Tap the "<" back button in the iOS navigation bar.
+    case tapBack
+    /// No backtracking needed or possible.
+    case none
+}
+
 extension NavigationGraph {
 
     // MARK: - Scroll Support
@@ -36,7 +66,8 @@ extension NavigationGraph {
             screenType: node.screenType,
             screenshotBase64: node.screenshotBase64,
             visitedElements: node.visitedElements,
-            navBarTitle: node.navBarTitle
+            navBarTitle: node.navBarTitle,
+            visualHash: node.visualHash
         )
         return novel.count
     }
@@ -81,6 +112,54 @@ extension NavigationGraph {
         lock.lock()
         defer { lock.unlock() }
         return nodes[fingerprint]?.scrollExhausted ?? false
+    }
+
+    // MARK: - Q-Value Updates (Fastbot2 Pattern)
+
+    /// Reward factor added to Q-value when an edge leads to a new screen.
+    static let qReward: Double = 1.0
+    /// Decay factor applied to Q-value when an edge leads to a revisited screen.
+    static let qDecay: Double = 0.9
+
+    /// Update Q-value for the most recent edge from a screen after observing the outcome.
+    /// Called after `recordTransition` to learn from each action's result.
+    func updateQValue(fromFingerprint: String, elementText: String, result: TransitionResult) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        // Find the edge to update (last matching edge in the adjacency list)
+        guard var edgeList = adjacency[fromFingerprint],
+              let idx = edgeList.lastIndex(where: { $0.elementText == elementText }) else {
+            return
+        }
+
+        var edge = edgeList[idx]
+        switch result {
+        case .newScreen:
+            edge.qValue += Self.qReward
+        case .revisited:
+            edge.qValue *= Self.qDecay
+        case .duplicate:
+            edge.qValue = 0
+        }
+
+        edgeList[idx] = edge
+        adjacency[fromFingerprint] = edgeList
+
+        // Keep the flat edges array in sync
+        if let flatIdx = edges.lastIndex(where: {
+            $0.fromFingerprint == fromFingerprint && $0.elementText == elementText
+        }) {
+            edges[flatIdx] = edge
+        }
+    }
+
+    /// Get the Q-value for a specific edge, or the optimistic default if no edge exists.
+    func qValue(fromFingerprint: String, elementText: String) -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return adjacency[fromFingerprint]?
+            .last(where: { $0.elementText == elementText })?.qValue ?? 1.0
     }
 
     // MARK: - Dead Edge Tracking
@@ -129,13 +208,36 @@ extension NavigationGraph {
 
     // MARK: - Node Matching
 
+    /// Borderline similarity range where visual hash acts as tiebreaker.
+    /// Below this range, screens are considered different regardless of visual hash.
+    private static let borderlineLow: Double = 0.7
+    /// Above the standard threshold, screens match without needing visual hash.
+    private static let borderlineHigh: Double = 0.85
+
     /// Find a node with similar structural elements using title-aware similarity.
     /// Iterates in sorted key order for deterministic matching across runs.
     func findMatchingNode(elements: [TapPoint]) -> String? {
+        findMatchingNode(elements: elements, visualHash: nil)
+    }
+
+    /// Find a node with similar structural elements, using visual hash as a tiebreaker
+    /// when Jaccard similarity falls in the borderline range (0.7-0.85).
+    /// When both the existing node and the query have visual hashes within the
+    /// similarity threshold, borderline Jaccard matches are accepted as revisits.
+    func findMatchingNode(elements: [TapPoint], visualHash: UInt64?) -> String? {
         for (fp, node) in nodes.sorted(by: { $0.key < $1.key }) {
             let sim = StructuralFingerprint.titleAwareSimilarity(elements, node.elements)
             if sim >= StructuralFingerprint.similarityThreshold {
                 return fp
+            }
+            // Borderline range: use visual hash as tiebreaker
+            if sim >= Self.borderlineLow && sim < Self.borderlineHigh,
+               let queryHash = visualHash, queryHash != 0,
+               let nodeHash = node.visualHash, nodeHash != 0 {
+                let hammingDist = VisualFingerprint.distance(queryHash, nodeHash)
+                if hammingDist <= VisualFingerprint.similarityThreshold {
+                    return fp
+                }
             }
         }
         return nil
@@ -177,10 +279,16 @@ extension NavigationGraph {
                         actionType: edge.actionType,
                         elementText: edge.elementText,
                         displayLabel: edge.displayLabel,
-                        edgeType: edge.edgeType
+                        edgeType: edge.edgeType,
+                        qValue: edge.qValue
                     )
                 }
                 return e
+            }
+            // Rebuild adjacency list after edge remapping
+            adjacency = [:]
+            for edge in edges {
+                adjacency[edge.fromFingerprint, default: []].append(edge)
             }
             if currentFP == pair.merge { currentFP = pair.keep }
             DebugLog.log("graph", "CEGAR coarsen: merged \(pair.merge.prefix(8)) → \(pair.keep.prefix(8))")

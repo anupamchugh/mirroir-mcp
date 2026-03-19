@@ -181,15 +181,34 @@ extension BFSExplorer {
             // can continue from root. But if we landed on a non-root screen that isn't
             // the expected parent, continuing would tap elements on the wrong screen.
             if actualFP != graph.rootFingerprint && actualFP != expectedFP {
-                DebugLog.log("bfs", "backtrack corrected to non-root screen — stopping")
-                lock.lock(); isFinished = true; lock.unlock()
-                return .finished(bundle: generateBundle())
+                // Landed on a different known screen — press Home to recover
+                DebugLog.log("bfs", "backtrack corrected to non-root screen — pressing Home to recover")
+                if let menuBridge = bridge as? MenuActionCapable {
+                    _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
+                }
+                usleep(EnvConfig.toolSettlingDelayUs)
+                graph.setCurrentFingerprint(graph.rootFingerprint)
+                phase = .atRoot
+                return .continue(description: "Backtrack landed on wrong screen — recovered via Home")
             }
             return nil
 
         case .lost:
-            lock.lock(); isFinished = true; lock.unlock()
-            return .finished(bundle: generateBundle())
+            // Instead of giving up, press Home to return to a known state
+            // and continue exploring the next frontier screen from root.
+            DebugLog.log("bfs", "LOST — pressing Home to recover and continue from root")
+            if let menuBridge = bridge as? MenuActionCapable {
+                _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
+            }
+            usleep(EnvConfig.toolSettlingDelayUs)
+            graph.setCurrentFingerprint(graph.rootFingerprint)
+            phase = .atRoot
+            graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
+                category: .backtrackFailed,
+                screenFingerprint: expectedFP,
+                description: "Lost after backtrack — recovered via Home"
+            ))
+            return .continue(description: "Lost after backtrack — recovered via Home, continuing")
         }
     }
 
@@ -294,11 +313,28 @@ extension BFSExplorer {
         )
     }
 
+    // MARK: - Q-Value Boost
+
+    /// Apply learned Q-value boosts to a plan if the graph has persisted edge data.
+    /// Returns the original plan unchanged if no Q-values are available.
+    func applyQBoostIfAvailable(plan: [RankedElement], fingerprint: String) -> [RankedElement] {
+        guard let navGraph = graph as? NavigationGraph else { return plan }
+        let qValues = Dictionary(
+            (navGraph.adjacency[fingerprint] ?? []).map { ($0.displayLabel, $0.qValue) },
+            uniquingKeysWith: { _, last in last }
+        )
+        return ScreenPlanner.applyQBoost(plan: plan, qValues: qValues)
+    }
+
     // MARK: - Plateau Advisory
+
+    /// Maximum advisor attempts per screen before giving up.
+    static let maxAdvisorAttemptsPerScreen = 2
 
     /// Ask the AI advisor for guidance when the plan is exhausted and coverage
     /// has plateaued. Returns nil if no advisor is configured, we're not in
-    /// plateau phase, or the advisor has no actionable suggestion.
+    /// plateau phase, the advisor has no actionable suggestion, or max attempts
+    /// on this screen have been reached.
     func tryPlateauAdvisor(
         fingerprint: String,
         screenshotBase64: String,
@@ -306,6 +342,14 @@ extension BFSExplorer {
         input: InputProviding
     ) -> ExploreStepResult? {
         guard coverageMonitor.currentPhase == .plateau, let advisor = advisor else {
+            return nil
+        }
+        // Limit advisor attempts per screen to prevent infinite loops
+        let advisorKey = "advisor:\(fingerprint)"
+        let attempts = (graph.node(for: fingerprint)?.visitedElements
+            .filter { $0.hasPrefix("advisor:") }.count) ?? 0
+        guard attempts < Self.maxAdvisorAttemptsPerScreen else {
+            DebugLog.log("bfs", "plateau advisor: max attempts (\(Self.maxAdvisorAttemptsPerScreen)) reached for \(fingerprint.prefix(8))")
             return nil
         }
         let visited = graph.node(for: fingerprint)?.visitedElements ?? []
@@ -316,6 +360,8 @@ extension BFSExplorer {
             exploredScreenCount: graph.nodeCount
         )
         coverageMonitor.recordLLMAction()
+        // Track advisor attempt regardless of outcome
+        graph.markElementVisited(fingerprint: fingerprint, elementText: advisorKey)
         guard let suggestion = suggestions.first,
               let target = viewportElements.first(where: { $0.text == suggestion.elementText }) else {
             return nil

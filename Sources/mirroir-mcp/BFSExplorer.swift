@@ -84,7 +84,6 @@ final class BFSExplorer: @unchecked Sendable {
             frontierIndex = 0
         }
     }
-
     /// Perform one BFS exploration step. Dispatches to the current phase handler.
     func step<S: ExplorationStrategy>(
         describer: ScreenDescribing,
@@ -239,7 +238,6 @@ final class BFSExplorer: @unchecked Sendable {
         strategy: S.Type
     ) -> ExploreStepResult {
         let currentFP = screen.fingerprint
-
         // OCR current screen, dismissing any alert
         guard let result = ExplorerUtilities.dismissAlertIfPresent(
             describer: describer, input: input
@@ -271,7 +269,6 @@ final class BFSExplorer: @unchecked Sendable {
                 }
             }
         }
-
         // Log all OCR elements so we can compare with what's visible on screen
         let ocrTexts = viewportElements.map { "\($0.text)@(\(Int($0.tapX)),\(Int($0.tapY)))" }
         DebugLog.log("bfs", "OCR elements (\(viewportElements.count)): \(ocrTexts.joined(separator: ", "))")
@@ -286,7 +283,7 @@ final class BFSExplorer: @unchecked Sendable {
             let plan = buildScreenPlan(
                 classified: classified, visitedElements: visitedElements
             )
-            graph.setScreenPlan(for: currentFP, plan: plan)
+            graph.setScreenPlan(for: currentFP, plan: applyQBoostIfAvailable(plan: plan, fingerprint: currentFP))
         }
 
         if let plan = graph.screenPlan(for: currentFP) {
@@ -387,16 +384,18 @@ final class BFSExplorer: @unchecked Sendable {
         // Record tap coordinates in cache before tapping
         graph.recordTap(fingerprint: currentFP, x: target.tapX, y: target.tapY)
 
-        // Tap the element
+        // Tap the element and validate the result with vision
+        let beforeElementCount = viewportElements.count
         _ = input.tap(x: target.tapX, y: target.tapY)
         usleep(EnvConfig.stepSettlingDelayMs * 1000)
-
-        // OCR the resulting screen
+        // OCR the resulting screen to validate the tap actually did something
         guard let afterResult = ExplorerUtilities.dismissAlertIfPresent(
             describer: describer, input: input
         ) else {
             return .paused(reason: "Failed to capture screen after tap")
         }
+        DebugLog.log("bfs", "tap validation: \"\(label)\" — before=\(beforeElementCount) elements, " +
+            "after=\(afterResult.elements.count) elements")
 
         if let exit = handleContextEscape(elements: afterResult.elements, input: input, describer: describer) { return exit }
 
@@ -439,6 +438,9 @@ final class BFSExplorer: @unchecked Sendable {
         case .duplicate: transitionDesc = "no_navigation"
         }
         DebugLog.log("bfs", "tapped \"\(label)\" at (\(Int(target.tapX)),\(Int(target.tapY))) → \(transitionDesc)")
+        // Update learned Q-value for this edge (Fastbot2 pattern)
+        (graph as? NavigationGraph)?.updateQValue(
+            fromFingerprint: currentFP, elementText: label, result: transition)
         lock.lock()
         screenActions[currentFP, default: []].append(
             ExplorationReportFormatter.ActionEntry(

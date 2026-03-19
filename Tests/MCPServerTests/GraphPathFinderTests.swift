@@ -74,7 +74,7 @@ final class GraphPathFinderTests: XCTestCase {
     // MARK: - Empty Graph
 
     func testEmptyGraphReturnsNoPaths() {
-        let snapshot = GraphSnapshot(nodes: [:], edges: [], rootFingerprint: "", deadEdges: [], recoveryEvents: [])
+        let snapshot = GraphSnapshot(nodes: [:], edges: [], adjacency: [:], rootFingerprint: "", deadEdges: [], recoveryEvents: [])
 
         let paths = GraphPathFinder.findInterestingPaths(in: snapshot)
 

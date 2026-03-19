@@ -106,7 +106,7 @@ extension MirroirMCP {
                         "type": .string("boolean"),
                         "description": .string(
                             "When true, discard any persisted navigation graph and " +
-                            "explore from scratch. Default: false (incremental exploration)."),
+                            "explore from scratch. Default: true. Set false for incremental exploration."),
                     ]),
                     "seed": .object([
                         "type": .string("integer"),
@@ -409,7 +409,7 @@ extension MirroirMCP {
         )
 
         let goal = args["goal"]?.asString() ?? ""
-        let fresh = args["fresh"]?.asBool() ?? false
+        let fresh = args["fresh"]?.asBool() ?? true
         let seed = args["seed"]?.asInt().map { UInt64($0) }
         let skipCalibration = args["skip_calibration"]?.asBool() ?? false
         let explorerChoice = args["explorer"]?.asString() ?? "bfs"

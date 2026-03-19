@@ -31,6 +31,8 @@ enum RecoveryCategory: String, Sendable {
     case appEscape
     /// The app was relaunched after a crash/escape.
     case appRelaunched
+    /// Backtrack failed — explorer was lost and recovered via Home.
+    case backtrackFailed
 }
 
 /// Result of verifying a forward tap action.

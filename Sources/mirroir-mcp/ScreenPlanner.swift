@@ -286,4 +286,37 @@ enum ScreenPlanner {
 
         return (score, reasons.joined(separator: ", "))
     }
+
+    // MARK: - Q-Value Boost
+
+    /// Weight applied to Q-value when boosting plan scores.
+    static let qValueWeight: Double = 2.0
+
+    /// Apply learned Q-value boosts to a plan and re-sort by adjusted score.
+    /// Elements with higher Q-values (led to new screens in past runs) get priority.
+    /// Elements with zero Q-value (dead taps in past runs) are demoted to the end.
+    ///
+    /// - Parameters:
+    ///   - plan: The ranked plan to boost.
+    ///   - qValues: Map from element displayLabel to Q-value (from persisted graph).
+    /// - Returns: Plan re-sorted by Q-boosted score.
+    static func applyQBoost(
+        plan: [RankedElement],
+        qValues: [String: Double]
+    ) -> [RankedElement] {
+        guard !qValues.isEmpty else { return plan }
+        return plan
+            .map { element in
+                let q = qValues[element.displayLabel] ?? 1.0
+                let boost = q * qValueWeight
+                return RankedElement(
+                    point: element.point,
+                    score: element.score + boost,
+                    reason: element.reason + ", q=\(String(format: "%.1f", q))",
+                    displayLabel: element.displayLabel,
+                    isBreadthNavigation: element.isBreadthNavigation
+                )
+            }
+            .sorted { $0.score > $1.score }
+    }
 }

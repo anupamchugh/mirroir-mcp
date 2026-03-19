@@ -270,9 +270,9 @@ extension BFSExplorer {
                     )
                 }
             }
-            // Not found after scroll — mark visited and try next
-            DebugLog.log("bfs", "resolve: skip \"\(candidate.displayLabel)\" — not found after scroll")
-            graph.markElementVisited(fingerprint: currentFP, elementText: candidate.displayLabel)
+            // Not found after scroll — skip for now but do NOT mark as visited.
+            // The element may appear at a different scroll position on a future attempt.
+            DebugLog.log("bfs", "resolve: skip \"\(candidate.displayLabel)\" — not in viewport after scroll")
         }
 
         return nil

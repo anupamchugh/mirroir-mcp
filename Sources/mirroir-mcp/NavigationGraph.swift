@@ -33,18 +33,6 @@ enum TransitionResult: Sendable {
     case duplicate
 }
 
-/// An action that can be taken to backtrack in the navigation stack.
-enum BacktrackAction: Sendable {
-    /// Send Cmd+[ keyboard shortcut (works for desktop apps, not iPhone Mirroring).
-    case pressBack
-    /// Press the home button to return to app root.
-    case pressHome
-    /// Tap the "<" back button in the iOS navigation bar.
-    case tapBack
-    /// No backtracking needed or possible.
-    case none
-}
-
 /// A node in the navigation graph representing a single screen state.
 struct ScreenNode: Sendable {
     /// Structural fingerprint identifying this screen.
@@ -70,6 +58,9 @@ struct ScreenNode: Sendable {
     var isInfiniteScroll: Bool = false
     /// Whether scroll exhaustion was reached (no new elements after scrolling).
     var scrollExhausted: Bool = false
+    /// Perceptual hash of the screenshot for visual state identity.
+    /// Optional for backward compatibility: nil when screenshot data is unavailable.
+    var visualHash: UInt64?
 }
 
 /// A directed edge in the navigation graph representing a navigation action.
@@ -88,22 +79,22 @@ struct NavigationEdge: Sendable {
     let displayLabel: String
     /// Classified transition type for intelligent backtracking.
     let edgeType: EdgeType
-}
+    /// Learned action-value estimate (Fastbot2 pattern). Edges that led to new screens
+    /// accumulate reward; revisited screens decay; dead taps go to zero. Persisted across
+    /// runs so each exploration starts smarter than the last.
+    var qValue: Double
 
-/// Immutable export of the navigation graph state for downstream consumers.
-struct GraphSnapshot: Sendable {
-    /// All screen nodes keyed by fingerprint.
-    let nodes: [String: ScreenNode]
-    /// All navigation edges in discovery order.
-    let edges: [NavigationEdge]
-    /// Fingerprint of the root (first) screen.
-    let rootFingerprint: String
-    /// Edges that produced dead taps (no screen change), as "fromFP:elementText" keys.
-    let deadEdges: Set<String>
-    /// Recovery events logged during exploration.
-    let recoveryEvents: [RecoveryEvent]
-    /// CEGAR refinement levels per fingerprint.
-    var refinementLevels: [String: StateAbstraction.RefinementLevel] = [:]
+    init(fromFingerprint: String, toFingerprint: String, actionType: String,
+         elementText: String, displayLabel: String, edgeType: EdgeType,
+         qValue: Double = 1.0) {
+        self.fromFingerprint = fromFingerprint
+        self.toFingerprint = toFingerprint
+        self.actionType = actionType
+        self.elementText = elementText
+        self.displayLabel = displayLabel
+        self.edgeType = edgeType
+        self.qValue = qValue
+    }
 }
 
 /// Thread-safe directed graph tracking screen navigation during app exploration.
@@ -112,6 +103,8 @@ final class NavigationGraph: @unchecked Sendable {
 
     var nodes: [String: ScreenNode] = [:]
     var edges: [NavigationEdge] = []
+    /// Adjacency list for O(1) outgoing edge lookup, maintained incrementally.
+    var adjacency: [String: [NavigationEdge]] = [:]
     var currentFP: String = ""
     var rootFP: String = ""
     var isStarted: Bool = false
@@ -148,6 +141,7 @@ final class NavigationGraph: @unchecked Sendable {
 
         nodes = [:]
         edges = []
+        adjacency = [:]
         scrollCounts = [:]
         scoutResultsMap = [:]
         traversalPhases = [:]
@@ -161,16 +155,12 @@ final class NavigationGraph: @unchecked Sendable {
 
         let fp = StructuralFingerprint.compute(elements: rootElements, icons: icons)
         let title = StructuralFingerprint.extractNavBarTitle(from: rootElements)
+        let rootHash = VisualFingerprint.compute(screenshotBase64: screenshot)
         let node = ScreenNode(
-            fingerprint: fp,
-            elements: rootElements,
-            icons: icons,
-            hints: hints,
-            depth: 0,
-            screenType: screenType,
-            screenshotBase64: screenshot,
-            visitedElements: [],
-            navBarTitle: title
+            fingerprint: fp, elements: rootElements, icons: icons, hints: hints,
+            depth: 0, screenType: screenType, screenshotBase64: screenshot,
+            visitedElements: [], navBarTitle: title,
+            visualHash: rootHash != 0 ? rootHash : nil
         )
         nodes[fp] = node
         currentFP = fp
@@ -211,7 +201,9 @@ final class NavigationGraph: @unchecked Sendable {
         }
 
         // Check if this screen matches any known node (by similarity, not just hash)
-        var matchingFP = findMatchingNode(elements: elements)
+        let candidateHash = VisualFingerprint.compute(screenshotBase64: screenshot)
+        let candidateVHash: UInt64? = candidateHash != 0 ? candidateHash : nil
+        var matchingFP = findMatchingNode(elements: elements, visualHash: candidateVHash)
 
         // CEGAR refinement: if the match is behaviorally different, refine the fingerprint
         if let existingFP = matchingFP, let existingNode = nodes[existingFP],
@@ -240,9 +232,11 @@ final class NavigationGraph: @unchecked Sendable {
             actionType: actionType,
             elementText: elementText,
             displayLabel: displayLabel ?? elementText,
-            edgeType: edgeType
+            edgeType: edgeType,
+            qValue: 1.0
         )
         edges.append(edge)
+        adjacency[edge.fromFingerprint, default: []].append(edge)
 
         if let existingFP = matchingFP {
             currentFP = existingFP
@@ -262,7 +256,8 @@ final class NavigationGraph: @unchecked Sendable {
             screenType: screenType,
             screenshotBase64: screenshot,
             visitedElements: [],
-            navBarTitle: title
+            navBarTitle: title,
+            visualHash: candidateVHash
         )
         nodes[effectiveFP] = node
         currentFP = effectiveFP
@@ -284,6 +279,7 @@ final class NavigationGraph: @unchecked Sendable {
         return GraphSnapshot(
             nodes: nodes,
             edges: edges,
+            adjacency: adjacency,
             rootFingerprint: rootFP,
             deadEdges: deadEdges,
             recoveryEvents: recoveryEvents,
@@ -315,10 +311,11 @@ final class NavigationGraph: @unchecked Sendable {
     }
 
     /// Get all edges originating from a given screen fingerprint.
+    /// O(1) lookup via the incrementally-maintained adjacency list.
     func edges(from fingerprint: String) -> [NavigationEdge] {
         lock.lock()
         defer { lock.unlock() }
-        return edges.filter { $0.fromFingerprint == fingerprint }
+        return adjacency[fingerprint] ?? []
     }
 
     /// Get the most recent incoming edge that led to a given screen fingerprint.
