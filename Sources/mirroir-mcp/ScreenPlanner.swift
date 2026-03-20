@@ -317,6 +317,6 @@ enum ScreenPlanner {
                     isBreadthNavigation: element.isBreadthNavigation
                 )
             }
-            .sorted { $0.score > $1.score }
+            .sorted { $0.point.tapY != $1.point.tapY ? $0.point.tapY < $1.point.tapY : $0.score > $1.score }
     }
 }

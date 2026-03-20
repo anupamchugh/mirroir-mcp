@@ -181,15 +181,13 @@ extension BFSExplorer {
             // can continue from root. But if we landed on a non-root screen that isn't
             // the expected parent, continuing would tap elements on the wrong screen.
             if actualFP != graph.rootFingerprint && actualFP != expectedFP {
-                // Landed on a different known screen — press Home to recover
-                DebugLog.log("bfs", "backtrack corrected to non-root screen — pressing Home to recover")
-                if let menuBridge = bridge as? MenuActionCapable {
-                    _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-                }
+                // Landed on a different known screen — relaunch to recover
+                DebugLog.log("bfs", "backtrack corrected to non-root screen — relaunching \(appName)")
+                _ = input.launchApp(name: appName)
                 usleep(EnvConfig.toolSettlingDelayUs)
                 graph.setCurrentFingerprint(graph.rootFingerprint)
                 phase = .atRoot
-                return .continue(description: "Backtrack landed on wrong screen — recovered via Home")
+                return .continue(description: "Backtrack landed on wrong screen — relaunched app")
             }
             return nil
 

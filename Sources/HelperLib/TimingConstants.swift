@@ -376,7 +376,9 @@ public enum TimingConstants {
 
     /// When true, exploration fails with a diagnostic report if too many elements
     /// are unclassified after calibration. When false, logs a warning and continues.
-    public static let calibrationStrict: Bool = true
+    /// Default false: real apps have charts, calendars, and other elements that don't
+    /// match component definitions. Strict mode is for debugging component definitions.
+    public static let calibrationStrict: Bool = false
 
     /// Maximum fraction of content-zone elements that can be unclassified before
     /// calibration validation fails (0.0–1.0). Only checked when calibrationStrict is true.
