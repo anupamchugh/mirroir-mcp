@@ -91,6 +91,10 @@ struct ExplorationBudget: Sendable {
         "sponsored", "promoted", "advertisement", "order now", "buy now", "install now",
         // Purchase actions (multi-language)
         "subscribe", "purchase", "s'abonner", "acheter",
+        // Dismiss/close buttons (should never be tapped during exploration)
+        "dismiss", "fermer", "close", "×",
+        // App Store / info links (navigate out of the app)
+        "obtenir", "get", "info",
     ]
 
     /// Return a new budget with additional skip patterns merged on top of built-in ones.
