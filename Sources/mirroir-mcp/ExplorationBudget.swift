@@ -76,25 +76,16 @@ struct ExplorationBudget: Sendable {
     )
 
     /// Safety-critical skip patterns that are always present regardless of permissions.json.
-    /// Covers destructive actions, network toggles, ad/sponsored content, and purchase flows
-    /// in English, French, Spanish, and German.
+    /// English only — localized patterns belong in component skill definitions, not in code.
     static let builtInSkipPatterns: [String] = [
-        // English destructive
+        // Destructive actions
         "delete", "sign out", "log out", "reset all", "erase all", "remove all",
-        // French destructive
-        "supprimer", "déconnexion", "déconnecter", "réinitialiser", "effacer",
-        // Spanish destructive
-        "eliminar", "cerrar sesión", "restablecer", "borrar",
-        // Network toggles (multi-language)
-        "airplane mode", "mode avion", "modo avión", "flugmodus",
+        // Network toggles
+        "airplane mode",
         // Ad/sponsored content
-        "sponsored", "promoted", "advertisement", "order now", "buy now", "install now",
-        // Purchase actions (multi-language)
-        "subscribe", "purchase", "s'abonner", "acheter",
-        // Dismiss/close buttons (should never be tapped during exploration)
-        "dismiss", "fermer", "close", "×",
-        // App Store / info links (navigate out of the app)
-        "obtenir", "get", "info",
+        "sponsored", "promoted", "advertisement",
+        // Purchase actions
+        "subscribe", "purchase", "order now", "buy now", "install now",
     ]
 
     /// Return a new budget with additional skip patterns merged on top of built-in ones.
