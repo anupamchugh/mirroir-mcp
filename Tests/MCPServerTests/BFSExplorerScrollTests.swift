@@ -55,47 +55,48 @@ final class BFSExplorerScrollTests: XCTestCase {
         )
         let moodScreen = makeScreen(["Mood Details"], img: "imgMood")
 
-        // Build the describe sequence:
-        // Calibration: 1 OCR call (scroll discovers no new elements → breaks)
-        // Steps 1-5: each step does 2 OCR calls (before-tap + after-tap)
-        // For simplicity, all taps produce "duplicate" (same screen fingerprint).
+        // Build the describe sequence.
+        // The mock describer returns screens in order; once exhausted it recycles
+        // the last entry. Provide generous padding so the explorer can complete
+        // all phases (calibration, 5 taps, scroll, Mood tap, backtrack, finish).
         var screens: [ScreenDescriber.DescribeResult] = []
         let rootScreen = makeScreen(
             ["Activity", "Heart", "Sleep", "Steps", "Nutrition"], img: "img0"
         )
-
-        // Calibration scroll: discovers same elements → 0 new → breaks
-        screens.append(rootScreen)
-
-        // Steps 1-5: tap each of the 5 initial elements → duplicate (same screen)
-        for _ in 0..<5 {
-            screens.append(rootScreen)  // OCR before tap
-            screens.append(rootScreen)  // OCR after tap → duplicate
-        }
-
-        // Step 6: guard fails (5 actions) → scroll
-        screens.append(rootScreen)  // OCR at start of stepExploring
-        // performScrollIfAvailable does its own OCR after swipe:
         let scrolledScreen = ScreenDescriber.DescribeResult(
             elements: scrolledElements, screenshotBase64: "img0_scrolled"
         )
-        screens.append(scrolledScreen)  // OCR after scroll → finds "Mood"
-
-        // Step 7: action counter reset, explorer re-OCRs and taps "Mood"
         let rootWithMood = ScreenDescriber.DescribeResult(
             elements: scrolledElements, screenshotBase64: "img0_scrolled"
         )
-        screens.append(rootWithMood)   // OCR before tap
-        screens.append(moodScreen)     // OCR after tap → new screen
 
-        // Step 8: done exploring root
+        // Calibration scroll: same elements → 0 novel → breaks after 1 describe
+        screens.append(rootScreen)
+
+        // Steps 1-5: each does 2 OCR calls (viewport + after-tap → duplicate)
+        for _ in 0..<5 {
+            screens.append(rootScreen)
+            screens.append(rootScreen)
+        }
+
+        // Step 6: viewport describe + scroll + after-scroll describe
+        screens.append(rootScreen)
+        screens.append(scrolledScreen)
+
+        // Step 7: viewport describe (plan rebuilt) + tap Mood + after-tap
         screens.append(rootWithMood)
+        screens.append(moodScreen)
+
+        // Backtrack verify + subsequent steps: pad with rootWithMood
+        for _ in 0..<6 {
+            screens.append(rootWithMood)
+        }
 
         let describer = MockExplorerDescriber(screens: screens)
         let input = MockExplorerInput()
 
         var results: [ExploreStepResult] = []
-        for _ in 0..<8 {
+        for _ in 0..<12 {
             let result = explorer.step(
                 describer: describer, input: input, strategy: MobileAppStrategy.self
             )

@@ -132,8 +132,12 @@ extension BFSExplorer {
         // The explorer will build per-viewport plans from fresh OCR, processing one
         // viewport at a time (scroll → describe → classify → tap → next viewport).
         if skipComponentDetection || componentDefinitions.isEmpty {
-            DebugLog.log("bfs", "calibration (scroll-only): \(scrollData.scrollCount) viewpoints, " +
-                "\(allElements.count) total elements — plan will be built per viewport")
+            // Record viewpoint count for per-viewport processing
+            totalViewpoints = scrollData.scrollCount + 1  // +1 for the initial viewport
+            currentViewportIndex = 0
+            DebugLog.log("bfs", "=== CALIBRATION: \(totalViewpoints) viewpoints, " +
+                "\(allElements.count) total elements ===")
+            DebugLog.log("bfs", "plan will be built per viewport (no full-page plan)")
             storeSummary(scrollData: scrollData, fingerprint: fingerprint)
             return .ok(viewportMayHaveShifted: scrolledWithNovelContent)
         }
@@ -198,7 +202,10 @@ extension BFSExplorer {
             scoutResults: [:], screenHeight: windowSize.height)
         graph.setScreenPlan(for: fingerprint, plan: plan)
 
+        totalViewpoints = scrollData.scrollCount + 1
+        currentViewportIndex = 0
         let explorableCount = components.filter { $0.definition.exploration.explorable }.count
+        DebugLog.log("bfs", "=== CALIBRATION: \(totalViewpoints) viewpoints ===")
         DebugLog.log("bfs", "calibration plan: \(plan.count) items " +
             "(\(explorableCount) explorable / \(components.count) total components)")
 
@@ -256,6 +263,7 @@ extension BFSExplorer {
         // Pass 2: Scroll through viewpoints in calibration order to find candidates.
         // Each scroll advances one viewport. After scrolling, check ALL remaining
         // candidates against the fresh viewport — tap the first match found.
+        guard !candidates.isEmpty else { return nil }
         let maxScrollAttempts = budget.scrollLimit
         for scrollIdx in 0..<maxScrollAttempts {
             guard let freshElements = scrollToReveal(input: input, describer: describer) else {

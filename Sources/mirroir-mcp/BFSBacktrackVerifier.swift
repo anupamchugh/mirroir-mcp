@@ -147,7 +147,36 @@ extension BFSExplorer {
             return .corrected(fingerprint: matchedFP)
         }
 
-        DebugLog.log("bfs", "backtrack-verify: LOST — unknown screen after 2 recovery attempts")
+        // Recovery 4: Try a third back tap for multi-level detail hierarchies.
+        // Some screens (e.g. Health > Activité) have 2+ levels of navigation
+        // that require multiple back taps to reach the parent.
+        let retryTexts = retryResult.elements.map { $0.text }.joined(separator: ", ")
+        DebugLog.log("bfs", "backtrack-verify: still lost after 2 backs — trying 3rd back " +
+            "(current: \(retryTexts.prefix(100)))")
+        ExplorerUtilities.tapBackButton(
+            elements: retryResult.elements, input: input, windowSize: windowSize
+        )
+        guard let thirdResult = ExplorerUtilities.dismissAlertIfPresent(
+            describer: describer, input: input
+        ) else {
+            DebugLog.log("bfs", "backtrack-verify: LOST — OCR failed on 3rd attempt")
+            return .lost
+        }
+        if let expectedNode = graph.node(for: expectedFP),
+           (StructuralFingerprint.areEquivalentTitleAware(
+               expectedNode.elements, thirdResult.elements
+           ) || StructuralFingerprint.viewportContainedIn(
+               viewport: thirdResult.elements, reference: expectedNode.elements
+           )) {
+            DebugLog.log("bfs", "backtrack-verify: 3rd back succeeded!")
+            return .verified
+        }
+        if let matchedFP = graph.findMatchingNode(elements: thirdResult.elements) {
+            DebugLog.log("bfs", "backtrack-verify: 3rd back → known screen \(matchedFP.prefix(8))")
+            return .corrected(fingerprint: matchedFP)
+        }
+
+        DebugLog.log("bfs", "backtrack-verify: LOST — unknown screen after 3 recovery attempts")
         return .lost
     }
 
@@ -197,7 +226,12 @@ extension BFSExplorer {
             _ = input.launchApp(name: appName)
             usleep(EnvConfig.toolSettlingDelayUs)
             graph.setCurrentFingerprint(graph.rootFingerprint)
-            phase = .atRoot
+            // If we were exploring root, stay in exploring phase to continue the plan.
+            // Don't switch to .atRoot which would dequeue frontier children.
+            if expectedFP != graph.rootFingerprint {
+                phase = .atRoot
+            }
+            DebugLog.log("bfs", "recovered — phase=\(phase)")
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
                 category: .backtrackFailed,
                 screenFingerprint: expectedFP,

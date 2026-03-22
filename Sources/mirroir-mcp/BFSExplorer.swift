@@ -44,6 +44,10 @@ final class BFSExplorer: @unchecked Sendable {
     let rng: ExplorationRNG
     /// Skip component detection during calibration (scroll still runs).
     let skipCalibration: Bool
+    /// Total viewpoints discovered during calibration scroll.
+    var totalViewpoints: Int = 0
+    /// Current viewport index being processed (0-based, increments on scroll-down).
+    var currentViewportIndex: Int = 0
     let lock = NSLock()
 
     init(
@@ -114,6 +118,7 @@ final class BFSExplorer: @unchecked Sendable {
             return .finished(bundle: generateBundle())
         }
 
+        DebugLog.log("bfs", "step: phase=\(phase) screens=\(screenCount) elapsed=\(elapsed)s")
         switch phase {
         case .atRoot:
             return stepAtRoot(describer: describer, input: input, strategy: strategy)
@@ -273,7 +278,7 @@ final class BFSExplorer: @unchecked Sendable {
         let ocrTexts = viewportElements.map { "\($0.text)@(\(Int($0.tapX)),\(Int($0.tapY)))" }
         DebugLog.log("bfs", "OCR elements (\(viewportElements.count)): \(ocrTexts.joined(separator: ", "))")
 
-        // Build plan from viewport if calibration didn't produce one (e.g. non-scrollable screen)
+        // Build plan from CURRENT viewport if none exists (per-viewport approach).
         if graph.screenPlan(for: currentFP) == nil {
             let canonicalElements = ExplorationRNG.canonicalOrder(viewportElements)
             let classified = ElementClassifier.classify(
@@ -284,11 +289,11 @@ final class BFSExplorer: @unchecked Sendable {
                 classified: classified, visitedElements: visitedElements
             )
             graph.setScreenPlan(for: currentFP, plan: applyQBoostIfAvailable(plan: plan, fingerprint: currentFP))
-        }
-
-        if let plan = graph.screenPlan(for: currentFP) {
-            let planTexts = plan.map { "\($0.displayLabel)(score=\(String(format: "%.1f", $0.score)))" }
-            DebugLog.log("bfs", "plan: \(planTexts)")
+            DebugLog.log("bfs", "=== VIEWPORT \(currentViewportIndex + 1)/\(totalViewpoints) ===")
+            DebugLog.log("bfs", "viewport elements: \(viewportElements.count)")
+            DebugLog.log("bfs", "components matched: \(plan.count)")
+            let planTexts = plan.map { "\($0.displayLabel)(y=\(Int($0.point.tapY)), score=\(String(format: "%.1f", $0.score)))" }
+            DebugLog.log("bfs", "click plan: \(planTexts)")
         }
 
         // Resolve next plan item against fresh viewport coordinates
@@ -313,14 +318,17 @@ final class BFSExplorer: @unchecked Sendable {
                 currentFP: currentFP, input: input, describer: describer
             ) {
                 graph.clearScreenPlan(for: currentFP)
-                DebugLog.log("bfs", "viewport exhausted — scrolled down, plan cleared for rebuild")
                 lock.lock()
+                currentViewportIndex += 1
                 actionsOnCurrentScreen = 0
                 lock.unlock()
+                DebugLog.log("bfs", "=== VIEWPORT \(currentViewportIndex)/\(totalViewpoints) — scrolled down, plan cleared ===")
                 return scrollResult
             }
 
             // Done with this screen — no more viewports to scroll to
+            let visited = graph.node(for: currentFP)?.visitedElements ?? []
+            DebugLog.log("bfs", "=== SCREEN DONE depth=\(screen.depth) visited=\(visited.count) items ===")
             if screen.depth == 0 {
                 phase = .atRoot
             } else {
@@ -455,13 +463,15 @@ final class BFSExplorer: @unchecked Sendable {
             }
 
             // Tap back and verify we returned to the expected screen.
-            // If lost (stuck in modal, wrong screen), finishes exploration gracefully.
+            DebugLog.log("bfs", "backtracking to \(currentFP.prefix(8)) after new screen")
             if let lostResult = tapBackAndVerify(
                 expectedFP: currentFP, afterElements: afterResult.elements,
                 describer: describer, input: input
             ) {
+                DebugLog.log("bfs", "BACKTRACK FAILED — phase changing, remaining plan items lost")
                 return lostResult
             }
+            DebugLog.log("bfs", "backtrack OK — continuing on \(currentFP.prefix(8))")
 
             return .continue(
                 description: "Tapped \"\(label)\" → new screen (\(graph.nodeCount) total)"
@@ -469,10 +479,12 @@ final class BFSExplorer: @unchecked Sendable {
 
         case .revisited:
             // Already-known screen — tap back, verify, don't re-explore
+            DebugLog.log("bfs", "backtracking to \(currentFP.prefix(8)) after revisit")
             if let lostResult = tapBackAndVerify(
                 expectedFP: currentFP, afterElements: afterResult.elements,
                 describer: describer, input: input
             ) {
+                DebugLog.log("bfs", "BACKTRACK FAILED on revisit — phase changing")
                 return lostResult
             }
 

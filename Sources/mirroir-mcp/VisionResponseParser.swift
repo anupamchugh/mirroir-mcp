@@ -8,7 +8,14 @@ import Foundation
 import HelperLib
 
 /// Parses AI vision model responses into structured screen elements.
+/// Normalizes vision-specific indicator descriptions (e.g. "chevron") into
+/// OCR-compatible characters (e.g. ">") using mappings from vision-indicators.md.
 enum VisionResponseParser {
+
+    /// Lazily loaded vision indicator mappings from component skills.
+    private static let indicators: [ComponentLoader.VisionIndicator] = {
+        ComponentLoader.loadVisionIndicators()
+    }()
 
     /// A single element detected by the vision model.
     struct VisionElement: Decodable {
@@ -57,12 +64,10 @@ enum VisionResponseParser {
             let tapX = ve.x * scaleX
             let tapY = ve.y * scaleY
 
-            elements.append(TapPoint(
-                text: text,
-                tapX: tapX,
-                tapY: tapY,
-                confidence: 0.85
-            ))
+            // Normalize vision indicators into OCR-compatible elements.
+            // "Entraînements chevron" → "Entraînements" + ">" (two elements).
+            let normalized = normalizeIndicators(text: text, tapX: tapX, tapY: tapY)
+            elements.append(contentsOf: normalized)
 
             // Derive navigation hints from element types
             if let type = ve.type?.lowercased() {
@@ -107,5 +112,30 @@ enum VisionResponseParser {
         }
 
         return nil
+    }
+
+    // MARK: - Vision-to-OCR Normalization
+
+    /// Split a vision element if its text ends with a known indicator suffix.
+    /// Returns 1 element (unchanged) or 2 (label + OCR indicator character).
+    private static func normalizeIndicators(
+        text: String, tapX: Double, tapY: Double
+    ) -> [TapPoint] {
+        let lower = text.lowercased()
+        for indicator in indicators {
+            if lower.hasSuffix(indicator.suffix) {
+                let labelEnd = text.index(text.endIndex, offsetBy: -indicator.suffix.count)
+                let label = String(text[text.startIndex..<labelEnd])
+                    .trimmingCharacters(in: .whitespaces)
+                guard !label.isEmpty else {
+                    return [TapPoint(text: indicator.ocrChar, tapX: tapX, tapY: tapY, confidence: 0.85)]
+                }
+                return [
+                    TapPoint(text: label, tapX: tapX, tapY: tapY, confidence: 0.85),
+                    TapPoint(text: indicator.ocrChar, tapX: tapX + 30, tapY: tapY, confidence: 0.85),
+                ]
+            }
+        }
+        return [TapPoint(text: text, tapX: tapX, tapY: tapY, confidence: 0.85)]
     }
 }
