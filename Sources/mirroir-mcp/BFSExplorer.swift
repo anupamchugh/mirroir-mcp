@@ -398,7 +398,10 @@ final class BFSExplorer: @unchecked Sendable {
         DebugLog.log("bfs", "tap validation: \"\(label)\" — before=\(beforeElementCount) elements, " +
             "after=\(afterResult.elements.count) elements")
 
-        if let exit = handleContextEscape(elements: afterResult.elements, input: input, describer: describer) { return exit }
+        // Context escape is checked at the TOP of stepExploring (before each tap).
+        // Skipping it here: the post-tap screen is expected to differ from the
+        // current node, and detail screens with many short chart labels (J, S, M,
+        // dim., lun.) trigger false home-screen positives.
 
         let screenType = strategy.classifyScreen(
             elements: afterResult.elements, hints: afterResult.hints
