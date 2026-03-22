@@ -388,16 +388,17 @@ extension BFSExplorer {
                 graph.markScrollExhausted(fingerprint: fingerprint)
             }
 
-            // Scroll back to top: one extra swipe ensures we reach the true top.
-            // iOS scroll physics may not land at the exact starting position after
-            // N symmetric scrolls, leaving the page slightly scrolled down.
+            // Scroll back to top with aggressive full-height swipes.
+            // iOS scroll physics don't perfectly reverse N symmetric swipes,
+            // so we use full-height gestures (bottom→top) plus an extra swipe.
+            // iOS clamps at the top, so overshooting is safe.
             let centerX = windowSize.width / 2
-            let scrollFromY = windowSize.height * fromFraction
-            let scrollToY = windowSize.height * toFraction
+            let bottomY = windowSize.height * 0.85
+            let topY = windowSize.height * 0.10
             for _ in 0...scrollResult.scrollCount {
                 _ = input.swipe(
-                    fromX: centerX, fromY: scrollToY,
-                    toX: centerX, toY: scrollFromY, durationMs: 300
+                    fromX: centerX, fromY: topY,
+                    toX: centerX, toY: bottomY, durationMs: 300
                 )
                 usleep(EnvConfig.stepSettlingDelayMs * 1000)
             }
