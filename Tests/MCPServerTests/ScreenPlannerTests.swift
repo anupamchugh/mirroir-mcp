@@ -44,9 +44,11 @@ final class ScreenPlannerTests: XCTestCase {
         )
 
         XCTAssertEqual(plan.count, 2)
-        XCTAssertEqual(plan[0].point.text, "General",
-            "Chevron element should rank higher than fallback")
-        XCTAssertGreaterThan(plan[0].score, plan[1].score)
+        // Plan is Y-sorted: Settings (y=300) before General (y=400)
+        XCTAssertEqual(plan[0].point.text, "Settings Menu Item")
+        XCTAssertEqual(plan[1].point.text, "General")
+        // But chevron element should have a higher score
+        XCTAssertGreaterThan(plan[1].score, plan[0].score)
     }
 
     // MARK: - Label Length
@@ -64,8 +66,11 @@ final class ScreenPlannerTests: XCTestCase {
             screenHeight: screenHeight
         )
 
-        XCTAssertEqual(plan[0].point.text, "General",
-            "Short single-word label should rank higher than long label")
+        // Y-sorted: long label (y=400) before General (y=500)
+        XCTAssertEqual(plan[0].point.text, "This is a very long descriptive label text")
+        // Short label should have higher score
+        XCTAssertGreaterThan(plan[1].score, plan[0].score,
+            "Short single-word label should score higher than long label")
     }
 
     // MARK: - Screen Position
@@ -82,9 +87,11 @@ final class ScreenPlannerTests: XCTestCase {
             screenHeight: screenHeight
         )
 
-        // Both are short labels with chevron context; mid-screen gets +1 bonus
-        XCTAssertEqual(plan[0].point.text, "MidItem",
-            "Mid-screen element should rank higher")
+        // Y-sorted: TopItem (y=100) before MidItem (y=450)
+        XCTAssertEqual(plan[0].point.text, "TopItem")
+        // Mid-screen gets +1 bonus → higher score
+        XCTAssertGreaterThan(plan[1].score, plan[0].score,
+            "Mid-screen element should have higher score")
     }
 
     // MARK: - Scout Results
@@ -102,8 +109,11 @@ final class ScreenPlannerTests: XCTestCase {
             screenHeight: screenHeight
         )
 
-        XCTAssertEqual(plan[0].point.text, "General",
-            "Scout-confirmed navigation should rank highest")
+        // Y-sorted: About (y=300) before General (y=400)
+        XCTAssertEqual(plan[0].point.text, "About")
+        // Scout-confirmed should have highest score
+        XCTAssertGreaterThan(plan[1].score, plan[0].score,
+            "Scout-confirmed navigation should have highest score")
     }
 
     func testScoutNoChangePenalizesScore() {
@@ -119,10 +129,12 @@ final class ScreenPlannerTests: XCTestCase {
             screenHeight: screenHeight
         )
 
-        XCTAssertEqual(plan[0].point.text, "Working Link",
-            "Scout noChange should penalize heavily")
-        XCTAssertLessThan(plan[1].score, 0,
+        // Y-sorted: Broken Link (y=300) before Working Link (y=400)
+        XCTAssertEqual(plan[0].point.text, "Broken Link")
+        XCTAssertLessThan(plan[0].score, 0,
             "Scout noChange element should have negative score")
+        XCTAssertGreaterThan(plan[1].score, plan[0].score,
+            "Working link should score higher than broken link")
     }
 
     // MARK: - Visited Elements
@@ -223,10 +235,16 @@ final class ScreenPlannerTests: XCTestCase {
             screenHeight: screenHeight
         )
 
-        // Verify descending score order
+        // Verify Y-ascending order (primary sort) with score tiebreaker
         for i in 0..<(plan.count - 1) {
-            XCTAssertGreaterThanOrEqual(plan[i].score, plan[i + 1].score,
-                "Plan should be sorted by descending score")
+            let sameRow = abs(plan[i].point.tapY - plan[i + 1].point.tapY) < 1
+            if sameRow {
+                XCTAssertGreaterThanOrEqual(plan[i].score, plan[i + 1].score,
+                    "Same-Y elements should be sorted by descending score")
+            } else {
+                XCTAssertLessThanOrEqual(plan[i].point.tapY, plan[i + 1].point.tapY,
+                    "Plan should be sorted by ascending Y position")
+            }
         }
     }
 
@@ -334,12 +352,17 @@ final class ScreenPlannerTests: XCTestCase {
         XCTAssertTrue(planTexts.contains("Confidentialite"))
         XCTAssertTrue(planTexts.contains("Notifications"))
 
-        // "Identifiant Apple" is fallback (no chevron) — should rank LOWER than chevron items
-        if planTexts.contains("Identifiant Apple") {
+        // Y-sorted plan: "Identifiant Apple" (y=240) appears before "General" (y=440)
+        // but General (chevron) should have a higher score
+        if planTexts.contains("Identifiant Apple"), planTexts.contains("General") {
             let appleIDIndex = planTexts.firstIndex(of: "Identifiant Apple")!
             let generalIndex = planTexts.firstIndex(of: "General")!
-            XCTAssertGreaterThan(appleIDIndex, generalIndex,
-                "\"General\" (chevron) should rank higher than \"Identifiant Apple\" (no chevron)")
+            XCTAssertLessThan(appleIDIndex, generalIndex,
+                "\"Identifiant Apple\" (y=240) should appear before \"General\" (y=440) in Y-sorted plan")
+            let appleIDScore = plan[appleIDIndex].score
+            let generalScore = plan[generalIndex].score
+            XCTAssertGreaterThan(generalScore, appleIDScore,
+                "\"General\" (chevron) should have higher score than \"Identifiant Apple\" (fallback)")
         }
 
         // Verify chevron-backed items appear before fallback items

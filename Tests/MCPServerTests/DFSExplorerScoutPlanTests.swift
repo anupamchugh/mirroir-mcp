@@ -433,13 +433,14 @@ final class DFSExplorerScoutPlanTests: XCTestCase {
         let session = ExplorationSession()
         session.start(appName: "TestApp", goal: "test")
 
-        // Mix of chevron-backed and fallback navigation elements
+        // Mix of chevron-backed and fallback navigation elements.
+        // Y-sorted plan taps top-to-bottom, so General (y=240) is tapped first.
         let rootElements: [TapPoint] = [
-            // Fallback (no chevron) at top
-            TapPoint(text: "Identifiant Apple", tapX: 200, tapY: 240, confidence: 0.9),
-            // Chevron-backed mid-screen
-            TapPoint(text: "General", tapX: 100, tapY: 450, confidence: 0.9),
-            TapPoint(text: ">", tapX: 370, tapY: 450, confidence: 0.9),
+            // Chevron-backed at top
+            TapPoint(text: "General", tapX: 100, tapY: 240, confidence: 0.9),
+            TapPoint(text: ">", tapX: 370, tapY: 240, confidence: 0.9),
+            // Fallback (no chevron) mid-screen
+            TapPoint(text: "Identifiant Apple", tapX: 200, tapY: 450, confidence: 0.9),
         ]
         session.capture(
             elements: rootElements, hints: [], icons: [],
