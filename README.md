@@ -240,7 +240,9 @@ git clone https://github.com/jfarcand/mirroir-skills ~/.mirroir-mcp/skills
 
 ## From Exploration to CI
 
-The `generate_skill` tool lets an AI agent explore an app and produce SKILL.md files. It uses [breadth-first search](https://en.wikipedia.org/wiki/Breadth-first_search) (BFS) to traverse the app as a navigation graph — screens are nodes, tappable elements are edges. The explorer OCRs each screen, matches elements against [component definitions](#component-detection) to decide what to tap, visits child screens, and backtracks via the back chevron. Duplicate screens are skipped via structural fingerprinting. See [Component Detection](#component-detection) below for how the explorer interprets raw OCR into structured UI elements.
+The `generate_skill` tool lets an AI agent explore an app and produce SKILL.md files. It uses [breadth-first search](https://en.wikipedia.org/wiki/Breadth-first_search) (BFS) to traverse the app as a navigation graph — screens are nodes, tappable elements are edges. The explorer describes each screen, matches elements against [component definitions](#component-detection) to decide what to tap, visits child screens, and backtracks via the back chevron. Duplicate screens are skipped via structural fingerprinting. See [Component Detection](#component-detection) below for how the explorer interprets raw elements into structured UI components.
+
+The explorer works viewport-by-viewport: after calibrating the page length, it builds a plan from the current viewport, taps elements top-to-bottom, scrolls down to reveal more content, and rebuilds the plan for each new viewport. This approach works with both OCR and AI vision describers. Pass `seed` for deterministic ordering across runs.
 
 Exploration is bounded — it does not discover every reachable screen in large apps. Depth, screen count, and time limits keep runs practical. For targeted flows, provide a `goal` to focus the traversal.
 
@@ -298,6 +300,8 @@ This calls `generate_skill(action: "explore", app_name: "Settings", goal: "check
 | `max_time` | 300 | Maximum seconds before stopping |
 | `strategy` | auto | `"mobile"` (default), `"social"` (Reddit, Instagram), or `"desktop"` (macOS windows) |
 | `skip_calibration` | false | Skip component detection during calibration. Scrolling still runs. Useful with AI vision describers that produce clean semantic elements |
+| `seed` | random | Integer seed for deterministic exploration ordering. Same seed produces identical tap sequences |
+| `fresh` | true | Discard persisted navigation graph and explore from scratch. Set `false` for incremental exploration |
 
 **Guided session** — the AI navigates manually, capturing each screen:
 
@@ -384,6 +388,19 @@ Each definition specifies:
 - **Grouping** — how many points below the anchor row to absorb, and under what conditions
 
 20 iOS component definitions ship built-in. Place custom definitions in `~/.mirroir-mcp/components/` or `<cwd>/.mirroir-mcp/components/`. Test a definition against the current live screen with `calibrate_component`.
+
+#### Vision Indicators
+
+AI vision describers describe UI elements semantically ("Activité chevron") rather than character-by-character ("Activité" + ">"). A `vision-indicators.md` file maps these descriptions to OCR-compatible characters so the component pipeline works identically with both backends:
+
+```markdown
+## Indicators
+- chevron: >
+- dismiss: ×
+- back: <
+```
+
+When a vision element ends with a mapped suffix (e.g. "Entraînements chevron"), the normalizer splits it into two elements: "Entraînements" + ">". Place `vision-indicators.md` alongside your component definitions.
 
 See [Component Detection](docs/components.md) for the full definition format, match rule reference, and the detection pipeline.
 
