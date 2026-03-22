@@ -309,9 +309,11 @@ extension BFSExplorer {
         input: InputProviding,
         describer: ScreenDescribing
     ) -> ExploreStepResult? {
-        // Skip scrolling if content was already fully revealed or is infinite scroll
+        // Skip scrolling if content was already fully revealed or is infinite scroll.
+        // Per-viewport mode (skipCalibration) ignores calibration's exhaustion flag
+        // because exploration needs to scroll through viewports independently.
         guard graph.scrollCount(for: currentFP) < budget.scrollLimit,
-              !graph.isScrollExhausted(fingerprint: currentFP),
+              (skipCalibration || !graph.isScrollExhausted(fingerprint: currentFP)),
               !graph.isInfiniteScroll(fingerprint: currentFP) else { return nil }
 
         let centerX = windowSize.width / 2

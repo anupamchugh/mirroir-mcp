@@ -127,7 +127,10 @@ enum ScreenPlanner {
                 // components share the same raw tap target text (e.g. YOLO "icon").
                 guard component.definition.exploration.explorable,
                       let tapTarget = component.tapTarget,
-                      !visitedElements.contains(component.displayLabel) else {
+                      !visitedElements.contains(component.displayLabel),
+                      !ElementClassifier.chevronCharacters.contains(
+                          tapTarget.text.trimmingCharacters(in: .whitespaces)
+                      ) else {
                     return nil
                 }
 
