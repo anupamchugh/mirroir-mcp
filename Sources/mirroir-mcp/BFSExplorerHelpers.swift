@@ -128,14 +128,12 @@ extension BFSExplorer {
             allElements, budget: budget, screenHeight: windowSize.height
         )
 
-        // Fast path: skip component detection + validation, build plan from elements directly.
+        // Fast path: skip component detection. Do NOT build a full-page plan here.
+        // The explorer will build per-viewport plans from fresh OCR, processing one
+        // viewport at a time (scroll → describe → classify → tap → next viewport).
         if skipComponentDetection || componentDefinitions.isEmpty {
-            let plan = ScreenPlanner.buildPlan(
-                classified: classified, visitedElements: [],
-                scoutResults: [:], screenHeight: windowSize.height)
-            graph.setScreenPlan(for: fingerprint, plan: plan)
-            DebugLog.log("bfs", "calibration (scroll-only): \(plan.count) plan items " +
-                "from \(allElements.count) elements")
+            DebugLog.log("bfs", "calibration (scroll-only): \(scrollData.scrollCount) viewpoints, " +
+                "\(allElements.count) total elements — plan will be built per viewport")
             storeSummary(scrollData: scrollData, fingerprint: fingerprint)
             return .ok(viewportMayHaveShifted: scrolledWithNovelContent)
         }

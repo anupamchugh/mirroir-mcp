@@ -307,27 +307,20 @@ final class BFSExplorer: @unchecked Sendable {
             "visited=\(visited) next=\(rankedElement?.displayLabel ?? "nil")")
 
         guard let ranked = rankedElement, currentActions < budget.maxActionsPerScreen else {
-            // Try scrolling to reveal hidden elements
+            // Current viewport exhausted — scroll down to next viewport and rebuild plan.
+            // Clear the plan so the next step builds a fresh one from the new viewport.
             if let scrollResult = performScrollIfAvailable(
                 currentFP: currentFP, input: input, describer: describer
             ) {
-                DebugLog.log("bfs", "scroll revealed new elements, resetting action counter")
+                graph.clearScreenPlan(for: currentFP)
+                DebugLog.log("bfs", "viewport exhausted — scrolled down, plan cleared for rebuild")
                 lock.lock()
                 actionsOnCurrentScreen = 0
                 lock.unlock()
                 return scrollResult
             }
 
-            // Plateau advisory: if discovery has stalled, ask the AI advisor
-            // for untapped elements that might lead to new screens.
-            if let advisorResult = tryPlateauAdvisor(
-                fingerprint: currentFP, screenshotBase64: result.screenshotBase64,
-                viewportElements: viewportElements, input: input
-            ) {
-                return advisorResult
-            }
-
-            // Done with this screen
+            // Done with this screen — no more viewports to scroll to
             if screen.depth == 0 {
                 phase = .atRoot
             } else {
