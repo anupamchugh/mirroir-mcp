@@ -123,13 +123,15 @@ extension NavigationGraph {
 
     /// Update Q-value for the most recent edge from a screen after observing the outcome.
     /// Called after `recordTransition` to learn from each action's result.
+    /// Matches on displayLabel (the clean component label) since the BFS explorer
+    /// passes displayLabel as the key for Q-updates and dead-edge marks.
     func updateQValue(fromFingerprint: String, elementText: String, result: TransitionResult) {
         lock.lock()
         defer { lock.unlock() }
 
-        // Find the edge to update (last matching edge in the adjacency list)
+        // Find the edge to update by displayLabel (BFS passes displayLabel as elementText)
         guard var edgeList = adjacency[fromFingerprint],
-              let idx = edgeList.lastIndex(where: { $0.elementText == elementText }) else {
+              let idx = edgeList.lastIndex(where: { $0.displayLabel == elementText }) else {
             return
         }
 
@@ -148,7 +150,7 @@ extension NavigationGraph {
 
         // Keep the flat edges array in sync
         if let flatIdx = edges.lastIndex(where: {
-            $0.fromFingerprint == fromFingerprint && $0.elementText == elementText
+            $0.fromFingerprint == fromFingerprint && $0.displayLabel == elementText
         }) {
             edges[flatIdx] = edge
         }
@@ -159,17 +161,18 @@ extension NavigationGraph {
         lock.lock()
         defer { lock.unlock() }
         return adjacency[fromFingerprint]?
-            .last(where: { $0.elementText == elementText })?.qValue ?? 1.0
+            .last(where: { $0.displayLabel == elementText })?.qValue ?? 1.0
     }
 
     // MARK: - Dead Edge Tracking
 
     /// Mark an edge as dead (tap had no effect on the screen).
     /// Dead edges are excluded from future exploration plans.
+    /// Uses displayLabel for consistency with Q-value lookups.
     ///
     /// - Parameters:
     ///   - fromFingerprint: The screen where the dead tap occurred.
-    ///   - elementText: The element text that was tapped.
+    ///   - elementText: The display label of the element that was tapped.
     func markEdgeDead(fromFingerprint: String, elementText: String) {
         lock.lock()
         defer { lock.unlock() }

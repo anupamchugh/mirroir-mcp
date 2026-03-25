@@ -336,6 +336,8 @@ final class NavigationGraph: @unchecked Sendable {
     }
 
     /// Get unvisited elements for a screen, filtered by the visited set.
+    /// Visited elements are stored by displayLabel (component-cleaned name),
+    /// so this comparison uses displayLabel-compatible matching.
     func unvisitedElements(for fingerprint: String) -> [TapPoint] {
         lock.lock()
         defer { lock.unlock() }

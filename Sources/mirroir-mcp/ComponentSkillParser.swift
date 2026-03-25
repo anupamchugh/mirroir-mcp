@@ -414,10 +414,20 @@ enum ComponentSkillParser {
         _ text: String, interaction: ComponentInteraction
     ) -> ComponentExploration {
         let kv = extractKeyValues(from: text)
+        let roleStr = kv["role"] ?? "depth_navigation"
+        let priorityStr = kv["priority"] ?? "normal"
+        if kv["role"] != nil && ExplorationRole(rawValue: roleStr) == nil {
+            DebugLog.log("components",
+                "WARNING: invalid exploration role '\(roleStr)' — defaulting to depth_navigation")
+        }
+        if kv["priority"] != nil && ExplorationPriority(rawValue: priorityStr) == nil {
+            DebugLog.log("components",
+                "WARNING: invalid exploration priority '\(priorityStr)' — defaulting to normal")
+        }
         return ComponentExploration(
             explorable: parseBool(kv["explorable"]) ?? interaction.clickable,
-            role: ExplorationRole(rawValue: kv["role"] ?? "depth_navigation") ?? .depthNavigation,
-            priority: ExplorationPriority(rawValue: kv["priority"] ?? "normal") ?? .normal
+            role: ExplorationRole(rawValue: roleStr) ?? .depthNavigation,
+            priority: ExplorationPriority(rawValue: priorityStr) ?? .normal
         )
     }
 

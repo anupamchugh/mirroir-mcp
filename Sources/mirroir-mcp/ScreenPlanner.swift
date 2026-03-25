@@ -97,7 +97,7 @@ enum ScreenPlanner {
                 )
                 return RankedElement(point: element.point, score: score, reason: reason)
             }
-            .sorted { $0.point.tapY != $1.point.tapY ? $0.point.tapY < $1.point.tapY : $0.score > $1.score }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.point.tapY < $1.point.tapY }
     }
 
     // MARK: - Component-Based Plan Building
@@ -151,7 +151,7 @@ enum ScreenPlanner {
                 return RankedElement(point: tapTarget, score: score, reason: reason,
                     displayLabel: component.displayLabel, isBreadthNavigation: isBreadth)
             }
-            .sorted { $0.point.tapY != $1.point.tapY ? $0.point.tapY < $1.point.tapY : $0.score > $1.score }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.point.tapY < $1.point.tapY }
     }
 
     // MARK: - Private
@@ -320,6 +320,6 @@ enum ScreenPlanner {
                     isBreadthNavigation: element.isBreadthNavigation
                 )
             }
-            .sorted { $0.point.tapY != $1.point.tapY ? $0.point.tapY < $1.point.tapY : $0.score > $1.score }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.point.tapY < $1.point.tapY }
     }
 }

@@ -164,9 +164,10 @@ mirroir-mcp/
 │   │   └── ProcessExtensions.swift  # Timeout-aware Process.wait
 │   │
 │   └── FakeMirroring/               # Test double app for CI (not a mock — a real macOS app)
-│       ├── main.swift               # Entry point
-│       ├── FakeScreenDrawing.swift  # Renders OCR-detectable text labels
-│       └── Scenarios.swift          # Screen scenarios for integration tests
+│       ├── main.swift               # Entry point, window setup, input handling
+│       ├── FakeScreenDrawing.swift  # Renders OCR-detectable text labels, cards, tab bars
+│       ├── Scenarios.swift          # Screen scenarios + NavigationMap for tap routing
+│       └── HealthScenarios.swift    # Health-related scenarios (extracted for file size)
 │
 ├── Tests/
 │   ├── MCPServerTests/        # XCTest — server routing, tool handlers, exploration (71 files)
@@ -389,6 +390,120 @@ All timing and numeric constants can be overridden via environment variables. Th
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IPHONE_KEYBOARD_LAYOUT` | *(not set)* | Opt-in non-US keyboard layout for character translation (e.g., `Canadian-CSA` or `com.apple.keylayout.Canadian-CSA`). When unset, US QWERTY keycodes are sent. |
+
+## FakeMirroring
+
+FakeMirroring is a real macOS app that stands in for iPhone Mirroring during testing. It renders OCR-detectable text at known positions, responds to CGEvent taps, and supports scrolling — everything the real mirroring window does, without needing a physical iPhone.
+
+### Build & Run
+
+```bash
+swift build -c release --product FakeMirroring
+./scripts/package-fake-app.sh
+open .build/release/FakeMirroring.app
+```
+
+The app window is 410x898pt (matching iPhone screen dimensions) and floats above other windows so CGEvent taps always land on it.
+
+### Scenarios
+
+FakeMirroring renders different screen layouts via **scenarios**. Switch scenarios from the Scenario menu or programmatically via `bridge.triggerMenuAction(menu: "Scenario", item: "Settings")`.
+
+Key scenarios:
+
+| Scenario | Content | Navigation |
+|----------|---------|------------|
+| `settings` | 6 rows with chevrons (General, Privacy, etc.) | General → detail, Notifications → notifications |
+| `detailWithBack` | Detail screen with `<` back button | `<` → back to source |
+| `healthSummary` | 3 viewports: cards + setup rows + articles | Activity/Workouts/Steps → detailWithBack |
+| `scrollableList` | 20 rows at 60pt spacing (scroll testing) | General → detail |
+| `feed` | Instagram-style posts with images | Tab bar navigation |
+
+### Adding a Scenario
+
+1. Add a case to `FakeScenario` enum in `Scenarios.swift`
+2. Add a `static func myScenario() -> ScenarioData` in the appropriate file (extract to a new file if `Scenarios.swift` is near 500 lines)
+3. Wire it in `ScenarioContent.data(for:)` switch
+4. Add tap routing in `NavigationMap.destination(from:tapping:)` — return the target scenario for each tappable label, or `nil` for dead taps
+
+`ScenarioData` supports: `rows` (label + chevron), `cards` (Health-style summary cards), `plainTexts`, `buttons`, `placeholders`, and `hasTabBar` / `hasBackChevron`.
+
+### NavigationMap
+
+`NavigationMap.destination(from: scenario, tapping: label)` defines what happens when a label is tapped. Returns the target `FakeScenario` for navigation, or `nil` if the tap is a dead tap (no screen change). The BFS explorer uses this to discover new screens during integration tests.
+
+### Input Handling
+
+FakeMirroring handles: mouse clicks (tap), `scrollWheel` (swipe/scroll), `mouseDragged` (drag), long press (0.4s threshold), double tap (0.3s gap), and `keyDown` (text field typing). Hit regions are computed from rendered element positions. The `AlwaysAcceptingWindow` subclass accepts mouse events even when not the key window, so CGEvent-posted taps work during integration tests.
+
+## Integration Tests
+
+Integration tests in `Tests/IntegrationTests/` run real OCR against FakeMirroring's rendered text. They exercise the full pipeline: OCR → coordinate mapping → CGEvent tap → verify screen change.
+
+### Running
+
+```bash
+# Build and launch FakeMirroring first
+swift build -c release --product FakeMirroring
+./scripts/package-fake-app.sh
+open .build/release/FakeMirroring.app
+
+# Run integration tests (FakeMirroring must be visible)
+swift test --filter IntegrationTests
+
+# Run a single test
+swift test --filter BFSExplorationIntegrationTests/testMultiViewportExploration
+```
+
+Integration tests are **skipped in CI** (`swift test --skip IntegrationTests`) because they require a visible macOS window and CGEvent access. They run locally before merging.
+
+### Test Pattern
+
+Every integration test follows this pattern:
+
+```swift
+override func setUpWithError() throws {
+    try IntegrationTestHelper.ensureFakeMirroringRunning()
+    bridge = MirroringBridge(bundleID: IntegrationTestHelper.fakeBundleID)
+    guard IntegrationTestHelper.ensureWindowReady(bridge: bridge) else {
+        throw IntegrationTestError.windowNotCapturable
+    }
+    describer = ScreenDescriber(bridge: bridge, capture: ScreenCapture(bridge: bridge))
+    input = InputSimulation(bridge: bridge)
+
+    _ = bridge.triggerMenuAction(menu: "Scenario", item: "Settings")
+    usleep(500_000)
+}
+
+override func tearDown() {
+    // Restore default scenario for other tests
+    _ = bridge?.triggerMenuAction(menu: "Scenario", item: "Settings")
+    usleep(500_000)
+}
+```
+
+Tests create `ScreenDescriber`, `InputSimulation`, and `ExplorationSession` directly — no MCP transport needed.
+
+### Testing BFS Exploration
+
+Two approaches, use the right one:
+
+| Approach | When to use | Speed |
+|----------|-------------|-------|
+| **Unit tests** (`MockExplorerDescriber`) | Testing scroll logic, plan building, action counters, specific code paths | Fast (~2s) |
+| **Integration tests** (FakeMirroring) | Testing full exploration loop with real OCR, tap routing, backtracking | Slow (~2min) |
+
+Unit test mocks return a pre-defined sequence of screens. Integration tests use real OCR output that varies slightly between runs. Use `seed: 42` for deterministic tap ordering in integration tests.
+
+## Component Skills
+
+Component definitions are `.md` files that describe iOS UI patterns (table rows, summary cards, modal sheets). The BFS explorer matches OCR elements against these definitions to decide what to tap.
+
+Definitions live in the sibling [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo at `components/ios/`. They're loaded at runtime from `~/.mirroir-mcp/skills/components/ios/` or `<cwd>/.mirroir-mcp/skills/components/ios/` or `../mirroir-skills/components/ios/`.
+
+Each definition has: Match Rules (zone, element count, chevron/numeric patterns), Interaction (click target, expected result), Exploration (explorable flag, role, priority), and Grouping (row absorption).
+
+Test a definition against the current live screen with `calibrate_component`. See [Component Detection](docs/components.md) for the full format.
 
 ## Code Conventions
 

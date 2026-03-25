@@ -94,7 +94,8 @@ struct SerializableEdge: Codable, Sendable {
     let toFingerprint: String
     let actionType: String
     let elementText: String
-    let displayLabel: String
+    /// Optional for backward compatibility: v1 graphs lack displayLabel.
+    let displayLabel: String?
     let edgeType: String
     /// Learned action-value estimate. Optional for backward compatibility with v1 graphs.
     let qValue: Double?
@@ -115,7 +116,7 @@ struct SerializableEdge: Codable, Sendable {
             toFingerprint: toFingerprint,
             actionType: actionType,
             elementText: elementText,
-            displayLabel: displayLabel,
+            displayLabel: displayLabel ?? elementText,
             edgeType: EdgeType(rawValue: edgeType) ?? .push,
             qValue: qValue ?? 1.0
         )
@@ -133,8 +134,8 @@ struct SerializableGraph: Codable, Sendable {
     /// CEGAR refinement levels per fingerprint (optional for backward compatibility).
     let refinementLevels: [String: StateAbstraction.RefinementLevel]?
 
-    /// Current format version. Bump when the schema changes.
-    static let currentVersion = 1
+    /// Current format version. v2 added optional displayLabel on edges.
+    static let currentVersion = 2
 }
 
 /// Saves and loads NavigationGraph state to disk for incremental exploration.
@@ -203,9 +204,10 @@ enum GraphPersistence {
             decoder.dateDecodingStrategy = .iso8601
             let serializable = try decoder.decode(SerializableGraph.self, from: data)
 
-            guard serializable.version == SerializableGraph.currentVersion else {
-                DebugLog.log("persistence", "Stale graph version \(serializable.version) " +
-                    "for \(bundleID), expected \(SerializableGraph.currentVersion)")
+            // Accept v1 (legacy, no displayLabel on edges) and v2 (current).
+            guard serializable.version >= 1 && serializable.version <= SerializableGraph.currentVersion else {
+                DebugLog.log("persistence", "Unsupported graph version \(serializable.version) " +
+                    "for \(bundleID), expected 1–\(SerializableGraph.currentVersion)")
                 return nil
             }
 

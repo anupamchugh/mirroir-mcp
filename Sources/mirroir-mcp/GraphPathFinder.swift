@@ -212,7 +212,7 @@ enum GraphPathFinder {
         from path: [NavigationEdge],
         snapshot: GraphSnapshot
     ) -> String {
-        let labels = path.map(\.elementText).filter { !$0.isEmpty }
+        let labels = path.map(\.displayLabel).filter { !$0.isEmpty }
         if labels.isEmpty { return "exploration" }
 
         // Try landmark-based naming for longer paths
