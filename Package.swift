@@ -19,8 +19,9 @@ let package = Package(
             ]
         ),
         // C header + modulemap for the embacle Rust FFI (libembacle.a).
-        // Requires: `make install` in the embacle repo to place libembacle.a in /usr/local/lib/.
-        // Without it, #if canImport(CEmbacle) selects a no-op stub and the build still succeeds.
+        // Homebrew installs to /opt/homebrew/opt/embacle-ffi/lib/ (Apple Silicon)
+        // or /usr/local/opt/embacle-ffi/lib/ (Intel). Without it, #if canImport(CEmbacle)
+        // selects a no-op stub and the build still succeeds.
         .systemLibrary(
             name: "CEmbacle",
             path: "Sources/CEmbacle"
@@ -34,6 +35,13 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("Vision"),
                 .linkedFramework("CoreML"),
+                // Search Homebrew lib paths for libembacle.a (Apple Silicon + Intel)
+                .unsafeFlags([
+                    "-L/opt/homebrew/opt/embacle-ffi/lib",
+                    "-L/opt/homebrew/lib",
+                    "-L/usr/local/opt/embacle-ffi/lib",
+                    "-L/usr/local/lib",
+                ]),
             ]
         ),
         .executableTarget(
