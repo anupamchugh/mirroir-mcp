@@ -18,6 +18,7 @@ enum FakeScenario: String, CaseIterable {
     case login = "Login"
     case detailWithBack = "Detail (Back)"
     case health = "Health"
+    case healthSummary = "Health Summary"
     case storage = "Storage"
     case notifications = "Notifications"
     case permissionAlert = "Permission Alert"
@@ -112,6 +113,8 @@ enum ScenarioContent {
             return detailWithBackScenario()
         case .health:
             return healthScenario()
+        case .healthSummary:
+            return healthSummaryScenario()
         case .storage:
             return storageScenario()
         case .notifications:
@@ -394,32 +397,6 @@ enum ScenarioContent {
     /// Health/Santé-style dashboard with colored summary cards.
     /// Exercises: scroll_to (cards extend below fold), tap (card drill-down),
     /// assert_visible (stats values), fingerprinting (dense structured text).
-    private static func healthScenario() -> ScenarioData {
-        let cardW: CGFloat = 378, cardH: CGFloat = 110
-        let cardX: CGFloat = 16, gap: CGFloat = 12, startY: CGFloat = 180
-        func cardRect(_ i: Int) -> CGRect {
-            CGRect(x: cardX, y: startY + CGFloat(i) * (cardH + gap), width: cardW, height: cardH)
-        }
-        return ScenarioData(
-            header: "Summary",
-            rows: [],
-            hasTabBar: true,
-            cards: [
-                CardData(title: "Steps", value: "8,432", subtitle: "Daily Average",
-                         color: .systemRed, rect: cardRect(0)),
-                CardData(title: "Heart Rate", value: "72 BPM", subtitle: "Resting",
-                         color: .systemPink, rect: cardRect(1)),
-                CardData(title: "Sleep", value: "7h 23min", subtitle: "Time in Bed",
-                         color: .systemIndigo, rect: cardRect(2)),
-                CardData(title: "Exercise Minutes", value: "32 min", subtitle: "Move Goal",
-                         color: .systemGreen, rect: cardRect(3)),
-                CardData(title: "Respiratory Rate", value: "15 brpm", subtitle: "Average",
-                         color: .systemTeal, rect: cardRect(4)),
-                CardData(title: "Mindful Minutes", value: "12 min", subtitle: "Weekly Total",
-                         color: .systemOrange, rect: cardRect(5)),
-            ]
-        )
-    }
 }
 
 /// Maps (currentScenario, tappedLabel) → target scenario for interactive navigation.
@@ -479,6 +456,11 @@ enum NavigationMap {
         case .health:
             switch label {
             case "Steps", "Heart Rate", "Sleep": return .detailWithBack
+            default: return nil
+            }
+        case .healthSummary:
+            switch label {
+            case "Activity", "Workouts", "Steps", "Heart Rate": return .detailWithBack
             default: return nil
             }
         case .storage:
