@@ -504,6 +504,7 @@ See [Configuration Reference](docs/configuration.md) for all 40+ settings coveri
 | [Permissions](docs/permissions.md) | Fail-closed permission model and config file |
 | [Known Limitations](docs/limitations.md) | Focus stealing, keyboard layout gaps, autocorrect |
 | [Component Detection](docs/components.md) | Component definitions, calibration, and the detection pipeline |
+| [YOLO Icon Detection](docs/yolo-models.md) | Recommended YOLO models, CoreML setup, and configuration |
 | [Compiled Skills](docs/compiled-skills.md) | Zero-OCR skill replay |
 | [Testing](docs/testing.md) | FakeMirroring, integration tests, and CI strategy |
 | [Troubleshooting](docs/troubleshooting.md) | Debug mode and common issues |
