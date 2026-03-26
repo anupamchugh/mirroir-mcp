@@ -31,7 +31,7 @@ final class VisionScreenDescriber: @unchecked Sendable {
     }
 
     func describe() -> ScreenDescriber.DescribeResult? {
-        guard let info = bridge.getWindowInfo(), info.windowID != 0 else { return nil }
+        guard let info = bridge.getWindowInfo() else { return nil }
         guard let data = capture.captureData() else { return nil }
 
         // Resize for the vision API (Retina PNGs are too large)
