@@ -25,6 +25,8 @@ final class StubBridge: MenuActionCapable, @unchecked Sendable {
     var menuActionResult = true
     var pressResumeResult = true
     var processRunning = true
+    /// Records menu action calls for verification.
+    var menuActionCalls: [(menu: String, item: String)] = []
 
     func findProcess() -> NSRunningApplication? {
         processRunning ? NSRunningApplication.current : nil
@@ -45,7 +47,8 @@ final class StubBridge: MenuActionCapable, @unchecked Sendable {
     func activate() {}
 
     func triggerMenuAction(menu: String, item: String) -> Bool {
-        menuActionResult
+        menuActionCalls.append((menu: menu, item: item))
+        return menuActionResult
     }
 
     func pressResume() -> Bool {
@@ -74,8 +77,17 @@ final class StubInput: InputProviding, @unchecked Sendable {
 
     /// Records every swipe() invocation for coordinate verification.
     var swipeCalls: [SwipeCall] = []
+    /// Records every tap() invocation for verification.
+    var tapCalls: [(x: Double, y: Double)] = []
+    /// Records every typeText() invocation.
+    var typeCalls: [String] = []
+    /// Records every launchApp() invocation.
+    var launchAppCalls: [String] = []
 
-    func tap(x: Double, y: Double, cursorMode: CursorMode? = nil) -> String? { tapResult }
+    func tap(x: Double, y: Double, cursorMode: CursorMode? = nil) -> String? {
+        tapCalls.append((x: x, y: y))
+        return tapResult
+    }
     func swipe(fromX: Double, fromY: Double, toX: Double, toY: Double,
                durationMs: Int, cursorMode: CursorMode? = nil) -> String? {
         swipeCalls.append(SwipeCall(fromX: fromX, fromY: fromY,
@@ -87,9 +99,15 @@ final class StubInput: InputProviding, @unchecked Sendable {
     func longPress(x: Double, y: Double, durationMs: Int, cursorMode: CursorMode? = nil) -> String? { longPressResult }
     func doubleTap(x: Double, y: Double, cursorMode: CursorMode? = nil) -> String? { doubleTapResult }
     func shake() -> TypeResult { shakeResult }
-    func typeText(_ text: String) -> TypeResult { typeTextResult }
+    func typeText(_ text: String) -> TypeResult {
+        typeCalls.append(text)
+        return typeTextResult
+    }
     func pressKey(keyName: String, modifiers: [String]) -> TypeResult { pressKeyResult }
-    func launchApp(name: String) -> String? { launchAppResult }
+    func launchApp(name: String) -> String? {
+        launchAppCalls.append(name)
+        return launchAppResult
+    }
     func openURL(_ url: String) -> String? { openURLResult }
 }
 
