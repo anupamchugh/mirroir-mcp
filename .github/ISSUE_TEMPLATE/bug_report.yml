@@ -1,0 +1,112 @@
+name: Bug Report
+description: Report a bug with mirroir-mcp
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The more detail you provide, the faster we can diagnose.
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target type
+      description: What are you controlling with mirroir?
+      options:
+        - iPhone Mirroring
+        - Android (scrcpy / emulator)
+        - macOS Desktop window
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Homebrew (`brew install mirroir-mcp`)
+        - npx (`npx -y mirroir-mcp`)
+        - curl installer (`mirroir.sh`)
+        - Source (`swift build`)
+    validations:
+      required: true
+
+  - type: input
+    id: mirroir-version
+    attributes:
+      label: mirroir version
+      description: Run `mirroir doctor` or check your install version
+      placeholder: "v0.30.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "macOS 15.4 (Sequoia)"
+    validations:
+      required: true
+
+  - type: input
+    id: device-info
+    attributes:
+      label: Device & OS version
+      description: iPhone model + iOS version, or Android version, or N/A for desktop
+      placeholder: "iPhone 15 Pro, iOS 18.3"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: describer-mode
+    attributes:
+      label: Screen describer mode
+      description: Check `~/.mirroir-mcp/settings.json` or leave as default
+      options:
+        - auto (default)
+        - ocr
+        - vision (embacle)
+    validations:
+      required: false
+
+  - type: input
+    id: mcp-client
+    attributes:
+      label: MCP client
+      description: Which AI tool are you using?
+      placeholder: "Claude Code / Cursor / GitHub Copilot / Claude Desktop / other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug
+      placeholder: |
+        1. Launch mirroir
+        2. Call `describe_screen`
+        3. See error "..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug-log
+    attributes:
+      label: Debug log
+      description: |
+        Paste relevant lines from `~/.mirroir-mcp/debug.log`.
+        Run `mirroir doctor` and include the output if relevant.
+      render: text
+    validations:
+      required: false

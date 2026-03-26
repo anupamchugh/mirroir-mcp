@@ -1,0 +1,36 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What would you like mirroir-mcp to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What problem does this solve? How would you use it?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Input (tap, swipe, type, etc.)
+        - Screen intelligence (OCR, vision, describe_screen)
+        - Exploration (generate_skill, BFS/DFS)
+        - Skills (SKILL.md, test runner, compiled skills)
+        - CLI (doctor, record, compile, configure)
+        - Security (permissions, blocked apps)
+        - Documentation
+        - Other
+    validations:
+      required: true
