@@ -378,9 +378,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "FakeMirroring"
         window.contentView = FakeScreenView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
         window.acceptsMouseMovedEvents = true
-        // Float above other windows so CGEvent taps always hit FakeMirroring
-        // during integration tests, not apps behind it.
-        window.level = .floating
+        // Float above other windows during integration tests so CGEvent taps
+        // always hit FakeMirroring. Opt-in via env var to avoid annoying manual users.
+        if ProcessInfo.processInfo.environment["FAKEMIRRORING_FLOATING"] == "1" {
+            window.level = .floating
+        }
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.makeKeyAndOrderFront(nil)
         self.window = window
