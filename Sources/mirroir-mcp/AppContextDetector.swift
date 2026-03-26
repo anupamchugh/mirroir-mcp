@@ -101,6 +101,24 @@ enum AppContextDetector {
         }
         if hasBackButtonIcon { return false }
 
+        // Nav bar title check: apps have a centered title in the header zone (y: 100-250).
+        // Home screens have scattered icon labels in this zone, not a centered title.
+        // Only count a title if it's roughly centered (x within middle 60% of screen).
+        let screenWidth: Double = 410  // standard iPhone mirroring width
+        let centerZone = (screenWidth * 0.2)...(screenWidth * 0.8)
+        let headerElements = elements.filter {
+            StructuralFingerprint.headerZoneRange.contains($0.tapY)
+            && $0.text.count >= 3
+            && !LandmarkPicker.isTimePattern($0.text)
+            && !LandmarkPicker.isBareNumber($0.text)
+        }
+        // A single centered header element strongly indicates an app nav bar title.
+        // Home screen grids have multiple elements spread across the header zone.
+        let centeredHeaders = headerElements.filter { centerZone.contains($0.tapX) && $0.text.count >= 5 }
+        if centeredHeaders.count == 1 {
+            return false
+        }
+
         // Filter candidates: below status bar, short text, not time/number patterns,
         // not YOLO detection labels ("icon" is a generic YOLO class, not a readable label).
         let statusBarCutoff = screenHeight * 0.10
@@ -113,6 +131,13 @@ enum AppContextDetector {
         }
 
         guard candidates.count >= minHomeScreenCandidates else { return false }
+
+        // Single-word ratio: home screen icons are mostly single-word ("Settings", "Mail",
+        // "Safari"). Chart legends and app labels are multi-word ("Walking Distance",
+        // "Heart Rate"). Require >60% single-word candidates for home screen classification.
+        let singleWordCount = candidates.filter { !$0.text.contains(" ") }.count
+        let singleWordRatio = Double(singleWordCount) / Double(candidates.count)
+        guard singleWordRatio > 0.6 else { return false }
 
         // Verify grid layout: many rows AND multiple elements per row.
         // Home screen rows have 3-4 icon labels each. App list screens have ~1 per row.
