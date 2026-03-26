@@ -23,8 +23,9 @@ final class ScreenCapture: Sendable {
         self.bridge = bridge
     }
 
-    /// Capture the target window and return raw PNG data.
-    func captureData() -> Data? {
+    /// Capture the target window returning both screenshot data and window info.
+    /// Single entry point — all other capture methods delegate here.
+    func captureWithInfo() -> CaptureResult? {
         guard let info = bridge.getWindowInfo() else { return nil }
 
         // Activate the target so it's on the current Space — screencapture
@@ -37,7 +38,7 @@ final class ScreenCapture: Sendable {
 
         // Strategy 1: window-ID capture (requires valid CGWindowID)
         if info.windowID != 0, let data = captureByWindowID(info.windowID, to: tempPath) {
-            return data
+            return CaptureResult(data: data, info: info)
         }
 
         // Strategy 2: region capture (handles windowID=0, fullscreen, Split View)
@@ -45,13 +46,15 @@ final class ScreenCapture: Sendable {
             DebugLog.log("ScreenCapture",
                 "Window-ID capture failed for \(info.windowID), falling back to region capture")
         }
-        return captureByRegion(info, to: tempPath)
+        guard let data = captureByRegion(info, to: tempPath) else { return nil }
+        return CaptureResult(data: data, info: info)
     }
 
+    /// Capture the target window and return raw PNG data.
+    func captureData() -> Data? { captureWithInfo()?.data }
+
     /// Capture the target window and return base64-encoded PNG.
-    func captureBase64() -> String? {
-        return captureData()?.base64EncodedString()
-    }
+    func captureBase64() -> String? { captureData()?.base64EncodedString() }
 
     // MARK: - Capture strategies
 

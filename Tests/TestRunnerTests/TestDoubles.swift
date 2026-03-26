@@ -103,6 +103,14 @@ final class StubInput: InputProviding, @unchecked Sendable {
 
 final class StubCapture: ScreenCapturing, @unchecked Sendable {
     var captureResult: String?
+    var windowInfo: WindowInfo = WindowInfo(
+        windowID: 1, position: .zero, size: CGSize(width: 410, height: 898), pid: 1
+    )
+
+    func captureWithInfo() -> CaptureResult? {
+        guard let data = captureData() else { return nil }
+        return CaptureResult(data: data, info: windowInfo)
+    }
 
     func captureData() -> Data? {
         guard let captureResult else { return nil }

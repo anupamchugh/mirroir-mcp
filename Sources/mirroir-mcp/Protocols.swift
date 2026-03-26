@@ -69,8 +69,18 @@ extension InputProviding {
     }
 }
 
+/// Bundled capture output: screenshot data + the window info used to capture it.
+/// Eliminates redundant getWindowInfo() calls when the caller needs both.
+struct CaptureResult: Sendable {
+    let data: Data
+    let info: WindowInfo
+}
+
 /// Abstracts screenshot capture from the mirroring window.
 protocol ScreenCapturing: Sendable {
+    /// Capture the target window returning screenshot data + window info in one call.
+    /// Single source of truth — eliminates duplicate getWindowInfo() calls.
+    func captureWithInfo() -> CaptureResult?
     /// Capture the target window and return raw PNG data.
     func captureData() -> Data?
     /// Capture the target window and return base64-encoded PNG.
