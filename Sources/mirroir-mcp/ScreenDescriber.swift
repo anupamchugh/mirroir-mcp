@@ -52,7 +52,7 @@ final class ScreenDescriber: Sendable {
     /// Capture the mirroring window, run OCR, and return detected text elements
     /// with their tap coordinates plus the screenshot as base64 PNG.
     func describe() -> DescribeResult? {
-        guard let info = bridge.getWindowInfo(), info.windowID != 0 else { return nil }
+        guard let info = bridge.getWindowInfo() else { return nil }
 
         // Reuse the shared capture logic (window-ID with region fallback)
         guard let data = capture.captureData() else { return nil }

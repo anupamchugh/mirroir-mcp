@@ -25,7 +25,7 @@ final class ScreenCapture: Sendable {
 
     /// Capture the target window and return raw PNG data.
     func captureData() -> Data? {
-        guard let info = bridge.getWindowInfo(), info.windowID != 0 else { return nil }
+        guard let info = bridge.getWindowInfo() else { return nil }
 
         // Activate the target so it's on the current Space — screencapture
         // cannot capture windows on other macOS Spaces.
@@ -35,14 +35,16 @@ final class ScreenCapture: Sendable {
         let tempPath = NSTemporaryDirectory()
             + "mirroir-mcp-\(ProcessInfo.processInfo.processIdentifier).png"
 
-        // Strategy 1: window-ID capture
-        if let data = captureByWindowID(info.windowID, to: tempPath) {
+        // Strategy 1: window-ID capture (requires valid CGWindowID)
+        if info.windowID != 0, let data = captureByWindowID(info.windowID, to: tempPath) {
             return data
         }
 
-        // Strategy 2: region capture (handles fullscreen / Split View)
-        DebugLog.log("ScreenCapture",
-            "Window-ID capture failed for \(info.windowID), falling back to region capture")
+        // Strategy 2: region capture (handles windowID=0, fullscreen, Split View)
+        if info.windowID != 0 {
+            DebugLog.log("ScreenCapture",
+                "Window-ID capture failed for \(info.windowID), falling back to region capture")
+        }
         return captureByRegion(info, to: tempPath)
     }
 
