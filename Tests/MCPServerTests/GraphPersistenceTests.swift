@@ -53,7 +53,7 @@ final class GraphPersistenceTests: XCTestCase {
 
         // Mark an element visited and an edge dead
         graph.markElementVisited(fingerprint: rootFP, elementText: "Privacy")
-        graph.markEdgeDead(fromFingerprint: rootFP, elementText: "DeadElement")
+        graph.markEdgeDead(fromFingerprint: rootFP, displayLabel: "DeadElement")
 
         let snapshot = graph.finalize()
 

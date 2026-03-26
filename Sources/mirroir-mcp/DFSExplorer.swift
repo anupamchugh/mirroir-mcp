@@ -313,7 +313,7 @@ final class DFSExplorer: @unchecked Sendable {
 
         case .duplicate:
             // Mark this edge as dead so future exploration plans skip it
-            graph.markEdgeDead(fromFingerprint: currentFP, elementText: target.text)
+            graph.markEdgeDead(fromFingerprint: currentFP, displayLabel: target.text)
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
                 category: .deadTap,
                 screenFingerprint: currentFP,

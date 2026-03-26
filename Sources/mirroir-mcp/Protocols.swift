@@ -355,7 +355,7 @@ protocol NavigationGraphing: AnyObject, Sendable {
     // MARK: - Dead Edge Tracking
 
     /// Mark an edge as dead (tap had no effect on the screen).
-    func markEdgeDead(fromFingerprint: String, elementText: String)
+    func markEdgeDead(fromFingerprint: String, displayLabel: String)
 
     // MARK: - Recovery Events
 

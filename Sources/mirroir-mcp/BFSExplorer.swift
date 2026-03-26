@@ -398,10 +398,10 @@ final class BFSExplorer: @unchecked Sendable {
         DebugLog.log("bfs", "tap validation: \"\(label)\" — before=\(beforeElementCount) elements, " +
             "after=\(afterResult.elements.count) elements")
 
-        // Context escape is checked at the TOP of stepExploring (before each tap).
-        // Skipping it here: the post-tap screen is expected to differ from the
-        // current node, and detail screens with many short chart labels (J, S, M,
-        // dim., lun.) trigger false home-screen positives.
+        // Re-check context after tap: if we accidentally triggered the home gesture,
+        // detect it early. The improved AppContextDetector (nav-bar title + single-word
+        // ratio filters) prevents false positives on chart/data screens.
+        if let exit = handleContextEscape(elements: afterResult.elements, input: input, describer: describer) { return exit }
 
         let screenType = strategy.classifyScreen(
             elements: afterResult.elements, hints: afterResult.hints
@@ -444,7 +444,7 @@ final class BFSExplorer: @unchecked Sendable {
         DebugLog.log("bfs", "tapped \"\(label)\" at (\(Int(target.tapX)),\(Int(target.tapY))) → \(transitionDesc)")
         // Update learned Q-value for this edge (Fastbot2 pattern)
         (graph as? NavigationGraph)?.updateQValue(
-            fromFingerprint: currentFP, elementText: label, result: transition)
+            fromFingerprint: currentFP, displayLabel: label, result: transition)
         lock.lock()
         screenActions[currentFP, default: []].append(
             ExplorationReportFormatter.ActionEntry(
@@ -495,7 +495,7 @@ final class BFSExplorer: @unchecked Sendable {
 
         case .duplicate:
             // Mark this edge as dead so future exploration plans skip it
-            graph.markEdgeDead(fromFingerprint: currentFP, elementText: label)
+            graph.markEdgeDead(fromFingerprint: currentFP, displayLabel: label)
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
                 category: .deadTap,
                 screenFingerprint: currentFP,

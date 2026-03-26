@@ -125,13 +125,13 @@ extension NavigationGraph {
     /// Called after `recordTransition` to learn from each action's result.
     /// Matches on displayLabel (the clean component label) since the BFS explorer
     /// passes displayLabel as the key for Q-updates and dead-edge marks.
-    func updateQValue(fromFingerprint: String, elementText: String, result: TransitionResult) {
+    func updateQValue(fromFingerprint: String, displayLabel: String, result: TransitionResult) {
         lock.lock()
         defer { lock.unlock() }
 
-        // Find the edge to update by displayLabel (BFS passes displayLabel as elementText)
+        // Find the edge to update by displayLabel
         guard var edgeList = adjacency[fromFingerprint],
-              let idx = edgeList.lastIndex(where: { $0.displayLabel == elementText }) else {
+              let idx = edgeList.lastIndex(where: { $0.displayLabel == displayLabel }) else {
             return
         }
 
@@ -150,40 +150,39 @@ extension NavigationGraph {
 
         // Keep the flat edges array in sync
         if let flatIdx = edges.lastIndex(where: {
-            $0.fromFingerprint == fromFingerprint && $0.displayLabel == elementText
+            $0.fromFingerprint == fromFingerprint && $0.displayLabel == displayLabel
         }) {
             edges[flatIdx] = edge
         }
     }
 
     /// Get the Q-value for a specific edge, or the optimistic default if no edge exists.
-    func qValue(fromFingerprint: String, elementText: String) -> Double {
+    func qValue(fromFingerprint: String, displayLabel: String) -> Double {
         lock.lock()
         defer { lock.unlock() }
         return adjacency[fromFingerprint]?
-            .last(where: { $0.displayLabel == elementText })?.qValue ?? 1.0
+            .last(where: { $0.displayLabel == displayLabel })?.qValue ?? 1.0
     }
 
     // MARK: - Dead Edge Tracking
 
     /// Mark an edge as dead (tap had no effect on the screen).
     /// Dead edges are excluded from future exploration plans.
-    /// Uses displayLabel for consistency with Q-value lookups.
     ///
     /// - Parameters:
     ///   - fromFingerprint: The screen where the dead tap occurred.
-    ///   - elementText: The display label of the element that was tapped.
-    func markEdgeDead(fromFingerprint: String, elementText: String) {
+    ///   - displayLabel: The display label of the element that was tapped.
+    func markEdgeDead(fromFingerprint: String, displayLabel: String) {
         lock.lock()
         defer { lock.unlock() }
-        deadEdges.insert("\(fromFingerprint):\(elementText)")
+        deadEdges.insert("\(fromFingerprint):\(displayLabel)")
     }
 
     /// Check if an edge has been marked as dead.
-    func isEdgeDead(fromFingerprint: String, elementText: String) -> Bool {
+    func isEdgeDead(fromFingerprint: String, displayLabel: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return deadEdges.contains("\(fromFingerprint):\(elementText)")
+        return deadEdges.contains("\(fromFingerprint):\(displayLabel)")
     }
 
     /// Number of dead edges recorded.

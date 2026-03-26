@@ -108,13 +108,13 @@ final class PostActionVerifierTests: XCTestCase {
         )
         let fp = graph.currentFingerprint
 
-        XCTAssertFalse(graph.isEdgeDead(fromFingerprint: fp, elementText: "General"))
+        XCTAssertFalse(graph.isEdgeDead(fromFingerprint: fp, displayLabel: "General"))
         XCTAssertEqual(graph.deadEdgeCount, 0)
 
-        graph.markEdgeDead(fromFingerprint: fp, elementText: "General")
+        graph.markEdgeDead(fromFingerprint: fp, displayLabel: "General")
 
-        XCTAssertTrue(graph.isEdgeDead(fromFingerprint: fp, elementText: "General"))
-        XCTAssertFalse(graph.isEdgeDead(fromFingerprint: fp, elementText: "Privacy"))
+        XCTAssertTrue(graph.isEdgeDead(fromFingerprint: fp, displayLabel: "General"))
+        XCTAssertFalse(graph.isEdgeDead(fromFingerprint: fp, displayLabel: "Privacy"))
         XCTAssertEqual(graph.deadEdgeCount, 1)
     }
 
@@ -126,8 +126,8 @@ final class PostActionVerifierTests: XCTestCase {
         )
         let fp = graph.currentFingerprint
 
-        graph.markEdgeDead(fromFingerprint: fp, elementText: "A")
-        graph.markEdgeDead(fromFingerprint: fp, elementText: "A")
+        graph.markEdgeDead(fromFingerprint: fp, displayLabel: "A")
+        graph.markEdgeDead(fromFingerprint: fp, displayLabel: "A")
 
         XCTAssertEqual(graph.deadEdgeCount, 1)
     }
@@ -138,7 +138,7 @@ final class PostActionVerifierTests: XCTestCase {
             rootElements: makeElements(["A"]), icons: noIcons(),
             hints: [], screenshot: "img", screenType: .settings
         )
-        graph.markEdgeDead(fromFingerprint: graph.currentFingerprint, elementText: "A")
+        graph.markEdgeDead(fromFingerprint: graph.currentFingerprint, displayLabel: "A")
         XCTAssertEqual(graph.deadEdgeCount, 1)
 
         // Restart should clear
@@ -208,7 +208,7 @@ final class PostActionVerifierTests: XCTestCase {
         )
         let fp = graph.currentFingerprint
 
-        graph.markEdgeDead(fromFingerprint: fp, elementText: "General")
+        graph.markEdgeDead(fromFingerprint: fp, displayLabel: "General")
         graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
             category: .deadTap, screenFingerprint: fp, description: "Dead tap"
         ))

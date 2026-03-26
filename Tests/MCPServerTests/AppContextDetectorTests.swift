@@ -219,6 +219,49 @@ final class AppContextDetectorTests: XCTestCase {
         XCTAssertEqual(diagnosis, .inApp, "App root with scattered X should not be detected as home screen")
     }
 
+    // MARK: - Nav Bar Title Filter
+
+    /// A chart screen with a centered nav-bar title should be detected as in-app.
+    func testChartScreenWithNavBarTitleIsInApp() {
+        let elements = [
+            // Centered title in header zone
+            TapPoint(text: "Activity", tapX: 205, tapY: 130, confidence: 0.95),
+            // Chart day labels (short, grid-like)
+            TapPoint(text: "Mon", tapX: 50, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Tue", tapX: 100, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Wed", tapX: 150, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Thu", tapX: 200, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Fri", tapX: 250, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Sat", tapX: 300, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Sun", tapX: 350, tapY: 350, confidence: 0.9),
+            TapPoint(text: "Steps", tapX: 205, tapY: 500, confidence: 0.9),
+            TapPoint(text: "Heart", tapX: 205, tapY: 600, confidence: 0.9),
+        ]
+        let diagnosis = AppContextDetector.diagnose(elements: elements, screenHeight: screenHeight)
+        XCTAssertEqual(diagnosis, .inApp,
+            "Chart screen with centered nav bar title should be detected as in-app")
+    }
+
+    // MARK: - Multi-Word Label Filter
+
+    /// A screen with mostly multi-word labels should not be detected as home screen.
+    func testMultiWordLabelsRejectHomeScreen() {
+        let elements = [
+            TapPoint(text: "Walking Distance", tapX: 70, tapY: 300, confidence: 0.9),
+            TapPoint(text: "Heart Rate", tapX: 162, tapY: 300, confidence: 0.9),
+            TapPoint(text: "Sleep Analysis", tapX: 255, tapY: 300, confidence: 0.9),
+            TapPoint(text: "Blood Pressure", tapX: 70, tapY: 400, confidence: 0.9),
+            TapPoint(text: "Body Weight", tapX: 162, tapY: 400, confidence: 0.9),
+            TapPoint(text: "Respiratory Rate", tapX: 255, tapY: 400, confidence: 0.9),
+            TapPoint(text: "Mental Health", tapX: 70, tapY: 500, confidence: 0.9),
+            TapPoint(text: "Cycle Tracking", tapX: 162, tapY: 500, confidence: 0.9),
+            TapPoint(text: "Hearing Levels", tapX: 255, tapY: 500, confidence: 0.9),
+        ]
+        let diagnosis = AppContextDetector.diagnose(elements: elements, screenHeight: screenHeight)
+        XCTAssertEqual(diagnosis, .inApp,
+            "Screen with >60% multi-word labels should not be classified as home screen")
+    }
+
     // MARK: - Helpers
 
     /// Create a grid of home screen-like elements with short app-icon labels.

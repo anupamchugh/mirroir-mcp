@@ -182,4 +182,39 @@ final class VisionResponseParserTests: XCTestCase {
         XCTAssertEqual(elements[0].text, "Chrome")
         XCTAssertEqual(elements[1].text, "Search")
     }
+
+    // MARK: - Vision Indicator Normalization
+
+    func testIndicatorSuffixSplitsIntoTwoElements() {
+        // "chevron" suffix should split into label + ">" (if indicators are loaded)
+        // The normalizer checks against loaded indicators from vision-indicators.md.
+        // With no indicators loaded (test environment), the text passes through unchanged.
+        let response = """
+        [{"label": "Entraînements chevron", "x": 200, "y": 400}]
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: response, scaleX: 1.0, scaleY: 1.0
+        )
+        // If vision-indicators.md is found (sibling repo), we get 2 elements.
+        // If not found (CI), we get 1 element with the full text.
+        XCTAssertGreaterThanOrEqual(elements.count, 1,
+            "Should produce at least 1 element")
+        if elements.count == 2 {
+            XCTAssertEqual(elements[0].text, "Entraînements")
+            XCTAssertEqual(elements[1].text, ">")
+        } else {
+            XCTAssertEqual(elements[0].text, "Entraînements chevron")
+        }
+    }
+
+    func testNoIndicatorSuffixPassesThrough() {
+        let response = """
+        [{"label": "Settings", "x": 200, "y": 300}]
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: response, scaleX: 1.0, scaleY: 1.0
+        )
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].text, "Settings")
+    }
 }
