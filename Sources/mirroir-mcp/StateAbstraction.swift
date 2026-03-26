@@ -34,8 +34,6 @@ enum StateAbstraction {
     /// focuses on tappable actions, not visual similarity.
     static let behavioralThreshold: Double = 0.6
 
-    /// Node count above which coarsening is triggered to prevent state explosion.
-    static let coarseningThreshold: Int = 100
 
     // MARK: - Behavioral Equivalence
 
@@ -125,46 +123,4 @@ enum StateAbstraction {
         return "\(hasNavBar ? 1 : 0)-\(hasContent ? 1 : 0)-\(hasTabBar ? 1 : 0)"
     }
 
-    // MARK: - Coarsening
-
-    /// Identify pairs of nodes that can be merged (identical outgoing edge targets).
-    /// Returns pairs of fingerprints where the second can be merged into the first.
-    static func findMergeablePairs(
-        nodes: [String: ScreenNode],
-        edges: [NavigationEdge]
-    ) -> [(keep: String, merge: String)] {
-        // Build outgoing-edge signature for each node: sorted set of destination fingerprints
-        var edgeSignatures: [String: String] = [:]
-        for (fp, _) in nodes {
-            let destinations = edges
-                .filter { $0.fromFingerprint == fp }
-                .map { $0.toFingerprint }
-            let sig = Set(destinations).sorted().joined(separator: ",")
-            edgeSignatures[fp] = sig
-        }
-
-        // Group nodes by identical edge signatures + same structural similarity
-        var groups: [String: [String]] = [:]
-        for (fp, sig) in edgeSignatures {
-            groups[sig, default: []].append(fp)
-        }
-
-        var pairs: [(keep: String, merge: String)] = []
-        for (_, group) in groups where group.count > 1 {
-            let sorted = group.sorted()
-            let keep = sorted[0]
-            for fp in sorted.dropFirst() {
-                // Verify structural similarity before merging
-                guard let keepNode = nodes[keep], let mergeNode = nodes[fp] else { continue }
-                let sim = StructuralFingerprint.titleAwareSimilarity(
-                    keepNode.elements, mergeNode.elements
-                )
-                if sim >= StructuralFingerprint.similarityThreshold {
-                    pairs.append((keep: keep, merge: fp))
-                }
-            }
-        }
-
-        return pairs
-    }
 }

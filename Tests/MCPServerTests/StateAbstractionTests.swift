@@ -138,57 +138,6 @@ final class StateAbstractionTests: XCTestCase {
         XCTAssertEqual(sig, "0-0-0")
     }
 
-    // MARK: - Coarsening
-
-    func testFindMergeablePairsWithIdenticalBehavior() {
-        let nodeA = ScreenNode(
-            fingerprint: "aaa", elements: [tap("Settings"), tap("General")],
-            icons: [], hints: [], depth: 0, screenType: .settings,
-            screenshotBase64: "", visitedElements: [], navBarTitle: "Settings"
-        )
-        let nodeB = ScreenNode(
-            fingerprint: "bbb", elements: [tap("Settings"), tap("General")],
-            icons: [], hints: [], depth: 0, screenType: .settings,
-            screenshotBase64: "", visitedElements: [], navBarTitle: "Settings"
-        )
-        let edges = [
-            NavigationEdge(fromFingerprint: "aaa", toFingerprint: "ccc",
-                actionType: "tap", elementText: "General", displayLabel: "General", edgeType: .push),
-            NavigationEdge(fromFingerprint: "bbb", toFingerprint: "ccc",
-                actionType: "tap", elementText: "General", displayLabel: "General", edgeType: .push),
-        ]
-        let pairs = StateAbstraction.findMergeablePairs(
-            nodes: ["aaa": nodeA, "bbb": nodeB], edges: edges
-        )
-        XCTAssertEqual(pairs.count, 1)
-        XCTAssertEqual(pairs.first?.keep, "aaa")
-        XCTAssertEqual(pairs.first?.merge, "bbb")
-    }
-
-    func testFindMergeablePairsRejectsStructurallyDifferent() {
-        let nodeA = ScreenNode(
-            fingerprint: "aaa", elements: [tap("Settings")],
-            icons: [], hints: [], depth: 0, screenType: .settings,
-            screenshotBase64: "", visitedElements: [], navBarTitle: "Settings"
-        )
-        let nodeB = ScreenNode(
-            fingerprint: "bbb", elements: [tap("Photos"), tap("Albums")],
-            icons: [], hints: [], depth: 0, screenType: .list,
-            screenshotBase64: "", visitedElements: [], navBarTitle: "Photos"
-        )
-        let edges = [
-            NavigationEdge(fromFingerprint: "aaa", toFingerprint: "ccc",
-                actionType: "tap", elementText: "Go", displayLabel: "Go", edgeType: .push),
-            NavigationEdge(fromFingerprint: "bbb", toFingerprint: "ccc",
-                actionType: "tap", elementText: "Go", displayLabel: "Go", edgeType: .push),
-        ]
-        let pairs = StateAbstraction.findMergeablePairs(
-            nodes: ["aaa": nodeA, "bbb": nodeB], edges: edges
-        )
-        XCTAssertTrue(pairs.isEmpty,
-            "Structurally different nodes should not be merged")
-    }
-
     // MARK: - Refinement Level
 
     func testRefinementLevelComparable() {
