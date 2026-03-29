@@ -195,4 +195,91 @@ struct AppleVisionTextRecognizerTests {
         #expect(scaledEl.bboxWidth > fullEl.bboxWidth,
                 "Scaled bbox width should be larger than full-bounds width")
     }
+
+    @Test("Image taller than window maps Y coordinates through image height")
+    func testImageTallerThanWindow() {
+        // Simulate a screenshot taller than the window — screencapture may
+        // include window chrome (rounded corners, home indicator area) beyond
+        // the AX-reported window size.
+        // Bug: github.com/jfarcand/mirroir-mcp/issues/11
+        //
+        // Window: 410x898 points. Image: 820x1880 pixels (backingScale=2.0).
+        // imagePointHeight = 1880/2.0 = 940 points (> windowHeight of 898).
+        // The old code mapped Vision coords to windowHeight, compressing
+        // bottom-of-screen elements upward. The fix maps through imagePointHeight
+        // so pixel positions convert correctly via the uniform backing scale.
+        let imageHeight = 1880
+        // Place text near the bottom of the image (roughly at image point y≈800)
+        let textPixelY = 1600.0
+        let image = makeImageWithText(
+            "Profile",
+            width: 820,
+            height: imageHeight,
+            fontSize: 48,
+            position: CGPoint(x: 300, y: textPixelY)
+        )
+        let windowSize = CGSize(width: 410, height: 898)
+        let contentBounds = CGRect(x: 0, y: 0, width: 820, height: imageHeight)
+
+        let elements = recognizer.recognizeText(
+            in: image, windowSize: windowSize, contentBounds: contentBounds
+        )
+
+        guard let element = elements.first(where: { $0.text == "Profile" }) else {
+            Issue.record("Expected to find 'Profile' element")
+            return
+        }
+
+        // The backing scale is 820/410 = 2.0. Text drawn at pixel y=1600
+        // should map to image-point y ≈ 1600/2.0 = 800 points.
+        // With the old bug, it would map to y ≈ 800*(898/940) ≈ 764, compressed.
+        let expectedY = textPixelY / 2.0
+        let tolerance = 30.0
+        #expect(abs(element.textTopY - expectedY) < tolerance,
+                "Y should be near \(Int(expectedY)), got \(Int(element.textTopY))")
+
+        // Coordinates can exceed windowHeight (elements in chrome area outside
+        // the window), but elements inside the window should be accurate.
+        #expect(element.textTopY >= 0,
+                "Y coordinate should be non-negative")
+    }
+
+    @Test("Content bounds scaling still works for Larger display mode")
+    func testContentBoundsScalingLargerMode() {
+        // In Larger display mode, content is smaller than the image.
+        // ContentBoundsDetector reports borders → scaling maps content to window.
+        let image = makeImageWithText(
+            "Scale",
+            width: 820,
+            height: 1796,
+            position: CGPoint(x: 100, y: 400)
+        )
+        let windowSize = CGSize(width: 410, height: 898)
+
+        // Full-image content bounds (no borders → no scaling)
+        let fullBounds = CGRect(x: 0, y: 0, width: 820, height: 1796)
+        let fullElements = recognizer.recognizeText(
+            in: image, windowSize: windowSize, contentBounds: fullBounds
+        )
+
+        // Reduced content bounds (borders detected → scale to fill window)
+        let reducedBounds = CGRect(x: 0, y: 0, width: 600, height: 1400)
+        let scaledElements = recognizer.recognizeText(
+            in: image, windowSize: windowSize, contentBounds: reducedBounds
+        )
+
+        guard let fullEl = fullElements.first(where: { $0.text == "Scale" }),
+              let scaledEl = scaledElements.first(where: { $0.text == "Scale" })
+        else {
+            Issue.record("Expected to find 'Scale' in both element sets")
+            return
+        }
+
+        // With reduced content bounds, coordinates should be scaled outward
+        // (larger values) to map the smaller content area to the full window.
+        #expect(scaledEl.tapX > fullEl.tapX,
+                "Scaled X should be larger than full-bounds X")
+        #expect(scaledEl.bboxWidth > fullEl.bboxWidth,
+                "Scaled bbox width should be larger than full-bounds width")
+    }
 }

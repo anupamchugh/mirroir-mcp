@@ -86,6 +86,10 @@ public enum TapPointCalculator {
     /// Elements within this vertical distance are treated as the same row.
     /// Ensures all labels in an icon row get the same gap calculation.
     static var rowTolerance: Double { EnvConfig.tapRowTolerance }
+    /// Upward offset for icon rows in the bottom zone (tab bars).
+    /// Tab bars have smaller icons than home screen app icons, so the
+    /// full iconOffset overshoots. Default 0.0 targets the text center.
+    static var bottomZoneOffset: Double { EnvConfig.tapBottomZoneOffset }
 
     // MARK: - Pipeline stage types
 
@@ -197,7 +201,8 @@ public enum TapPointCalculator {
                 let textCenterY = (element.textTopY + element.textBottomY) / 2.0
                 if classified.isIconRow
                     && (classified.gap > minGapForOffset || classified.isInBottomZone) {
-                    tapY = max(element.textTopY - iconOffset, 0.0)
+                    let offset = classified.isInBottomZone ? bottomZoneOffset : iconOffset
+                    tapY = max(element.textTopY - offset, 0.0)
                 } else {
                     tapY = textCenterY
                 }

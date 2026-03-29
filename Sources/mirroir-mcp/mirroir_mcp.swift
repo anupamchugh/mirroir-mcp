@@ -265,7 +265,7 @@ struct MirroirMCP {
     }
 
     /// Build the appropriate ScreenDescribing implementation based on configuration.
-    /// "auto" (default) resolves to "vision" when embacle FFI is linked, "ocr" otherwise.
+    /// "auto" (default) resolves to "ocr" for reliable coordinate accuracy.
     /// "vision" uses VisionScreenDescriber (AI vision model via configured agent).
     /// "ocr" forces local Vision OCR + YOLO regardless of embacle availability.
     private static func buildDescriber(
@@ -279,7 +279,10 @@ struct MirroirMCP {
         case "vision":
             useVision = true
         case "auto":
-            useVision = EmbacleFFI.isAvailable
+            // Default to OCR — the vision path has known Y-coordinate bias
+            // where bottom-of-screen elements are placed too high. Users who
+            // want vision can set screenDescriberMode to "vision" explicitly.
+            useVision = false
         default:
             useVision = false
         }
@@ -287,7 +290,7 @@ struct MirroirMCP {
         if useVision {
             let agentName = EnvConfig.agent.isEmpty ? "embacle" : EnvConfig.agent
             if let agentConfig = AIAgentRegistry.resolve(name: agentName) {
-                let resolvedFrom = mode == "auto" ? "auto->vision" : "vision"
+                let resolvedFrom = "vision"
                 DebugLog.persist("startup",
                     "Screen describer: \(resolvedFrom) (agent=\(agentName))")
                 return VisionScreenDescriber(

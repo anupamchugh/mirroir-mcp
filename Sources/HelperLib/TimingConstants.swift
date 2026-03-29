@@ -113,6 +113,12 @@ public enum TimingConstants {
     /// to handle in-app tab bars where content sits close above the tab labels.
     public static let tapBottomZoneFraction: Double = 0.90
 
+    /// Upward offset for icon rows in the bottom zone (tab bars).
+    /// Tab bars have smaller icons (~24pt) and tighter spacing than home screen
+    /// icons (~60pt), so the full iconOffset overshoots. Default 0.0 targets
+    /// the text center, which is reliable since the entire tab area is tappable.
+    public static let tapBottomZoneOffset: Double = 0.0
+
     // MARK: - Safe Area
 
     /// Elements below `screenHeight - safeBottomMarginPt` trigger iOS home gestures

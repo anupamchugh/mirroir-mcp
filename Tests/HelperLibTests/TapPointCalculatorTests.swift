@@ -531,7 +531,9 @@ struct TapPointCalculatorTests {
     func tabBarSmallGapGetsOffset() {
         // Reddit-style layout: feed content at y=826, tab bar labels at y=856.
         // Gap = 30 < 50 threshold, but y=856 is in bottom 10% of 898pt window
-        // (bottomZoneY = 898 * 0.9 = 808.2), so offset is applied.
+        // (bottomZoneY = 898 * 0.9 = 808.2), so bottom zone triggers.
+        // bottomZoneOffset defaults to 0, so tapY = textTopY (the text label
+        // itself is tappable in tab bars — no upward icon offset needed).
         let elements = [
             element(
                 text: "Long feed content row that spans most of the width",
@@ -549,11 +551,11 @@ struct TapPointCalculatorTests {
         )
 
         let home = results.first { $0.text == "Home" }!
-        // Bottom zone offset: tapY = 856 - 30 = 826
-        #expect(home.tapY == 826.0, "Tab bar label should get offset via bottom zone")
+        // Bottom zone with offset=0: tapY = textTopY = 856
+        #expect(home.tapY == 856.0, "Tab bar label should target textTopY via bottom zone")
 
         let chat = results.first { $0.text == "Chat" }!
-        #expect(chat.tapY == 826.0, "All tab bar labels should get offset via bottom zone")
+        #expect(chat.tapY == 856.0, "All tab bar labels should target textTopY via bottom zone")
     }
 
     @Test("icon row mid-screen with small gap does not get offset")
@@ -618,9 +620,8 @@ struct TapPointCalculatorTests {
             elements: elements, windowWidth: windowWidth, windowHeight: windowHeight
         )
 
-        // y=860 is in bottom zone (808.2), gap from y=0 = 860 > 50 so gap also triggers.
-        // But importantly, bottom zone flag is set.
-        #expect(results[0].tapY == 830.0, "Bottom zone with 3 labels should get offset")
+        // y=860 is in bottom zone (808.2). bottomZoneOffset=0 so tapY = textTopY.
+        #expect(results[0].tapY == 860.0, "Bottom zone with 3 labels should target textTopY")
     }
 
     @Test("applyOffsets applies offset when isInBottomZone is true despite small gap")
@@ -631,14 +632,14 @@ struct TapPointCalculatorTests {
             element(text: "Profile", tapX: 205, textTopY: 856, textBottomY: 870),
         ]
         let row = TapPointCalculator.Row(elements: elements, bottomY: 870)
-        // Small gap (30) but isInBottomZone = true
+        // Small gap (30) but isInBottomZone = true — bottomZoneOffset=0 so tapY = textTopY
         let classified = [TapPointCalculator.ClassifiedRow(
             row: row, isIconRow: true, gap: 30, isInBottomZone: true
         )]
         let points = TapPointCalculator.applyOffsets(classified)
         #expect(points.count == 3)
         for point in points {
-            #expect(point.tapY == 826.0, "\(point.text) should get offset via bottom zone")
+            #expect(point.tapY == 856.0, "\(point.text) should target textTopY via bottom zone")
         }
     }
 }
