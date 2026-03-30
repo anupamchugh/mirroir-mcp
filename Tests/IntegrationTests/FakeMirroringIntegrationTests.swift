@@ -153,8 +153,8 @@ final class FakeMirroringIntegrationTests: XCTestCase {
         let windowHeight = Double(info.size.height)
 
         // FakeMirroring renders 5 tab bar labels ("Home", "Search", "Feed", "Chat", "Profile")
-        // in the bottom zone. TapPointCalculator should classify them as an icon row
-        // and apply the upward offset so taps land on the icon above the text.
+        // in the bottom zone. TapPointCalculator classifies them as an icon row with
+        // bottomZoneOffset (default 0), targeting textTopY directly.
         let tabBarNames = Set(["Home", "Search", "Feed", "Chat", "Profile"])
         let tabBarElements = result.elements.filter { tabBarNames.contains($0.text) }
 
@@ -172,17 +172,14 @@ final class FakeMirroringIntegrationTests: XCTestCase {
             )
         }
 
-        // The key assertion: tapY should be offset ABOVE the text center.
-        // Without offset, tapY would equal the text center. With the 30pt upward
-        // offset, tapY should be noticeably above where the text renders.
-        // We verify that at least the detected labels have tapY < the bottom 5%
-        // of the window, indicating the offset pulled them up from the label position.
-        let bottomLabelZone = windowHeight * 0.95
+        // Tab bar labels use bottomZoneOffset (default 0) so tapY targets
+        // textTopY directly — the entire tab button area is tappable and the
+        // text position is the most reliable anchor from OCR.
         for element in tabBarElements {
-            XCTAssertLessThan(
-                element.tapY, bottomLabelZone,
-                "Tab bar label '\(element.text)' tapY=\(element.tapY) should be offset upward "
-                + "from label position (< \(bottomLabelZone))"
+            XCTAssertGreaterThan(
+                element.tapY, bottomThreshold,
+                "Tab bar label '\(element.text)' tapY=\(element.tapY) should be at the text "
+                + "position in the bottom zone (> \(bottomThreshold))"
             )
         }
     }
