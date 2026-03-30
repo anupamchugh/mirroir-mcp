@@ -34,7 +34,35 @@ final class VisionScreenDescriber: @unchecked Sendable {
         // Single capture call resolves window info and screenshot together
         guard let result = capture.captureWithInfo() else { return nil }
         let info = result.info
-        let data = result.data
+        var data = result.data
+
+        // In Larger zoom mode, the screenshot has dark borders around the
+        // iOS content. Crop them before sending to the vision model so it
+        // only sees actual UI elements, not black bars.
+        if let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+           let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) {
+            let contentBounds = ContentBoundsDetector.detect(image: image)
+            let widthMargin = Double(image.width) * 0.05
+            let heightMargin = Double(image.height) * 0.05
+            let hasBorders = Double(contentBounds.width) < Double(image.width) - widthMargin
+                && Double(contentBounds.height) < Double(image.height) - heightMargin
+            if hasBorders,
+               let cropped = image.cropping(to: CGRect(
+                   x: Int(contentBounds.minX), y: Int(contentBounds.minY),
+                   width: Int(contentBounds.width), height: Int(contentBounds.height)
+               )) {
+                DebugLog.log("vision", "Larger mode detected — cropping borders before resize")
+                let mutableData = NSMutableData()
+                if let dest = CGImageDestinationCreateWithData(
+                    mutableData as CFMutableData, "public.png" as CFString, 1, nil
+                ) {
+                    CGImageDestinationAddImage(dest, cropped, nil)
+                    if CGImageDestinationFinalize(dest) {
+                        data = mutableData as Data
+                    }
+                }
+            }
+        }
 
         // Resize for the vision API (Retina PNGs are too large)
         guard let resized = ImageResizer.resize(
@@ -46,8 +74,13 @@ final class VisionScreenDescriber: @unchecked Sendable {
 
         let visionStart = CFAbsoluteTimeGetCurrent()
 
-        // Send to vision model and parse response
-        guard let responseText = sendVisionRequest(imageBase64: resized.base64) else {
+        // Send to vision model with resized image dimensions so the model
+        // knows the exact coordinate space to use for x/y values.
+        guard let responseText = sendVisionRequest(
+            imageBase64: resized.base64,
+            imageWidth: resized.width,
+            imageHeight: resized.height
+        ) else {
             DebugLog.log("vision", "describe: vision API request failed")
             return nil
         }
@@ -79,16 +112,22 @@ final class VisionScreenDescriber: @unchecked Sendable {
     // MARK: - Vision API Request
 
     /// Send the screenshot to the configured vision model and return the response text.
-    private func sendVisionRequest(imageBase64: String) -> String? {
+    private func sendVisionRequest(
+        imageBase64: String, imageWidth: Int, imageHeight: Int
+    ) -> String? {
         let baseURL = agentConfig.baseURL ?? "http://localhost:3000"
         guard let url = URL(string: baseURL + "/v1/chat/completions") else { return nil }
 
         let systemPrompt = loadDiagnosisPrompt(filename: "screen-describe.md")
 
         // Build multipart content with image for OpenAI-compatible vision API.
-        // This format works with embacle (copilot_headless), OpenAI, and compatible providers.
+        // Include the resized image dimensions so the model returns coordinates
+        // in the correct pixel space regardless of macOS zoom mode.
         let userContent: [[String: Any]] = [
-            ["type": "text", "text": "Return a JSON array of all tappable UI elements in this screenshot. ONLY output the JSON array, nothing else."],
+            ["type": "text", "text": "This image is \(imageWidth)x\(imageHeight) pixels. "
+                + "Return a JSON array of all tappable UI elements. "
+                + "Coordinates must be in pixel space (0 to \(imageWidth) for x, 0 to \(imageHeight) for y). "
+                + "ONLY output the JSON array, nothing else."],
             ["type": "image_url", "image_url": [
                 "url": "data:image/png;base64,\(imageBase64)",
             ]],
@@ -99,7 +138,7 @@ final class VisionScreenDescriber: @unchecked Sendable {
 
         let requestBody: [String: Any] = [
             "model": modelName,
-            "max_tokens": agentConfig.maxTokens,
+            "max_tokens": EnvConfig.visionMaxTokens,
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userContent],

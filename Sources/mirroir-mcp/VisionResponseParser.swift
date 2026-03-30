@@ -18,6 +18,8 @@ enum VisionResponseParser {
     }()
 
     /// A single element detected by the vision model.
+    /// Accepts multiple JSON formats: flat x/y or nested center.x/center.y,
+    /// and label/text/name for the display text.
     struct VisionElement: Decodable {
         let label: String?
         let text: String?
@@ -28,6 +30,38 @@ enum VisionResponseParser {
         /// Resolved text label, preferring `label` over `text`.
         var resolvedText: String {
             label ?? text ?? ""
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case label, text, name, x, y, type, kind, center
+        }
+
+        private struct CenterCoord: Decodable {
+            let x: Double
+            let y: Double
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            self.label = try container.decodeIfPresent(String.self, forKey: .label)
+                ?? container.decodeIfPresent(String.self, forKey: .name)
+            self.text = try container.decodeIfPresent(String.self, forKey: .text)
+            self.type = try container.decodeIfPresent(String.self, forKey: .type)
+                ?? container.decodeIfPresent(String.self, forKey: .kind)
+
+            if let flatX = try? container.decode(Double.self, forKey: .x),
+               let flatY = try? container.decode(Double.self, forKey: .y) {
+                self.x = flatX
+                self.y = flatY
+            } else if let center = try? container.decode(CenterCoord.self, forKey: .center) {
+                self.x = center.x
+                self.y = center.y
+            } else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .x, in: container,
+                    debugDescription: "No x/y or center coordinates found")
+            }
         }
     }
 
@@ -41,16 +75,34 @@ enum VisionResponseParser {
     static func parse(
         responseText: String, scaleX: Double, scaleY: Double
     ) -> (elements: [TapPoint], hints: [String]) {
+        // Warn if the response appears truncated (no closing bracket)
+        let trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.hasSuffix("]") && !trimmed.contains("```") {
+            DebugLog.persist("vision",
+                "WARNING: response appears truncated — consider increasing visionMaxTokens")
+        }
+
         guard let jsonString = extractJSON(from: responseText) else {
             DebugLog.log("vision", "parse: no JSON array found in response")
             return ([], [])
         }
 
+        // Decode element-by-element so one malformed element doesn't
+        // discard the entire array. Skip elements without coordinates.
         guard let data = jsonString.data(using: .utf8),
-              let visionElements = try? JSONDecoder().decode([VisionElement].self, from: data)
+              let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else {
             DebugLog.log("vision", "parse: JSON decode failed")
             return ([], [])
+        }
+
+        let decoder = JSONDecoder()
+        var visionElements = [VisionElement]()
+        for obj in jsonArray {
+            guard let elemData = try? JSONSerialization.data(withJSONObject: obj),
+                  let ve = try? decoder.decode(VisionElement.self, from: elemData)
+            else { continue }
+            visionElements.append(ve)
         }
 
         var elements = [TapPoint]()
@@ -108,6 +160,19 @@ enum VisionResponseParser {
             if let data = candidate.data(using: .utf8),
                (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] != nil {
                 return candidate
+            }
+        }
+
+        // Truncated array recovery: close at last complete element
+        if let start = text.firstIndex(of: "[") {
+            var candidate = String(text[start...])
+            if let lastBrace = candidate.lastIndex(of: "}") {
+                candidate = String(candidate[...lastBrace]) + "]"
+                if let data = candidate.data(using: .utf8),
+                   (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] != nil {
+                    DebugLog.log("vision", "extractJSON: recovered \(candidate.count) chars from truncated response")
+                    return candidate
+                }
             }
         }
 

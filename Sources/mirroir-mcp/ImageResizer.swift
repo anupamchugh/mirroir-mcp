@@ -21,6 +21,10 @@ enum ImageResizer {
         /// Usage: `windowX = visionX * scaleX`, `windowY = visionY * scaleY`.
         let scaleX: Double
         let scaleY: Double
+        /// Resized image width in pixels (for communicating to the vision model).
+        let width: Int
+        /// Resized image height in pixels (for communicating to the vision model).
+        let height: Int
     }
 
     /// Resize PNG data to a target width, maintaining aspect ratio.
@@ -74,7 +78,9 @@ enum ImageResizer {
             data: pngResult,
             base64: pngResult.base64EncodedString(),
             scaleX: scaleX,
-            scaleY: scaleY
+            scaleY: scaleY,
+            width: targetWidth,
+            height: targetHeight
         )
     }
 }

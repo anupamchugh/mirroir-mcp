@@ -152,6 +152,7 @@ extension EnvConfig {
             ("Screen Describer", [
                 ("screenDescriberMode", screenDescriberMode),
                 ("visionImageWidth", "\(visionImageWidth)"),
+                ("visionMaxTokens", "\(visionMaxTokens)"),
                 ("agent", agent.isEmpty ? "(none)" : agent),
                 ("agentTransport", agentTransport),
             ]),

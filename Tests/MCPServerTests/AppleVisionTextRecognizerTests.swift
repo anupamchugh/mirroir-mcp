@@ -282,4 +282,37 @@ struct AppleVisionTextRecognizerTests {
         #expect(scaledEl.bboxWidth > fullEl.bboxWidth,
                 "Scaled bbox width should be larger than full-bounds width")
     }
+
+    @Test("OCR coordinates stay in bounds across macOS zoom modes")
+    func testOCRCoordinatesAcrossZoomModes() {
+        // macOS View menu zoom changes window size but backing scale stays ~2.0.
+        // Verify OCR coordinates are within window bounds for all 3 modes.
+        let zooms: [(imageW: Int, imageH: Int, winW: Double, winH: Double, name: String)] = [
+            (840, 1880, 420, 940, "Larger"),
+            (820, 1796, 410, 898, "Actual Size"),
+            (700, 1540, 350, 770, "Smaller"),
+        ]
+        for z in zooms {
+            let backingScale = Double(z.imageW) / z.winW
+            #expect(abs(backingScale - 2.0) < 0.05,
+                "\(z.name): backing scale \(backingScale) should be ~2.0")
+
+            let image = makeImageWithText("Test",
+                width: z.imageW, height: z.imageH,
+                fontSize: 72,
+                position: CGPoint(x: Double(z.imageW) / 4, y: Double(z.imageH) / 2))
+            let windowSize = CGSize(width: z.winW, height: z.winH)
+            let contentBounds = CGRect(x: 0, y: 0, width: z.imageW, height: z.imageH)
+
+            let elements = recognizer.recognizeText(
+                in: image, windowSize: windowSize, contentBounds: contentBounds
+            )
+            for el in elements where el.text == "Test" {
+                #expect(el.tapX >= 0 && el.tapX <= z.winW,
+                    "\(z.name): tapX \(el.tapX) out of bounds for \(z.winW)pt window")
+                #expect(el.textTopY >= 0,
+                    "\(z.name): textTopY \(el.textTopY) should be non-negative")
+            }
+        }
+    }
 }

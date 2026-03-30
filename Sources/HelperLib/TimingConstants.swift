@@ -252,6 +252,11 @@ public enum TimingConstants {
     /// Default max tokens for AI model responses.
     public static let defaultAIMaxTokens: Int = 1024
 
+    /// Default max tokens for vision screen description responses.
+    /// Higher than defaultAIMaxTokens because home screens with 20+ elements
+    /// produce JSON arrays that easily exceed 4096 tokens.
+    public static let visionMaxTokens: Int = 8192
+
     // MARK: - Icon Detection
 
     /// Points; skip detected icons within this distance of an OCR TapPoint.

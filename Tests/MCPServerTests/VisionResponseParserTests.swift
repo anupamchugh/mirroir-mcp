@@ -217,4 +217,97 @@ final class VisionResponseParserTests: XCTestCase {
         XCTAssertEqual(elements.count, 1)
         XCTAssertEqual(elements[0].text, "Settings")
     }
+
+    // MARK: - Multi-Format Tolerance
+
+    func testParseNestedCenterCoordinates() {
+        let response = """
+        [{"label": "Settings", "center": {"x": 200, "y": 300}, "type": "app"}]
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: response, scaleX: 0.82, scaleY: 0.88
+        )
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].tapX, 200.0 * 0.82, accuracy: 0.01)
+        XCTAssertEqual(elements[0].tapY, 300.0 * 0.88, accuracy: 0.01)
+    }
+
+    func testParseNameFieldFallback() {
+        let response = """
+        [{"name": "Mail", "x": 100, "y": 150, "type": "app"}]
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: response, scaleX: 1.0, scaleY: 1.0
+        )
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].text, "Mail")
+    }
+
+    func testParseKindFieldFallback() {
+        let response = """
+        [{"label": "Météo", "x": 100, "y": 200, "kind": "app_icon"}]
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: response, scaleX: 1.0, scaleY: 1.0
+        )
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements[0].text, "Météo")
+    }
+
+    func testParseMixedValidAndMalformedElements() {
+        let response = """
+        [
+            {"label": "Good", "x": 100, "y": 200, "type": "app"},
+            {"label": "NoCoords", "type": "button"},
+            {"label": "AlsoGood", "x": 300, "y": 400, "type": "tab"}
+        ]
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: response, scaleX: 1.0, scaleY: 1.0
+        )
+        XCTAssertEqual(elements.count, 2)
+        XCTAssertEqual(elements[0].text, "Good")
+        XCTAssertEqual(elements[1].text, "AlsoGood")
+    }
+
+    // MARK: - Truncated JSON Recovery
+
+    func testExtractJSONRecoversTruncatedArray() {
+        let truncated = """
+        [{"label": "A", "x": 1, "y": 2}, {"label": "B", "x": 3, "y": 4}, {"label": "C", "x"
+        """
+        let result = VisionResponseParser.extractJSON(from: truncated)
+        XCTAssertNotNil(result, "Should recover valid prefix from truncated JSON")
+        if let json = result,
+           let data = json.data(using: .utf8),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            XCTAssertEqual(arr.count, 2, "Should recover A and B, dropping truncated C")
+        }
+    }
+
+    func testExtractJSONRecoversTruncatedWithNewlines() {
+        let truncated = """
+        [
+          {"label": "Météo", "x": 98, "y": 352, "type": "app"},
+          {"label": "Horloge", "x": 303, "y": 352, "type": "app"},
+          {"label": "Cal
+        """
+        let result = VisionResponseParser.extractJSON(from: truncated)
+        XCTAssertNotNil(result, "Should recover valid elements from truncated response")
+    }
+
+    func testParseRecoversTruncatedResponse() {
+        let truncated = """
+        [
+            {"label": "Home", "x": 50, "y": 800, "type": "tab"},
+            {"label": "Search", "x": 150, "y": 800, "type": "tab"},
+            {"label": "Prof
+        """
+        let (elements, _) = VisionResponseParser.parse(
+            responseText: truncated, scaleX: 1.0, scaleY: 1.0
+        )
+        XCTAssertEqual(elements.count, 2, "Should parse Home and Search from truncated response")
+        XCTAssertEqual(elements[0].text, "Home")
+        XCTAssertEqual(elements[1].text, "Search")
+    }
 }

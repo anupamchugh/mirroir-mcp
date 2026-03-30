@@ -126,6 +126,10 @@ extension EnvConfig {
         readInt("defaultAIMaxTokens", default: TimingConstants.defaultAIMaxTokens)
     }
 
+    public static var visionMaxTokens: Int {
+        readInt("visionMaxTokens", default: TimingConstants.visionMaxTokens)
+    }
+
     // MARK: - Icon Detection
 
     public static var iconOcrProximityFilter: Double {
