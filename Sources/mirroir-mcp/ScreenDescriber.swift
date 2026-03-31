@@ -62,15 +62,23 @@ final class ScreenDescriber: Sendable {
               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
         else { return nil }
 
+        // Upscale small screenshots so Apple Vision can resolve text on
+        // narrow zoom modes (e.g. "Smaller" at ~424px). The coordinate math
+        // in recognizers self-corrects because backingScale is derived from
+        // the image/window ratio.
+        let ocrImage = ImageUpscaler.upscaleIfNeeded(
+            image: cgImage, minWidth: EnvConfig.ocrMinImageWidth
+        )
+
         let windowWidth = Double(info.size.width)
         let windowHeight = Double(info.size.height)
 
         // Detect the iOS content area and delegate text recognition to the
         // pluggable backend. The recognizer returns elements in window-point space.
-        let contentBounds = ContentBoundsDetector.detect(image: cgImage)
+        let contentBounds = ContentBoundsDetector.detect(image: ocrImage)
         let ocrStart = CFAbsoluteTimeGetCurrent()
         let rawElements = textRecognizer.recognizeText(
-            in: cgImage, windowSize: info.size, contentBounds: contentBounds
+            in: ocrImage, windowSize: info.size, contentBounds: contentBounds
         )
         let ocrMs = Int((CFAbsoluteTimeGetCurrent() - ocrStart) * 1000)
         DebugLog.log("OCR", "level=\(EnvConfig.ocrRecognitionLevel) elements=\(rawElements.count) time=\(ocrMs)ms")
@@ -83,7 +91,7 @@ final class ScreenDescriber: Sendable {
 
         // Detect unlabeled icons in OCR-empty zones (tab bars, toolbars)
         let icons = IconDetector.detect(
-            image: cgImage, ocrElements: elements, windowSize: info.size
+            image: ocrImage, ocrElements: elements, windowSize: info.size
         )
 
         // Detect navigation patterns and generate target-appropriate hints

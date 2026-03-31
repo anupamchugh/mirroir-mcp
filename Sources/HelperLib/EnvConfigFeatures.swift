@@ -242,6 +242,12 @@ extension EnvConfig {
                  default: TimingConstants.ocrLanguageCorrection)
     }
 
+    /// Minimum screenshot pixel width for OCR. Images narrower than this are
+    /// upscaled before text recognition to improve detection on small zoom modes.
+    public static var ocrMinImageWidth: Int {
+        readInt("ocrMinImageWidth", default: TimingConstants.ocrMinImageWidth)
+    }
+
     // MARK: - YOLO Element Detection
 
     /// OCR backend selection: "auto", "vision", "yolo", or "both".
@@ -399,6 +405,13 @@ extension EnvConfig {
     public static var screenDescriberMode: String {
         readString("screenDescriberMode", envVar: "MIRROIR_SCREEN_DESCRIBER_MODE",
                    default: "auto")
+    }
+
+    /// Override the model name sent in vision chat completion requests.
+    /// Empty string means use the provider default (e.g. "copilot_headless" for embacle).
+    public static var visionModel: String {
+        readString("visionModel", envVar: "MIRROIR_VISION_MODEL",
+                   default: TimingConstants.visionModel)
     }
 
     /// Target image width (in pixels) for vision API calls. Screenshots are resized

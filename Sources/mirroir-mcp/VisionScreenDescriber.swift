@@ -182,8 +182,13 @@ final class VisionScreenDescriber: @unchecked Sendable {
     }
 
     /// Resolve the vision-capable model name.
-    /// For embacle, vision requires the `copilot_headless` provider prefix.
+    /// User override via `visionModel` setting takes priority. Otherwise,
+    /// embacle defaults to `copilot_headless` (supports image payloads).
     private func resolveVisionModel() -> String {
+        let override = EnvConfig.visionModel
+        if !override.isEmpty {
+            return override
+        }
         if agentConfig.provider == .embacle {
             return "copilot_headless"
         }

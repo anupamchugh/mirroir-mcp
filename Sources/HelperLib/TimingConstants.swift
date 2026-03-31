@@ -257,6 +257,11 @@ public enum TimingConstants {
     /// produce JSON arrays that easily exceed 4096 tokens.
     public static let visionMaxTokens: Int = 8192
 
+    /// Override the model name sent in vision chat completion requests.
+    /// Empty string means use the provider default (e.g. "copilot_headless" for embacle).
+    /// Set to a specific model (e.g. "gpt-4.1") to route through the configured provider.
+    public static let visionModel: String = ""
+
     // MARK: - Icon Detection
 
     /// Points; skip detected icons within this distance of an OCR TapPoint.
@@ -322,6 +327,12 @@ public enum TimingConstants {
 
     /// Whether to enable language correction during OCR text recognition.
     public static let ocrLanguageCorrection: Bool = true
+
+    /// Minimum screenshot pixel width for OCR. Images narrower than this are
+    /// upscaled before text recognition so Apple Vision can resolve small labels.
+    /// 600 ensures "Smaller" zoom mode (~424px @2x) is upscaled to match
+    /// "Actual Size" resolution (~636px @2x) while larger modes pass through.
+    public static let ocrMinImageWidth: Int = 600
 
     // MARK: - YOLO Element Detection
 
