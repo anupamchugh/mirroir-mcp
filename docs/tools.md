@@ -7,7 +7,7 @@ All 32 tools exposed by the MCP server. Mutating tools require [permission](perm
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `screenshot` | — | Capture the iPhone screen as base64 PNG |
-| `describe_screen` | `scroll`? | Analyze the screen and return UI elements with tap coordinates plus a grid-overlaid screenshot. Uses local OCR or AI vision depending on `screenDescriberMode`. `scroll: true` does a full-page scroll to capture all elements. |
+| `describe_screen` | `scroll`?, `omit_screenshot`? | Analyze the screen and return UI elements with tap coordinates plus a grid-overlaid screenshot. Uses local OCR or AI vision depending on `screenDescriberMode`. `scroll: true` does a full-page scroll to capture all elements. `omit_screenshot: true` returns text only (no image). |
 | `start_recording` | `output_path`? | Start video recording of the mirrored screen |
 | `stop_recording` | — | Stop recording and return the .mov file path |
 | `tap` | `x`, `y`, `cursor_mode`? | Tap at coordinates (relative to mirroring window) |
@@ -51,6 +51,8 @@ Coordinates are in points relative to the mirroring window's top-left corner. Us
 - **AI Vision** — When `screenDescriberMode` is `"vision"` (or `"auto"` with the embacle FFI linked), the screenshot is sent to an AI vision model that identifies UI elements semantically — cards, tabs, buttons, navigation structure — instead of raw text fragments. See [AI Vision Mode](../README.md#ai-vision-mode-embacle) for setup.
 
 Set `scroll: true` to perform a full-page scroll before returning results. The server scrolls through the entire page, deduplicates elements across viewports, and returns all detected elements — not just those visible in the initial viewport.
+
+Set `omit_screenshot: true` to return only the text description without the base64 PNG image. This saves context window space during long automation sessions where screenshots aren't needed. The `MIRROIR_OMIT_SCREENSHOT` environment variable (or `describeScreenOmitScreenshot` setting) controls the default; the tool parameter overrides it per-call.
 
 ## Typing Workflow
 
