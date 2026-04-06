@@ -59,6 +59,12 @@ final class ScreenToolHandlerTests: XCTestCase {
         return isErr
     }
 
+    private func contentBlockCount(_ response: JSONRPCResponse) -> Int {
+        guard case .object(let result) = response.result,
+              case .array(let content) = result["content"] else { return 0 }
+        return content.count
+    }
+
     // MARK: - screenshot
 
     func testScreenshotAppNotRunning() {
@@ -128,6 +134,41 @@ final class ScreenToolHandlerTests: XCTestCase {
         let text = extractText(response)
         XCTAssertTrue(text?.contains("Settings") ?? false)
         XCTAssertTrue(text?.contains("(100, 200)") ?? false)
+    }
+
+    func testDescribeScreenIncludesImageByDefault() {
+        bridge.processRunning = true
+        describer.describeResult = ScreenDescriber.DescribeResult(
+            elements: [TapPoint(text: "Hello", tapX: 10, tapY: 20, confidence: 0.9)],
+            screenshotBase64: "iVBORw0KGgo="
+        )
+        let response = callTool("describe_screen")
+        XCTAssertFalse(isError(response))
+        XCTAssertEqual(contentBlockCount(response), 2, "Default response should have text + image")
+    }
+
+    func testDescribeScreenOmitsImageWhenParameterTrue() {
+        bridge.processRunning = true
+        describer.describeResult = ScreenDescriber.DescribeResult(
+            elements: [TapPoint(text: "Hello", tapX: 10, tapY: 20, confidence: 0.9)],
+            screenshotBase64: "iVBORw0KGgo="
+        )
+        let response = callTool("describe_screen", args: ["omit_screenshot": .bool(true)])
+        XCTAssertFalse(isError(response))
+        XCTAssertEqual(contentBlockCount(response), 1, "Should have text only when omit_screenshot=true")
+        XCTAssertNotNil(extractText(response))
+    }
+
+    func testDescribeScreenOmitParameterOverridesEnvVar() {
+        bridge.processRunning = true
+        describer.describeResult = ScreenDescriber.DescribeResult(
+            elements: [TapPoint(text: "Hello", tapX: 10, tapY: 20, confidence: 0.9)],
+            screenshotBase64: "iVBORw0KGgo="
+        )
+        // Even if env var would omit, explicit false should include
+        let response = callTool("describe_screen", args: ["omit_screenshot": .bool(false)])
+        XCTAssertFalse(isError(response))
+        XCTAssertEqual(contentBlockCount(response), 2, "Explicit false should include image regardless of env var")
     }
 
     // MARK: - start_recording

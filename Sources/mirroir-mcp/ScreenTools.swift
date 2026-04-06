@@ -71,6 +71,11 @@ extension MirroirMCP {
                         "description": .string(
                             "Scroll through the full page to collect all elements with page-absolute Y coordinates (default: false)"),
                     ]),
+                    "omit_screenshot": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "Omit the screenshot image from the response to save context window space (default: uses MIRROIR_OMIT_SCREENSHOT env var, or false)"),
+                    ]),
                 ]),
             ],
             handler: { args in
@@ -91,6 +96,7 @@ extension MirroirMCP {
                 }
 
                 let scrollEnabled = args["scroll"]?.asBool() ?? false
+                let omitScreenshot = args["omit_screenshot"]?.asBool() ?? EnvConfig.describeScreenOmitScreenshot
 
                 // Full-page scroll mode: collect all elements across viewports
                 if scrollEnabled {
@@ -113,13 +119,10 @@ extension MirroirMCP {
                     lines.append("_meta: scroll_count=\(scrollResult.scrollCount) total_offset=\(Int(scrollResult.totalScrollOffset)) element_count=\(scrollResult.elements.count)")
                     let description = lines.joined(separator: "\n")
 
-                    return MCPToolResult(
-                        content: [
-                            .text(description),
-                            .image(scrollResult.screenshotBase64, mimeType: "image/png"),
-                        ],
-                        isError: false
-                    )
+                    let scrollContent: [MCPContent] = omitScreenshot
+                        ? [.text(description)]
+                        : [.text(description), .image(scrollResult.screenshotBase64, mimeType: "image/png")]
+                    return MCPToolResult(content: scrollContent, isError: false)
                 }
 
                 guard let result = describer.describe() else {
@@ -152,13 +155,10 @@ extension MirroirMCP {
                 lines.append("_meta: ocr_time_ms=\(result.ocrTimeMs) recognition_level=\(EnvConfig.ocrRecognitionLevel) element_count=\(result.elements.count)")
                 let description = lines.joined(separator: "\n")
 
-                return MCPToolResult(
-                    content: [
-                        .text(description),
-                        .image(result.screenshotBase64, mimeType: "image/png"),
-                    ],
-                    isError: false
-                )
+                let content: [MCPContent] = omitScreenshot
+                    ? [.text(description)]
+                    : [.text(description), .image(result.screenshotBase64, mimeType: "image/png")]
+                return MCPToolResult(content: content, isError: false)
             }
         ))
 
