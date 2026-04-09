@@ -1,7 +1,7 @@
 // Copyright 2026 jfarcand@apache.org
 // Licensed under the Apache License, Version 2.0
 //
-// ABOUTME: Auto-detects the appropriate exploration strategy based on target type and app name.
+// ABOUTME: Auto-detects the appropriate exploration strategy based on target type, app name, and screen recipes.
 // ABOUTME: Returns a StrategyChoice enum value used by GenerateSkillTools and ExplorationSession.
 
 import Foundation
@@ -53,5 +53,39 @@ enum StrategyDetector {
 
         // Default: mobile
         return .mobile
+    }
+
+    /// Refine strategy using detected screen components and loaded recipes.
+    ///
+    /// Called after the first screen's components are detected. If a recipe matches,
+    /// the strategy may be updated (e.g. detecting infinite-scroll components switches
+    /// from mobile to social). Explicit user overrides are never changed.
+    ///
+    /// - Parameters:
+    ///   - current: The current strategy from initial detection.
+    ///   - detectedComponents: Component kind names found on the first screen.
+    ///   - recipes: Loaded recipe definitions.
+    ///   - explicitStrategy: The user's explicit override, if any.
+    /// - Returns: A tuple of (possibly refined strategy, matched recipe or nil).
+    static func refineWithRecipe(
+        current: StrategyChoice,
+        detectedComponents: Set<String>,
+        recipes: [ScreenRecipe],
+        explicitStrategy: String? = nil
+    ) -> (StrategyChoice, RecipeMatch?) {
+        // Never override explicit user choice
+        if explicitStrategy != nil {
+            return (current, nil)
+        }
+
+        guard let match = RecipeMatcher.bestMatch(
+            detectedComponents: detectedComponents,
+            recipes: recipes
+        ) else {
+            return (current, nil)
+        }
+
+        let refined = RecipeMatcher.strategyFromRecipe(match.recipe, fallback: current)
+        return (refined, match)
     }
 }

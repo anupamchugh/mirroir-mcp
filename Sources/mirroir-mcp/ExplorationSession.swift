@@ -50,6 +50,8 @@ final class ExplorationSession: @unchecked Sendable {
     private var goalIndex: Int = 0
     private var graph: NavigationGraph = NavigationGraph()
     private var strategyChoice: String = "mobile"
+    private var matchedRecipe: RecipeMatch?
+    private var appDescription: AppDescription?
     private let lock = NSLock()
 
     /// Begin a new exploration session, resetting any prior state.
@@ -66,6 +68,8 @@ final class ExplorationSession: @unchecked Sendable {
         actionLog = []
         graph = NavigationGraph()
         strategyChoice = "mobile"
+        matchedRecipe = nil
+        appDescription = nil
         self.appName = appName
         self.startElements = nil
 
@@ -316,6 +320,34 @@ final class ExplorationSession: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return strategyChoice
+    }
+
+    /// Set the matched screen recipe after first-screen component analysis.
+    func setRecipeMatch(_ match: RecipeMatch) {
+        lock.lock()
+        defer { lock.unlock() }
+        matchedRecipe = match
+    }
+
+    /// The matched screen recipe, if any.
+    var currentRecipeMatch: RecipeMatch? {
+        lock.lock()
+        defer { lock.unlock() }
+        return matchedRecipe
+    }
+
+    /// Set the loaded app description from an APP.md file.
+    func setAppDescription(_ description: AppDescription) {
+        lock.lock()
+        defer { lock.unlock() }
+        appDescription = description
+    }
+
+    /// The loaded app description, if any.
+    var currentAppDescription: AppDescription? {
+        lock.lock()
+        defer { lock.unlock() }
+        return appDescription
     }
 
     // MARK: - Strategy Dispatch

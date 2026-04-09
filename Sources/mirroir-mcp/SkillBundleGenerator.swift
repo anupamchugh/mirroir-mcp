@@ -35,14 +35,17 @@ enum SkillBundleGenerator {
         appName: String,
         goal: String,
         snapshot: GraphSnapshot,
-        allScreens: [ExploredScreen]
+        allScreens: [ExploredScreen],
+        recipeMatch: RecipeMatch? = nil,
+        appDescription: AppDescription? = nil
     ) -> SkillBundle {
         let paths = GraphPathFinder.findInterestingPaths(in: snapshot)
 
         // If fewer than 2 interesting paths, generate a single skill from the flat list
         guard paths.count >= 2 else {
             let content = SkillMdGenerator.generate(
-                appName: appName, goal: goal, screens: allScreens
+                appName: appName, goal: goal, screens: allScreens,
+                recipeMatch: recipeMatch, appDescription: appDescription
             )
             let name = SkillMdGenerator.deriveName(appName: appName, goal: goal)
             return SkillBundle(appName: appName, skills: [(name: name, content: content)], manifest: nil)
@@ -58,7 +61,8 @@ enum SkillBundleGenerator {
 
             let pathGoal = path.name
             let content = SkillMdGenerator.generate(
-                appName: appName, goal: pathGoal, screens: screens
+                appName: appName, goal: pathGoal, screens: screens,
+                recipeMatch: recipeMatch, appDescription: appDescription
             )
             let name = SkillMdGenerator.deriveName(appName: appName, goal: pathGoal)
             skills.append((name: name, content: content))
@@ -67,7 +71,8 @@ enum SkillBundleGenerator {
         // Fallback if all paths produced empty screen lists
         if skills.isEmpty {
             let content = SkillMdGenerator.generate(
-                appName: appName, goal: goal, screens: allScreens
+                appName: appName, goal: goal, screens: allScreens,
+                recipeMatch: recipeMatch, appDescription: appDescription
             )
             let name = SkillMdGenerator.deriveName(appName: appName, goal: goal)
             return SkillBundle(appName: appName, skills: [(name: name, content: content)], manifest: nil)

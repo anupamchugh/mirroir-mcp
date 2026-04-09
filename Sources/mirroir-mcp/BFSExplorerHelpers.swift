@@ -178,6 +178,27 @@ extension BFSExplorer {
             DebugLog.log("bfs", "registered \(breadthLabels.count) breadth labels: \(breadthLabels.sorted())")
         }
 
+        // Recipe matching: identify app archetype from detected component composition.
+        // Runs on the first calibrated screen only (recipe is stored in the session).
+        if session.currentRecipeMatch == nil && !recipes.isEmpty {
+            let detectedKinds = Set(components.map { $0.kind })
+            if let match = RecipeMatcher.bestMatch(
+                detectedComponents: detectedKinds, recipes: recipes
+            ) {
+                session.setRecipeMatch(match)
+                let (refined, _) = StrategyDetector.refineWithRecipe(
+                    current: StrategyChoice(rawValue: session.currentStrategy) ?? .mobile,
+                    detectedComponents: detectedKinds,
+                    recipes: recipes
+                )
+                session.setStrategy(refined.rawValue)
+                DebugLog.log("bfs", "recipe matched: '\(match.recipe.name)' " +
+                    "(score=\(String(format: "%.1f", match.score)), " +
+                    "nav=\(match.recipe.navigationModel.type), " +
+                    "strategy=\(refined.rawValue))")
+            }
+        }
+
         // Validate: check unclassified ratio in content zone.
         let validation = CalibrationValidator.validate(
             components: components, screenHeight: windowSize.height

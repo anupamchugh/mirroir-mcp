@@ -17,8 +17,13 @@ enum SkillMdGenerator {
     ///   - appName: The app that was explored.
     ///   - goal: Optional description of the flow (e.g. "check software version").
     ///   - screens: Captured screens in navigation order.
+    ///   - recipeMatch: Optional matched screen recipe for archetype-aware generation.
     /// - Returns: A complete SKILL.md string with YAML front matter and markdown body.
-    static func generate(appName: String, goal: String, screens: [ExploredScreen]) -> String {
+    static func generate(
+        appName: String, goal: String, screens: [ExploredScreen],
+        recipeMatch: RecipeMatch? = nil,
+        appDescription: AppDescription? = nil
+    ) -> String {
         var lines: [String] = []
 
         // YAML front matter
@@ -32,7 +37,15 @@ enum SkillMdGenerator {
         } else {
             lines.append("description: Explore \(appName)")
         }
-        lines.append("tags: [generated]")
+        var tags = ["generated"]
+        if let recipe = recipeMatch?.recipe {
+            tags.append(recipe.name)
+        }
+        lines.append("tags: [\(tags.joined(separator: ", "))]")
+        if let recipe = recipeMatch?.recipe {
+            lines.append("archetype: \(recipe.name)")
+            lines.append("navigation: \(recipe.navigationModel.type)")
+        }
         lines.append("---")
         lines.append("")
 
@@ -44,6 +57,24 @@ enum SkillMdGenerator {
             lines.append("Explore the \(appName) app.")
         }
         lines.append("")
+
+        // Recipe exploration hints (when available, help the AI execute smarter)
+        if let hints = recipeMatch?.recipe.explorationHints, !hints.isEmpty {
+            lines.append("## Navigation Notes")
+            lines.append("")
+            for hint in hints {
+                lines.append("- \(hint)")
+            }
+            lines.append("")
+        }
+
+        // App description context (from APP.md — helps AI understand the app)
+        if let desc = appDescription, !desc.context.isEmpty {
+            lines.append("## App Context")
+            lines.append("")
+            lines.append(desc.context)
+            lines.append("")
+        }
 
         // Steps heading
         lines.append("## Steps")

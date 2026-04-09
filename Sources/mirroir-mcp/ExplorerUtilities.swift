@@ -29,25 +29,59 @@ enum ExplorerUtilities {
     ///   - describer: Screen describer for OCR.
     ///   - input: Input provider for tap actions.
     /// - Returns: Clean OCR result after dismissing any alerts, or nil if OCR fails.
+    /// OCR the screen, dismiss system alerts and app-specific obstacles, return clean result.
+    ///
+    /// When `obstacles` is non-empty (from APP.md), also checks for app-specific dialog
+    /// patterns and auto-dismisses them. System alerts (AlertDetector) are checked first.
+    ///
+    /// - Parameters:
+    ///   - describer: Screen describer for OCR.
+    ///   - input: Input provider for tap actions.
+    ///   - obstacles: App-specific obstacle rules from APP.md (default: empty).
+    /// - Returns: Clean OCR result after dismissing any alerts/obstacles, or nil if OCR fails.
     static func dismissAlertIfPresent(
         describer: ScreenDescribing,
-        input: InputProviding
+        input: InputProviding,
+        obstacles: [ObstacleRule] = []
     ) -> ScreenDescriber.DescribeResult? {
         guard var result = describer.describe() else { return nil }
 
         for _ in 0..<AlertDetector.maxDismissAttempts {
-            guard let alert = AlertDetector.detectAlert(elements: result.elements) else {
-                return result
+            // System alert takes priority
+            if let alert = AlertDetector.detectAlert(elements: result.elements) {
+                _ = input.tap(x: alert.dismissTarget.tapX, y: alert.dismissTarget.tapY)
+                usleep(EnvConfig.stepSettlingDelayMs * 1000)
+                guard let cleanResult = describer.describe() else { return nil }
+                result = cleanResult
+                continue
             }
-            // Tap the dismiss target
-            _ = input.tap(x: alert.dismissTarget.tapX, y: alert.dismissTarget.tapY)
-            usleep(EnvConfig.stepSettlingDelayMs * 1000)
-            // Re-OCR to get clean screen
-            guard let cleanResult = describer.describe() else { return nil }
-            result = cleanResult
+
+            // App-specific obstacle: check if any trigger text appears on screen
+            var dismissed = false
+            for obstacle in obstacles {
+                let triggerLower = obstacle.trigger.lowercased()
+                guard result.elements.contains(where: {
+                    $0.text.lowercased().contains(triggerLower)
+                }) else { continue }
+
+                let actionLower = obstacle.action.lowercased()
+                guard let target = result.elements.first(where: {
+                    $0.text.lowercased().contains(actionLower)
+                }) else { continue }
+
+                DebugLog.log("app-desc",
+                    "obstacle detected: '\(obstacle.trigger)' → tapping '\(target.text)'")
+                _ = input.tap(x: target.tapX, y: target.tapY)
+                usleep(EnvConfig.stepSettlingDelayMs * 1000)
+                guard let cleanResult = describer.describe() else { return nil }
+                result = cleanResult
+                dismissed = true
+                break
+            }
+
+            if !dismissed { return result }
         }
 
-        // After max attempts, return whatever we have
         return result
     }
 

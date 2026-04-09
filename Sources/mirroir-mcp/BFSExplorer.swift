@@ -44,6 +44,8 @@ final class BFSExplorer: @unchecked Sendable {
     let rng: ExplorationRNG
     /// Skip component detection during calibration (scroll still runs).
     let skipCalibration: Bool
+    /// Loaded screen recipes for archetype detection.
+    let recipes: [ScreenRecipe]
     /// Total viewpoints discovered during calibration scroll.
     var totalViewpoints: Int = 0
     /// Current viewport index being processed (0-based, increments on scroll-down).
@@ -60,7 +62,8 @@ final class BFSExplorer: @unchecked Sendable {
         seed: UInt64? = nil,
         skipCalibration: Bool = false,
         advisor: (any ExplorationAdvising)? = nil,
-        coverageMonitor: CoverageMonitor = CoverageMonitor()
+        coverageMonitor: CoverageMonitor = CoverageMonitor(),
+        recipes: [ScreenRecipe] = []
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -74,6 +77,7 @@ final class BFSExplorer: @unchecked Sendable {
         self.skipCalibration = skipCalibration
         self.advisor = advisor
         self.coverageMonitor = coverageMonitor
+        self.recipes = recipes
     }
 
     /// Record start time and seed frontier with the root screen. Call once after initial capture.
@@ -243,9 +247,11 @@ final class BFSExplorer: @unchecked Sendable {
         strategy: S.Type
     ) -> ExploreStepResult {
         let currentFP = screen.fingerprint
-        // OCR current screen, dismissing any alert
+        // OCR current screen, dismissing any system alert or app-specific obstacle
+        let appObstacles = session.currentAppDescription?.obstacleMode == .auto
+            ? (session.currentAppDescription?.obstacles ?? []) : []
         guard let result = ExplorerUtilities.dismissAlertIfPresent(
-            describer: describer, input: input
+            describer: describer, input: input, obstacles: appObstacles
         ) else {
             return .paused(reason: "Failed to capture screen during exploration")
         }

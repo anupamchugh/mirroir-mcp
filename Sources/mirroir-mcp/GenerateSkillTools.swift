@@ -344,7 +344,9 @@ extension MirroirMCP {
             appName: data.appName,
             goal: data.goal,
             snapshot: data.graphSnapshot,
-            allScreens: data.screens
+            allScreens: data.screens,
+            recipeMatch: session.currentRecipeMatch,
+            appDescription: session.currentAppDescription
         )
 
         var text = ExplorationResultFormatter.formatBundle(bundle, preamble: "Generated \(bundle.skills.count) skills from exploration:")
@@ -394,18 +396,28 @@ extension MirroirMCP {
                 "Spotlight search may still be visible. Try launching the app manually first.")
         }
 
-        // Parse budget overrides; permissions.json skipElements merge on top of built-in patterns
+        // Load APP.md description for this app (if available)
+        let appDesc = AppDescriptionLoader.load(appName: appName)
+        if let desc = appDesc {
+            session.setAppDescription(desc)
+            DebugLog.log("explore",
+                "APP.md loaded for '\(appName)': \(desc.skipElements.count) skip, " +
+                "\(desc.obstacles.count) obstacles, mode=\(desc.obstacleMode.rawValue)")
+        }
+
+        // Parse budget overrides; merge skip elements from permissions.json and APP.md
         let maxDepth = args["max_depth"]?.asInt() ?? ExplorationBudget.default.maxDepth
         let maxScreens = args["max_screens"]?.asInt() ?? ExplorationBudget.default.maxScreens
         let maxTime = args["max_time"]?.asInt() ?? ExplorationBudget.default.maxTimeSeconds
         let extraPatterns = PermissionPolicy.loadConfig()?.skipElements ?? []
+        let appSkipPatterns = appDesc?.skipElements ?? []
         let budget = ExplorationBudget(
             maxDepth: maxDepth,
             maxScreens: maxScreens,
             maxTimeSeconds: maxTime,
             maxActionsPerScreen: ExplorationBudget.default.maxActionsPerScreen,
             scrollLimit: ExplorationBudget.default.scrollLimit,
-            skipPatterns: ExplorationBudget.builtInSkipPatterns + extraPatterns
+            skipPatterns: ExplorationBudget.builtInSkipPatterns + extraPatterns + appSkipPatterns
         )
 
         let goal = args["goal"]?.asString() ?? ""
@@ -447,6 +459,7 @@ extension MirroirMCP {
             )
         } else {
             let componentDefinitions = ComponentLoader.loadAll()
+            let recipeDefinitions = RecipeLoader.loadAll()
             let detectionMode = ComponentDetectionMode(rawValue: EnvConfig.componentDetection) ?? .llmFirstScreen
             let classifier = detectionMode.buildClassifier(server: server)
             let advisor: any ExplorationAdvising = EmbacleFFI.isAvailable
@@ -458,7 +471,8 @@ extension MirroirMCP {
                 bridge: ctx.bridge,
                 seed: seed,
                 skipCalibration: skipCalibration,
-                advisor: advisor
+                advisor: advisor,
+                recipes: recipeDefinitions
             )
         }
         explorer.markStarted()
