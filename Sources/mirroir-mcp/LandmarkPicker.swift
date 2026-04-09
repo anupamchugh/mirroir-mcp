@@ -36,7 +36,8 @@ enum LandmarkPicker {
             el.confidence >= landmarkMinConfidence &&
             el.tapY >= statusBarMaxY &&
             !isTimePattern(el.text) &&
-            !isBareNumber(el.text)
+            !isBareNumber(el.text) &&
+            !ActionStepFormatter.isExcludedLabel(el.text)
         }
 
         // Tier 1: Structural candidates in header zone (100-250pt Y) — most stable

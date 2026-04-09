@@ -10,6 +10,28 @@ import HelperLib
 /// Maps action types (tap, swipe, type, etc.) to their display format.
 enum ActionStepFormatter {
 
+    /// Text cleanup rules loaded from `text-cleanup.md` in the skills repo.
+    /// Lazily initialized once on first use.
+    private static let cleanupRules = ComponentLoader.loadTextCleanupRules()
+
+    /// Strip leading OCR noise characters (bullets, markers) from a label.
+    /// Characters are defined in `text-cleanup.md`, not hardcoded.
+    static func cleanLabel(_ text: String) -> String {
+        let prefixes = cleanupRules.stripPrefixes
+        guard !prefixes.isEmpty else { return text }
+        var result = text
+        while let first = result.first, prefixes.contains(first) {
+            result = String(result.dropFirst())
+        }
+        return result.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Check if a label should be excluded from skill output.
+    /// Exclusions are defined in `text-cleanup.md`.
+    static func isExcludedLabel(_ text: String) -> Bool {
+        cleanupRules.excludeLabels.contains(text)
+    }
+
     /// Resolve an arrivedVia label against screen elements.
     /// Attempts exact match, case-insensitive match, then containment match.
     /// Returns the best matching element's text for proper casing, or the original if no match.
@@ -41,7 +63,9 @@ enum ActionStepFormatter {
     static func format(actionType: String?, arrivedVia: String?) -> String? {
         guard let actionType = actionType, !actionType.isEmpty else {
             // No action type: only emit if arrivedVia is present (default to tap)
-            guard let via = arrivedVia, !via.isEmpty else { return nil }
+            guard let rawVia = arrivedVia, !rawVia.isEmpty else { return nil }
+            let via = cleanLabel(rawVia)
+            guard !via.isEmpty else { return nil }
             return "Tap \"\(via)\""
         }
 
@@ -54,7 +78,9 @@ enum ActionStepFormatter {
         }
 
         // All remaining actions require arrivedVia
-        guard let arrivedVia = arrivedVia, !arrivedVia.isEmpty else { return nil }
+        guard let rawVia = arrivedVia, !rawVia.isEmpty else { return nil }
+        let arrivedVia = cleanLabel(rawVia)
+        guard !arrivedVia.isEmpty else { return nil }
 
         switch actionType {
         case "tap":

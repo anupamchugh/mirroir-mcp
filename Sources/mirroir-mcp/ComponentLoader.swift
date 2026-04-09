@@ -130,6 +130,64 @@ enum ComponentLoader {
         return indicators
     }
 
+    /// Parsed text cleanup rules: prefix characters to strip and labels to exclude.
+    struct TextCleanupRules: Sendable {
+        let stripPrefixes: [Character]
+        let excludeLabels: Set<String>
+    }
+
+    /// Load text cleanup rules from `text-cleanup.md` in component search paths.
+    /// Returns default empty rules if no file is found.
+    static func loadTextCleanupRules() -> TextCleanupRules {
+        for searchPath in searchPaths() {
+            let fileURL = searchPath.appendingPathComponent("text-cleanup.md")
+            guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                continue
+            }
+            return parseTextCleanup(content: content)
+        }
+        return TextCleanupRules(stripPrefixes: [], excludeLabels: [])
+    }
+
+    /// Parse the `## Strip Prefixes` and `## Exclude Labels` sections.
+    private static func parseTextCleanup(content: String) -> TextCleanupRules {
+        var prefixes: [Character] = []
+        var excludes: Set<String> = []
+        var currentSection: String?
+
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## Strip Prefixes") {
+                currentSection = "prefixes"
+                continue
+            }
+            if trimmed.hasPrefix("## Exclude Labels") {
+                currentSection = "excludes"
+                continue
+            }
+            if trimmed.hasPrefix("##") {
+                currentSection = nil
+                continue
+            }
+            guard trimmed.hasPrefix("- ") else { continue }
+            let value = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            guard !value.isEmpty else { continue }
+
+            switch currentSection {
+            case "prefixes":
+                if let char = value.first { prefixes.append(char) }
+            case "excludes":
+                excludes.insert(value)
+            default:
+                break
+            }
+        }
+
+        DebugLog.log("components",
+            "Loaded text cleanup: \(prefixes.count) prefixes, \(excludes.count) excludes")
+        return TextCleanupRules(stripPrefixes: prefixes, excludeLabels: excludes)
+    }
+
     /// Find all `.md` files in a directory (non-recursive).
     private static func findComponentFiles(in dirURL: URL) -> [URL] {
         let fm = FileManager.default
