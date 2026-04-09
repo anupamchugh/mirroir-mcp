@@ -197,30 +197,219 @@ Two match rules are typically set through calibration rather than written by han
 
 ## Built-in Components
 
-The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 20 iOS component definitions:
+The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 34 iOS component definitions covering Apple's Human Interface Guidelines:
 
-| Component | Pattern |
-|-----------|---------|
-| `table-row-disclosure` | Settings-style row with chevron (>) — drill-down navigation |
-| `table-row-detail` | Row with detail text but no chevron — info only |
-| `toggle-row` | Row with On/Off toggle switch |
-| `tab-bar-item` | Bottom tab bar items |
-| `navigation-bar` | Top navigation bar with title and back button |
-| `summary-card` | Multi-row metric cards (Health app) |
-| `modal-sheet` | Modal dialogs with dismiss buttons |
-| `alert-dialog` | System alert modals with dismiss/confirm buttons |
-| `search-bar` | Search input field |
-| `segmented-control` | Segmented picker control |
-| `list-item` | Generic list row |
-| `action-button` | Prominent action buttons |
-| `bottom-navigation-bar` | Bottom navigation bar (alternative to tab bar) |
-| `page-title` | Large page title text |
-| `section-header` | Non-interactive section titles |
-| `section-footer` | Non-interactive section footers |
-| `explanation-text` | Descriptive text blocks |
-| `chart-axis-label` | Chart axis labels (Health/Fitness charts) |
-| `article-modal` | Article-style modal content |
-| `empty-state` | Empty state placeholder views |
+**Navigation & Structure**
+
+| Component | Pattern | Explorable |
+|-----------|---------|:---:|
+| `table-row-disclosure` | Settings-style row with chevron (>) — drill-down navigation | yes |
+| `table-row-detail` | Row with detail text but no chevron — info only | no |
+| `table-row-subtitle` | Two-line row (title + subtitle) — Mail, Contacts, notifications | yes |
+| `table-row-value` | Key-value row with chevron — Settings ("Language → English") | yes |
+| `tab-bar-item` | Bottom tab bar items (split per item) | yes |
+| `navigation-bar` | Top navigation bar with title and back button | no |
+| `segmented-control` | Segmented picker control (split per item) | no |
+| `bottom-navigation-bar` | Bottom navigation bar grouping | no |
+
+**Cards & Content**
+
+| Component | Pattern | Explorable |
+|-----------|---------|:---:|
+| `summary-card` | Multi-row metric cards (Health, Fitness dashboards) | yes |
+| `metric-display` | Large numeric value with unit (72 bpm, 23°, 8,432 steps) | no |
+| `collection-cell` | Grid item in collection view (Photos, App Store) | yes |
+| `feed-post` | Social feed item (TikTok, Instagram, Reddit) | no |
+| `profile-header` | User card with name and avatar | no |
+
+**Interactive Controls**
+
+| Component | Pattern | Explorable |
+|-----------|---------|:---:|
+| `toggle-row` | Row with On/Off toggle switch | no |
+| `search-bar` | Search input field | no |
+| `action-button` | Prominent action buttons | yes |
+| `destructive-button` | Red delete/sign-out button — never tapped | no |
+| `compose-bar` | Bottom text input with send button (Messages, Slack) | no |
+| `inline-picker` | Date/time scroll wheel picker | no |
+
+**Dialogs & Overlays**
+
+| Component | Pattern | Explorable |
+|-----------|---------|:---:|
+| `modal-sheet` | Modal dialogs with dismiss buttons | no |
+| `alert-dialog` | System alert modals with dismiss/confirm buttons | no |
+| `action-sheet` | Bottom pop-up with stacked action choices | no |
+| `article-modal` | Article-style modal content | no |
+| `banner-notification` | Transient top notification banner — ignored | no |
+
+**Informational**
+
+| Component | Pattern | Explorable |
+|-----------|---------|:---:|
+| `page-title` | Large page title text | no |
+| `section-header` | Non-interactive section titles | no |
+| `section-footer` | Non-interactive section footers | no |
+| `explanation-text` | Descriptive text blocks | no |
+| `chart-axis-label` | Chart axis labels (Health/Fitness charts) | no |
+| `empty-state` | Empty state placeholder views | no |
+| `list-item` | Generic list row (fallback) | yes |
+
+**Actions & Toolbars**
+
+| Component | Pattern | Explorable |
+|-----------|---------|:---:|
+| `action-bar` | Horizontal icon row (Like, Share, Comment) | no |
+| `toolbar` | Bottom action icons (Mail compose, Safari share) | no |
+
+## Screen Recipes
+
+Screen recipes identify **app archetypes** from component composition. Instead of checking app names, the system matches the set of detected components against known recipes to understand the navigation model.
+
+### How Recipes Work
+
+After the first screen's components are detected during BFS calibration, the recipe matcher scores the component set against all loaded recipes. The best match above threshold becomes the screen's archetype, which informs:
+
+- **Strategy refinement** — a `social-feed` recipe switches from `mobile` to `social` strategy automatically
+- **Navigation model** — drill-down, infinite-scroll, grid-browse, etc.
+- **Exploration hints** — embedded in generated SKILL.md files as `## Navigation Notes`
+
+### Recipe Format
+
+Recipes are `.recipe.md` files with YAML front matter:
+
+```markdown
+---
+version: 1
+name: dashboard
+platform: ios
+---
+
+# Dashboard
+
+## Description
+Card-based overview showing summary metrics that drill down to detail views.
+
+## Required Components
+- summary-card
+
+## Supporting Components
+- metric-display
+- tab-bar-item
+- chart-axis-label
+
+## Forbidden Components
+- feed-post
+- compose-bar
+
+## Navigation Model
+- type: card-drill-down
+- backtrack: tap-back-chevron
+- scroll_behavior: finite
+- depth_pattern: card-to-detail
+
+## Exploration Hints
+- Summary cards are the primary drill-down targets
+- Metric displays are informational, not tappable
+- Tab bar switches between metric categories
+```
+
+### Built-in Recipes
+
+| Recipe | Required Components | Navigation Model |
+|--------|-------------------|-----------------|
+| `settings-list` | `table-row-disclosure` | drill-down |
+| `dashboard` | `summary-card` | card-drill-down |
+| `social-feed` | `feed-post` | infinite-scroll |
+| `content-grid` | `collection-cell` | grid-browse |
+| `conversation-list` | `table-row-subtitle` | list-to-thread |
+| `utility-display` | `metric-display` | minimal |
+| `detail-form` | `toggle-row` | form |
+
+### Recipe File Locations
+
+| Priority | Path |
+|----------|------|
+| 1 | `<cwd>/.mirroir-mcp/recipes/` |
+| 2 | `~/.mirroir-mcp/recipes/` |
+| 3 | `<cwd>/.mirroir-mcp/skills/recipes/ios/` |
+| 4 | `../mirroir-skills/recipes/ios/` |
+
+## APP.md — App Descriptions
+
+APP.md files let developers describe their app's structure, obstacles, and danger zones in plain language. This gives the explorer a map before it starts — skip lists prevent destructive taps, obstacles are auto-dismissed, and free-form context helps the AI navigate efficiently.
+
+### Format
+
+```markdown
+---
+version: 1
+app: Santé
+locale: fr_CA
+obstacle_mode: auto
+---
+
+# Santé (Health)
+
+## Structure
+Dashboard app with 4 tabs: Résumé, Partage, Parcourir, Profil.
+
+## Résumé Tab
+- Summary cards showing health metrics (Activité, Cœur, Sommeil)
+- Each card drills down to a detail screen with charts
+
+## Obstacles
+- Health Access permission dialog → tap "Autoriser"
+- Notification permission → tap "Ne pas autoriser"
+
+## Skip
+- Supprimer les données de Santé
+- Réinitialiser
+
+## Credentials
+- email: ${TEST_EMAIL:-test@example.com}
+
+## Tips
+- The Partage tab requires a second user — skip it
+- Chart screens have minimal tappable elements — backtrack quickly
+```
+
+### Sections
+
+| Section | Parsed | Purpose |
+|---------|:------:|---------|
+| `## Structure` | AI reads | High-level app overview |
+| `## [Name] Tab` | AI reads | Per-tab descriptions |
+| `## Obstacles` | machine | Auto-dismiss rules: `trigger → action` |
+| `## Skip` | machine | Elements the explorer must never tap |
+| `## Credentials` | machine | Login data with `${VAR}` substitution |
+| `## Tips` | AI reads | Free-form exploration advice |
+
+### Front Matter Fields
+
+| Field | Required | Description |
+|-------|:--------:|-------------|
+| `app` | yes | App name for matching (case-insensitive) |
+| `locale` | no | BCP-47 locale (e.g. `fr_CA`). Locale-specific files take priority. |
+| `obstacle_mode` | no | `auto` (default), `hint`, or `off` |
+
+### Integration
+
+- **Skip elements** merge into the exploration budget's skip patterns alongside built-in safety patterns and `permissions.json` entries
+- **Obstacles** extend the alert detection pipeline — checked after system alerts on every screen during BFS exploration
+- **Context** (Structure, tab descriptions, Tips) is injected into generated SKILL.md files as `## App Context`
+- **Credentials** support `${VAR}` and `${VAR:-default}` substitution from environment variables
+
+### File Locations
+
+APP.md files use the same search paths as skills:
+
+| Priority | Path |
+|----------|------|
+| 1 | `<cwd>/.mirroir-mcp/skills/` (recursive) |
+| 2 | `~/.mirroir-mcp/skills/` (recursive) |
+| 3 | `../mirroir-skills/apps/` (recursive) |
+| 4 | `../mirroir-skills/` (recursive) |
 
 ## Writing Custom Components
 

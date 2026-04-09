@@ -200,6 +200,35 @@ When you find yourself repeating the same agent workflow, capture it as a skill.
 
 Place files in `~/.mirroir-mcp/skills/` (global) or `<cwd>/.mirroir-mcp/skills/` (project-local).
 
+### APP.md — Teach mirroir Your App
+
+Write an `APP.md` file to describe your app's structure, known obstacles, and danger zones. This gives mirroir a map before it starts exploring — no more blind trial and error.
+
+```markdown
+---
+version: 1
+app: Santé
+locale: fr_CA
+obstacle_mode: auto
+---
+
+## Structure
+Dashboard with 4 tabs: Résumé, Partage, Parcourir, Profil.
+
+## Résumé Tab
+- Summary cards for health metrics that drill down to charts
+
+## Obstacles
+- Health Access permission → tap "Autoriser"
+- Notification permission → tap "Ne pas autoriser"
+
+## Skip
+- Supprimer les données de Santé
+- Réinitialiser
+```
+
+APP.md files live alongside skills in the same directories. The loader matches by `app:` field (case-insensitive) and supports locale-specific variants. Obstacle mode is configurable: `auto` (dismiss automatically), `hint` (inform the AI), or `off`.
+
 ```markdown
 ---
 version: 1
@@ -387,7 +416,15 @@ Each definition specifies:
 - **Interaction** — whether to tap, which element to target (`first_navigation_element`, `centered_element`, etc.), expected result (`navigates`, `toggles`, `dismisses`), and whether to backtrack after
 - **Grouping** — how many points below the anchor row to absorb, and under what conditions
 
-20 iOS component definitions ship built-in. Place custom definitions in `~/.mirroir-mcp/components/` or `<cwd>/.mirroir-mcp/components/`. Test a definition against the current live screen with `calibrate_component`.
+34 iOS component definitions ship built-in, covering Apple HIG patterns from table rows and tab bars to feed posts, metric displays, and destructive buttons. Place custom definitions in `~/.mirroir-mcp/components/` or `<cwd>/.mirroir-mcp/components/`. Test a definition against the current live screen with `calibrate_component`.
+
+### Screen Recipes
+
+Screen recipes identify app archetypes from component composition — no app-name hardcoding needed. When the explorer sees `summary-card` + `tab-bar-item`, it matches the `dashboard` recipe and knows to navigate via card drill-down with finite scroll. When it sees `feed-post`, it matches `social-feed` and avoids infinite scroll traps.
+
+7 built-in recipes: `settings-list`, `dashboard`, `social-feed`, `content-grid`, `conversation-list`, `utility-display`, `detail-form`. Each recipe defines required/supporting/forbidden components, a navigation model, and exploration hints that flow into generated skills.
+
+Place custom recipes in `~/.mirroir-mcp/recipes/` or the sibling skills repo at `recipes/ios/`.
 
 #### Vision Indicators
 
@@ -503,7 +540,7 @@ See [Configuration Reference](docs/configuration.md) for all 40+ settings coveri
 | [Security](docs/security.md) | Threat model, kill switch, and recommendations |
 | [Permissions](docs/permissions.md) | Fail-closed permission model and config file |
 | [Known Limitations](docs/limitations.md) | Focus stealing, keyboard layout gaps, autocorrect |
-| [Component Detection](docs/components.md) | Component definitions, calibration, and the detection pipeline |
+| [Component Detection](docs/components.md) | Component definitions, screen recipes, APP.md descriptions, and the detection pipeline |
 | [YOLO Icon Detection](docs/yolo-models.md) | Recommended YOLO models, CoreML setup, and configuration |
 | [Compiled Skills](docs/compiled-skills.md) | Zero-OCR skill replay |
 | [Testing](docs/testing.md) | FakeMirroring, integration tests, and CI strategy |

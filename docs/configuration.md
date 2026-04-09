@@ -87,6 +87,13 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | `commandTimeoutSeconds` | `60` | Timeout for command-based AI agent processes |
 | `defaultAIMaxTokens` | `1024` | Maximum tokens for AI model responses |
 
+## App Descriptions & Recipes
+
+APP.md files and screen recipes are not configured via `settings.json` — they are file-based. See [Component Detection](components.md) for:
+
+- **APP.md** — describe your app's structure, obstacles, skip lists, and credentials. `obstacle_mode` field controls auto-dismiss behavior (`auto`, `hint`, `off`).
+- **Screen Recipes** — archetype definitions (`.recipe.md`) that match component compositions to navigation models.
+
 ## Advanced Tuning
 
 Additional low-level tuning constants (icon detection, scroll deduplication, tap point calculation, grid overlay) are available in [`TimingConstants.swift`](../Sources/HelperLib/TimingConstants.swift) and [`EnvConfigFeatures.swift`](../Sources/HelperLib/EnvConfigFeatures.swift).

@@ -178,7 +178,19 @@ steps:
 
 Pass the path to a `.md` component definition file. The report includes per-row analysis with zone, element count, confidence scores, and match/mismatch reasons. Use it to validate and tune match rules before deploying a component for exploration.
 
-See [Component Detection](components.md) for the definition format and calibration workflow.
+See [Component Detection](components.md) for the definition format, screen recipes, APP.md descriptions, and the calibration workflow.
+
+## Screen Recipes & APP.md
+
+During BFS exploration, the system automatically:
+
+1. **Loads screen recipes** — matches detected components against archetype recipes (settings-list, dashboard, social-feed, etc.) to understand navigation patterns
+2. **Loads APP.md** — finds a matching app description by name and applies skip lists, obstacle auto-dismiss rules, and exploration context
+3. **Refines strategy** — recipe match may switch from `mobile` to `social` strategy when infinite-scroll content is detected
+
+Both are opt-in: without recipe files or APP.md, the explorer behaves exactly as before.
+
+See [Component Detection](components.md) for recipe format, APP.md format, and file locations.
 
 ### Variable Substitution
 
