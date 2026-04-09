@@ -81,14 +81,16 @@ enum AppDescriptionLoader {
         name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
     }
 
-    /// Recursively find all files ending in `APP.md` (case-insensitive) in a directory.
-    /// Uses the same enumeration pattern as SkillTools.findFiles.
+    /// Recursively find all files named `APP.md` (case-insensitive) in a directory.
+    /// Only matches files whose last path component is exactly "APP.md" (any case),
+    /// not files like "install-app.md" that happen to end with "app.md".
     private static func findAppFiles(in baseDir: String) -> [String] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(atPath: baseDir) else { return [] }
         var results: [String] = []
         while let entry = enumerator.nextObject() as? String {
-            if entry.lowercased().hasSuffix("app.md") {
+            let filename = (entry as NSString).lastPathComponent.lowercased()
+            if filename == "app.md" {
                 results.append(baseDir + "/" + entry)
             }
         }
