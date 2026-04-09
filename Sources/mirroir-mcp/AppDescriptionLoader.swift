@@ -17,10 +17,10 @@ enum AppDescriptionLoader {
     /// from the highest-priority search path wins. Locale-specific files
     /// (matching the system locale) are preferred over locale-less files.
     ///
-    /// - Parameter appName: The app name to match (case-insensitive).
+    /// - Parameter appName: The app name to match (case-insensitive, diacritics-insensitive).
     /// - Returns: The best matching AppDescription, or nil if no APP.md matches.
     static func load(appName: String) -> AppDescription? {
-        let normalizedName = appName.lowercased()
+        let normalizedName = foldName(appName)
         var bestMatch: AppDescription?
         let systemLocale = Locale.current.identifier
 
@@ -33,7 +33,7 @@ enum AppDescriptionLoader {
                 guard let description = AppDescriptionParser.parse(content: content) else {
                     continue
                 }
-                guard description.appName.lowercased() == normalizedName else {
+                guard foldName(description.appName) == normalizedName else {
                     continue
                 }
 
@@ -70,6 +70,12 @@ enum AppDescriptionLoader {
     }
 
     // MARK: - Private
+
+    /// Fold a name to lowercase ASCII for diacritics-insensitive comparison.
+    /// "Santé" → "sante", "Météo" → "meteo".
+    private static func foldName(_ name: String) -> String {
+        name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+    }
 
     /// Recursively find all files ending in `APP.md` (case-insensitive) in a directory.
     /// Uses the same enumeration pattern as SkillTools.findFiles.
