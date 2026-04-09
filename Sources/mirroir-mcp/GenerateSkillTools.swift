@@ -396,14 +396,9 @@ extension MirroirMCP {
                 "Spotlight search may still be visible. Try launching the app manually first.")
         }
 
-        // Load APP.md description for this app (if available)
+        // Load APP.md description for this app (if available).
+        // Stored on session AFTER start() to avoid being cleared by start()'s reset.
         let appDesc = AppDescriptionLoader.load(appName: appName)
-        if let desc = appDesc {
-            session.setAppDescription(desc)
-            DebugLog.log("explore",
-                "APP.md loaded for '\(appName)': \(desc.skipElements.count) skip, " +
-                "\(desc.obstacles.count) obstacles, mode=\(desc.obstacleMode.rawValue)")
-        }
 
         // Parse budget overrides; merge skip elements from permissions.json and APP.md
         let maxDepth = args["max_depth"]?.asInt() ?? ExplorationBudget.default.maxDepth
@@ -442,6 +437,12 @@ extension MirroirMCP {
 
         session.start(appName: appName, goal: goal)
         session.setStrategy(strategyChoice.rawValue)
+        if let desc = appDesc {
+            session.setAppDescription(desc)
+            DebugLog.log("explore",
+                "APP.md loaded for '\(appName)': \(desc.skipElements.count) skip, " +
+                "\(desc.obstacles.count) obstacles, mode=\(desc.obstacleMode.rawValue)")
+        }
 
         // Capture first screen
         session.capture(
