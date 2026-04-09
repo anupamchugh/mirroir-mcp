@@ -37,7 +37,7 @@ enum AppDescriptionLoader {
                     continue
                 }
 
-                // Locale-specific match takes priority
+                // Exact locale match takes highest priority — return immediately
                 if let locale = description.locale,
                    locale.lowercased() == systemLocale.lowercased() {
                     DebugLog.log("app-desc",
@@ -45,8 +45,12 @@ enum AppDescriptionLoader {
                     return resolveVariables(in: description)
                 }
 
-                // First locale-less match is the fallback
-                if bestMatch == nil && description.locale == nil {
+                // First name-matched file is the fallback (locale-less preferred,
+                // but locale-specific files also qualify when no locale-less exists)
+                if bestMatch == nil {
+                    bestMatch = description
+                } else if bestMatch?.locale != nil && description.locale == nil {
+                    // Locale-less file replaces a locale-specific fallback
                     bestMatch = description
                 }
             }
