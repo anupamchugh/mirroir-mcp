@@ -333,12 +333,15 @@ extension BFSExplorer {
     // MARK: - Bundle Generation
 
     func generateBundle() -> SkillBundle {
+        let recipeMatch = session.currentRecipeMatch
+        let appDesc = session.currentAppDescription
         guard let data = session.finalize() else {
             return SkillBundle(appName: "", skills: [], manifest: nil)
         }
         return SkillBundleGenerator.generate(
             appName: data.appName, goal: data.goal,
-            snapshot: data.graphSnapshot, allScreens: data.screens
+            snapshot: data.graphSnapshot, allScreens: data.screens,
+            recipeMatch: recipeMatch, appDescription: appDesc
         )
     }
 
