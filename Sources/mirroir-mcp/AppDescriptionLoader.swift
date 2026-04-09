@@ -52,7 +52,7 @@ enum AppDescriptionLoader {
             }
         }
 
-        if let match = bestMatch {
+        if bestMatch != nil {
             DebugLog.log("app-desc", "Loaded APP.md for '\(appName)' (no locale)")
         }
         return bestMatch.map { resolveVariables(in: $0) }
