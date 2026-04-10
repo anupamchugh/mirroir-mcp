@@ -209,6 +209,7 @@ Write an `APP.md` file to describe your app's structure, known obstacles, and da
 version: 1
 app: Santé
 locale: fr_CA
+archetype: dashboard
 obstacle_mode: auto
 ---
 
@@ -227,7 +228,7 @@ Dashboard with 4 tabs: Résumé, Partage, Parcourir, Profil.
 - Réinitialiser
 ```
 
-APP.md files live alongside skills in the same directories. The loader matches by `app:` field (case-insensitive) and supports locale-specific variants. Obstacle mode is configurable: `auto` (dismiss automatically), `hint` (inform the AI), or `off`.
+The `archetype` field declares the navigation model (e.g. `dashboard`, `social-feed`, `settings-list`) — the developer knows their app best. APP.md files live in `patterns/apps/` in the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo. Matching is case-insensitive and diacritics-insensitive ("Sante" matches "Santé").
 
 ```markdown
 ---
@@ -405,26 +406,17 @@ mirroir test --agent embacle my-skill
 
 </details>
 
-### Component Detection
+### Pattern System
 
-The explorer doesn't guess from raw OCR — it matches screen regions against component definitions. Raw OCR returns a flat list of text elements with no structure (`General` and `>` are two unrelated strings). Component definitions bridge this gap: each definition is a `.md` file that describes a UI pattern (table rows, toggles, tab bars, summary cards) with match rules, interaction behavior, and grouping logic.
+The explorer uses a three-layer pattern system to understand iOS apps — the same declarative concept at different scales:
 
-The detection pipeline groups OCR elements into rows, evaluates each row against all loaded definitions using hard constraints (zone, element count, chevron presence) and soft scoring signals, then selects the highest-scoring match. Multi-row elements (e.g. Health app summary cards with title + subtitle + value) are absorbed into a single tappable component via the grouping rules.
+- **Element patterns** (`patterns/elements/`) — 34 definitions matching row-level UI components (table rows, tab bars, toggles, summary cards). Each specifies match rules, interaction behavior, and grouping logic.
+- **Screen patterns** (`patterns/screens/`) — 7 archetype recipes that identify screen-level navigation models from element composition. Auto-detected during calibration, or declared via `archetype` in APP.md.
+- **App patterns** (`patterns/apps/`) — APP.md files with structure, obstacles, skip lists, and archetype declarations. The developer's source of truth.
 
-Each definition specifies:
-- **Match Rules** — zone (nav bar / content / tab bar), element count range, chevron/numeric/text patterns, minimum OCR confidence
-- **Interaction** — whether to tap, which element to target (`first_navigation_element`, `centered_element`, etc.), expected result (`navigates`, `toggles`, `dismisses`), and whether to backtrack after
-- **Grouping** — how many points below the anchor row to absorb, and under what conditions
+Built-in archetypes: `settings-list`, `dashboard`, `social-feed`, `content-grid`, `conversation-list`, `utility-display`, `detail-form`.
 
-34 iOS component definitions ship built-in, covering Apple HIG patterns from table rows and tab bars to feed posts, metric displays, and destructive buttons. Place custom definitions in `~/.mirroir-mcp/components/` or `<cwd>/.mirroir-mcp/components/`. Test a definition against the current live screen with `calibrate_component`.
-
-### Screen Recipes
-
-Screen recipes identify app archetypes from component composition — no app-name hardcoding needed. When the explorer sees `summary-card` + `tab-bar-item`, it matches the `dashboard` recipe and knows to navigate via card drill-down with finite scroll. When it sees `feed-post`, it matches `social-feed` and avoids infinite scroll traps.
-
-7 built-in recipes: `settings-list`, `dashboard`, `social-feed`, `content-grid`, `conversation-list`, `utility-display`, `detail-form`. Each recipe defines required/supporting/forbidden components, a navigation model, and exploration hints that flow into generated skills.
-
-Place custom recipes in `~/.mirroir-mcp/recipes/` or the sibling skills repo at `recipes/ios/`.
+Place custom patterns in `~/.mirroir-mcp/components/` (elements), `~/.mirroir-mcp/recipes/` (screens), or the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo.
 
 #### Vision Indicators
 
@@ -540,7 +532,7 @@ See [Configuration Reference](docs/configuration.md) for all 40+ settings coveri
 | [Security](docs/security.md) | Threat model, kill switch, and recommendations |
 | [Permissions](docs/permissions.md) | Fail-closed permission model and config file |
 | [Known Limitations](docs/limitations.md) | Focus stealing, keyboard layout gaps, autocorrect |
-| [Component Detection](docs/components.md) | Component definitions, screen recipes, APP.md descriptions, and the detection pipeline |
+| [Patterns & Skills](docs/components.md) | Element patterns, screen recipes, APP.md app descriptions, and the detection pipeline |
 | [YOLO Icon Detection](docs/yolo-models.md) | Recommended YOLO models, CoreML setup, and configuration |
 | [Compiled Skills](docs/compiled-skills.md) | Zero-OCR skill replay |
 | [Testing](docs/testing.md) | FakeMirroring, integration tests, and CI strategy |

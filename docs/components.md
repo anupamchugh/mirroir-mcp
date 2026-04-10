@@ -1,12 +1,25 @@
-# Component Detection
+# Patterns & Skills
 
-Component definitions teach the explorer what UI elements look like and how to interact with them. Instead of guessing from raw OCR text, the explorer matches screen regions against component definitions — a `.md` file per UI pattern — to decide what to tap, what to skip, and when to backtrack.
+mirroir uses a layered system of **patterns** (declarative — what things look like) and **skills** (imperative — what to do). Patterns teach the explorer to recognize UI structure; skills tell it how to execute flows.
 
-## Why Components?
+| Scale | What it describes | Location |
+|-------|------------------|----------|
+| **Element patterns** | Row-level UI components (table rows, tab bars, buttons) | `patterns/elements/` |
+| **Screen patterns** | Screen archetypes from element composition (dashboard, feed) | `patterns/screens/` |
+| **App patterns** | App-level structure, obstacles, skip lists (APP.md) | `patterns/apps/` |
+| **Skills** | Step-by-step flows the AI executes | `skills/apps/`, `skills/workflows/` |
 
-Raw OCR returns a flat list of text elements with no structure. A Settings row like `General  >` is two separate elements ("General" and ">") that mean "tappable row that navigates." Without component definitions, the explorer must infer this from heuristics that break across apps.
+Patterns are the atoms (elements), molecules (screens), and organisms (apps) of iOS UI understanding.
 
-Component definitions make this explicit: a `table-row-disclosure` definition says "a row with 1-4 text elements, a chevron, in the content zone — tap the first navigation element, expect navigation, go back after."
+## Element Patterns
+
+Element pattern definitions teach the explorer what UI elements look like and how to interact with them. Instead of guessing from raw OCR text, the explorer matches screen regions against pattern definitions — a `.md` file per UI pattern — to decide what to tap, what to skip, and when to backtrack.
+
+### Why Patterns?
+
+Raw OCR returns a flat list of text elements with no structure. A Settings row like `General  >` is two separate elements ("General" and ">") that mean "tappable row that navigates." Without pattern definitions, the explorer must infer this from heuristics that break across apps.
+
+Pattern definitions make this explicit: a `table-row-disclosure` definition says "a row with 1-4 text elements, a chevron, in the content zone — tap the first navigation element, expect navigation, go back after."
 
 ## Definition Format
 
@@ -86,20 +99,19 @@ Some UI elements span multiple OCR rows — a Health app summary card might have
 | `absorbs_below_within_pt` | Absorb rows within this many points below. Set to 0 for single-row components |
 | `absorb_condition` | `any` absorbs all rows; `info_or_decoration_only` only absorbs rows whose elements are all info or decoration role |
 
-## File Locations
+### File Locations
 
-Component definitions are loaded from multiple directories in priority order (first match wins by name):
+Element patterns are loaded from multiple directories in priority order (first match wins by name):
 
 | Priority | Path | Use Case |
 |----------|------|----------|
 | 1 | `<cwd>/.mirroir-mcp/components/` | Project-local overrides |
-| 2 | `~/.mirroir-mcp/components/` | User's global custom components |
-| 3 | `<cwd>/.mirroir-mcp/skills/components/ios/` | Skills repo (iOS) |
-| 4 | `<cwd>/.mirroir-mcp/skills/components/custom/` | Skills repo (custom) |
-| 5 | `../mirroir-skills/components/ios/` | Sibling skills repo (iOS) |
-| 6 | `../mirroir-skills/components/custom/` | Sibling skills repo (custom) |
+| 2 | `~/.mirroir-mcp/components/` | User's global custom patterns |
+| 3 | `<cwd>/.mirroir-mcp/skills/patterns/elements/` | Skills repo (new structure) |
+| 4 | `../mirroir-skills/patterns/elements/` | Sibling skills repo (new) |
+| 5 | `../mirroir-skills/components/ios/` | Sibling skills repo (legacy fallback) |
 
-Install the community components:
+Install the community patterns:
 
 ```bash
 git clone https://github.com/jfarcand/mirroir-skills ~/.mirroir-mcp/skills
@@ -195,9 +207,9 @@ Two match rules are typically set through calibration rather than written by han
 - **`min_confidence`** — Average OCR confidence threshold. Rejects ghost text (OCR artifacts from icons or gradients). Calibration reports confidence per row and recommends a threshold.
 - **`exclude_numeric_only`** — When `true`, bare digit elements ("23", "5") don't count toward `min_elements`/`max_elements`. Useful for tab bars where badge counts shouldn't inflate the element count.
 
-## Built-in Components
+### Built-in Element Patterns
 
-The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 34 iOS component definitions covering Apple's Human Interface Guidelines:
+The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 34 iOS element patterns in `patterns/elements/`, covering Apple's Human Interface Guidelines:
 
 **Navigation & Structure**
 
@@ -262,13 +274,19 @@ The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 3
 | `action-bar` | Horizontal icon row (Like, Share, Comment) | no |
 | `toolbar` | Bottom action icons (Mail compose, Safari share) | no |
 
-## Screen Recipes
+## Screen Patterns (Recipes)
 
-Screen recipes identify **app archetypes** from component composition. Instead of checking app names, the system matches the set of detected components against known recipes to understand the navigation model.
+Screen patterns identify **app archetypes** from element composition. Instead of checking app names, the system matches the set of detected elements against known recipes to understand the navigation model.
 
-### How Recipes Work
+### How Screen Patterns Work
 
-After the first screen's components are detected during BFS calibration, the recipe matcher scores the component set against all loaded recipes. The best match above threshold becomes the screen's archetype, which informs:
+Screen patterns are matched in two ways:
+
+1. **APP.md archetype** (highest priority) — the developer declares the archetype in their APP.md front matter: `archetype: dashboard`. This bypasses auto-detection entirely. The developer knows their app best.
+
+2. **Auto-detection** (fallback) — after the first screen's elements are detected during BFS calibration, the recipe matcher scores the element set against all loaded screen patterns. The best match above threshold becomes the screen's archetype.
+
+The matched archetype informs:
 
 - **Strategy refinement** — a `social-feed` recipe switches from `mobile` to `social` strategy automatically
 - **Navigation model** — drill-down, infinite-scroll, grid-browse, etc.
@@ -324,20 +342,21 @@ Card-based overview showing summary metrics that drill down to detail views.
 | `content-grid` | `collection-cell` | grid-browse |
 | `conversation-list` | `table-row-subtitle` | list-to-thread |
 | `utility-display` | `metric-display` | minimal |
-| `detail-form` | `toggle-row` | form |
+| `detail-form` | `table-row-value` | form |
 
-### Recipe File Locations
+### Screen Pattern File Locations
 
 | Priority | Path |
 |----------|------|
 | 1 | `<cwd>/.mirroir-mcp/recipes/` |
 | 2 | `~/.mirroir-mcp/recipes/` |
-| 3 | `<cwd>/.mirroir-mcp/skills/recipes/ios/` |
-| 4 | `../mirroir-skills/recipes/ios/` |
+| 3 | `<cwd>/.mirroir-mcp/skills/patterns/screens/` |
+| 4 | `../mirroir-skills/patterns/screens/` |
+| 5 | `../mirroir-skills/recipes/ios/` (legacy fallback) |
 
-## APP.md — App Descriptions
+## App Patterns (APP.md)
 
-APP.md files let developers describe their app's structure, obstacles, and danger zones in plain language. This gives the explorer a map before it starts — skip lists prevent destructive taps, obstacles are auto-dismissed, and free-form context helps the AI navigate efficiently.
+APP.md files let developers describe their app's structure, obstacles, and danger zones in plain language. This is the human-in-the-loop — the developer gives mirroir a map before it starts exploring. Skip lists prevent destructive taps, obstacles are auto-dismissed, the archetype declares the navigation model, and free-form context helps the AI navigate efficiently.
 
 ### Format
 
@@ -346,6 +365,7 @@ APP.md files let developers describe their app's structure, obstacles, and dange
 version: 1
 app: Santé
 locale: fr_CA
+archetype: dashboard
 obstacle_mode: auto
 ---
 
@@ -389,8 +409,9 @@ Dashboard app with 4 tabs: Résumé, Partage, Parcourir, Profil.
 
 | Field | Required | Description |
 |-------|:--------:|-------------|
-| `app` | yes | App name for matching (case-insensitive) |
+| `app` | yes | App name for matching (case-insensitive, diacritics-insensitive: "Sante" matches "Santé") |
 | `locale` | no | BCP-47 locale (e.g. `fr_CA`). Locale-specific files take priority. |
+| `archetype` | no | Screen pattern name (e.g. `dashboard`, `social-feed`). Bypasses auto-detection — the developer's declaration wins. |
 | `obstacle_mode` | no | `auto` (default), `hint`, or `off` |
 
 ### Integration
@@ -402,16 +423,29 @@ Dashboard app with 4 tabs: Résumé, Partage, Parcourir, Profil.
 
 ### File Locations
 
-APP.md files use the same search paths as skills:
-
 | Priority | Path |
 |----------|------|
 | 1 | `<cwd>/.mirroir-mcp/skills/` (recursive) |
 | 2 | `~/.mirroir-mcp/skills/` (recursive) |
-| 3 | `../mirroir-skills/apps/` (recursive) |
-| 4 | `../mirroir-skills/` (recursive) |
+| 3 | `../mirroir-skills/patterns/apps/` (recursive) |
+| 4 | `../mirroir-skills/apps/` (recursive, legacy fallback) |
 
-## Writing Custom Components
+## Text Cleanup
+
+A `text-cleanup.md` file in the element patterns directory defines OCR noise to strip from generated skills:
+
+- **`## Strip Prefixes`** — characters removed from the beginning of labels (bullets `•`, `·`, `○`, etc.)
+- **`## Exclude Labels`** — exact text values excluded from landmarks and step labels (`icon`, etc.)
+
+This is data-driven — add entries to the file rather than hardcoding in Swift.
+
+## Writing Custom Patterns
+
+1. Identify the UI pattern you want to teach the explorer
+2. Note the visual characteristics: how many text elements, chevrons, screen zone, typical confidence
+3. Create a `.md` file following the element pattern format above
+4. Use `calibrate_component` against a real screen to validate and tune
+5. Place the file in `~/.mirroir-mcp/components/` or your project's `.mirroir-mcp/components/`
 
 1. Identify the UI pattern you want to teach the explorer
 2. Note the visual characteristics: how many text elements, chevrons, screen zone, typical confidence

@@ -178,7 +178,7 @@ steps:
 
 Pass the path to a `.md` component definition file. The report includes per-row analysis with zone, element count, confidence scores, and match/mismatch reasons. Use it to validate and tune match rules before deploying a component for exploration.
 
-See [Component Detection](components.md) for the definition format, screen recipes, APP.md descriptions, and the calibration workflow.
+See [Patterns & Skills](components.md) for element pattern format, screen recipes, APP.md descriptions, and the calibration workflow.
 
 ## Screen Recipes & APP.md
 
@@ -190,7 +190,7 @@ During BFS exploration, the system automatically:
 
 Both are opt-in: without recipe files or APP.md, the explorer behaves exactly as before.
 
-See [Component Detection](components.md) for recipe format, APP.md format, and file locations.
+See [Patterns & Skills](components.md) for element patterns, screen recipes, APP.md format, and file locations.
 
 ### Variable Substitution
 

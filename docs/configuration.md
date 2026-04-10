@@ -87,12 +87,13 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | `commandTimeoutSeconds` | `60` | Timeout for command-based AI agent processes |
 | `defaultAIMaxTokens` | `1024` | Maximum tokens for AI model responses |
 
-## App Descriptions & Recipes
+## Patterns
 
-APP.md files and screen recipes are not configured via `settings.json` — they are file-based. See [Component Detection](components.md) for:
+Patterns are not configured via `settings.json` — they are file-based. See [Patterns & Skills](components.md) for:
 
-- **APP.md** — describe your app's structure, obstacles, skip lists, and credentials. `obstacle_mode` field controls auto-dismiss behavior (`auto`, `hint`, `off`).
-- **Screen Recipes** — archetype definitions (`.recipe.md`) that match component compositions to navigation models.
+- **Element patterns** (`patterns/elements/`) — row-level UI recognition definitions
+- **Screen patterns** (`patterns/screens/`) — archetype recipes matching element compositions to navigation models
+- **App patterns** (`patterns/apps/`) — APP.md files with `archetype`, obstacles, skip lists, and credentials
 
 ## Advanced Tuning
 
