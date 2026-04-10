@@ -439,15 +439,31 @@ final class SkillFileTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Resolve a stem to the first existing file, trying the new `skills/` prefix
+    /// first and falling back to the legacy layout.
+    private static func resolveStemPath(_ stem: String, extension ext: String) -> String? {
+        let candidates = [
+            Self.skillsDir + "/skills/" + stem + "." + ext,
+            Self.skillsDir + "/" + stem + "." + ext,
+        ]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
+    }
+
     /// Parse a skill by stem (no extension). Tries .yaml first for full parsing
     /// with steps, then falls back to .md for header-only parsing.
     private func parseSkill(_ stem: String) throws -> SkillDefinition {
-        let yamlPath = Self.skillsDir + "/" + stem + ".yaml"
-        if FileManager.default.fileExists(atPath: yamlPath) {
+        if let yamlPath = Self.resolveStemPath(stem, extension: "yaml") {
             let content = try String(contentsOfFile: yamlPath, encoding: .utf8)
             return SkillParser.parse(content: content, filePath: yamlPath)
         }
-        let mdPath = Self.skillsDir + "/" + stem + ".md"
+        guard let mdPath = Self.resolveStemPath(stem, extension: "md") else {
+            throw NSError(
+                domain: "SkillFileTests", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Skill not found: \(stem)"])
+        }
         let content = try String(contentsOfFile: mdPath, encoding: .utf8)
         let fallbackName = (stem as NSString).lastPathComponent
         let header = SkillMdParser.parseHeader(content: content, fallbackName: fallbackName)
@@ -462,10 +478,8 @@ final class SkillFileTests: XCTestCase {
 
     /// Resolve a skill stem to its actual file path (.yaml preferred, then .md).
     private func resolveSkillPath(_ stem: String) throws -> String {
-        let yamlPath = Self.skillsDir + "/" + stem + ".yaml"
-        if FileManager.default.fileExists(atPath: yamlPath) { return yamlPath }
-        let mdPath = Self.skillsDir + "/" + stem + ".md"
-        if FileManager.default.fileExists(atPath: mdPath) { return mdPath }
+        if let yamlPath = Self.resolveStemPath(stem, extension: "yaml") { return yamlPath }
+        if let mdPath = Self.resolveStemPath(stem, extension: "md") { return mdPath }
         throw NSError(
             domain: "SkillFileTests", code: 1,
             userInfo: [NSLocalizedDescriptionKey: "No .yaml or .md file found for '\(stem)'"])
@@ -484,6 +498,10 @@ final class SkillFileTests: XCTestCase {
             if relPath.hasPrefix("legacy/") { continue }
             // Skip component definitions (loaded by ComponentLoader, not the skill runner)
             if relPath.hasPrefix("components/") { continue }
+            // Skip patterns/ (element patterns, recipes, APP.md files — not skills)
+            if relPath.hasPrefix("patterns/") { continue }
+            // Skip APP.md files (they're app patterns, not skills)
+            if (relPath as NSString).lastPathComponent.uppercased() == "APP.MD" { continue }
             // Skip dotfile directories (.claude/, .github/)
             let pathComponents = relPath.components(separatedBy: "/")
             if pathComponents.contains(where: { $0.hasPrefix(".") }) { continue }
