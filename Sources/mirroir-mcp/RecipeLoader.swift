@@ -16,13 +16,17 @@ enum RecipeLoader {
         loadFromDisk()
     }
 
-    /// Search paths for .recipe.md files, in resolution order.
-    /// Uses PermissionPolicy directories plus sibling skills repo for unified discovery.
+    /// Search paths for screen pattern .recipe.md files, in resolution order.
+    /// New `patterns/screens/` paths first; legacy `recipes/ios/` as fallback.
     static func searchPaths() -> [String] {
         let cwd = FileManager.default.currentDirectoryPath
         return [
             PermissionPolicy.localConfigDir + "/recipes",
             PermissionPolicy.globalConfigDir + "/recipes",
+            // New structure: patterns/screens/
+        ] + PermissionPolicy.skillDirs.map { $0 + "/patterns/screens" } + [
+            cwd + "/../mirroir-skills/patterns/screens",
+            // Legacy fallback: recipes/ios/
         ] + PermissionPolicy.skillDirs.map { $0 + "/recipes/ios" } + [
             cwd + "/../mirroir-skills/recipes/ios",
         ]

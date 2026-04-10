@@ -63,11 +63,14 @@ enum AppDescriptionLoader {
     }
 
     /// Search paths for APP.md files, in resolution order.
-    /// Uses the same `PermissionPolicy.skillDirs` as skill discovery, plus the sibling
-    /// mirroir-skills repo. This ensures APP.md files are found alongside regular skills.
+    /// New `patterns/apps/` paths first; legacy `apps/` as fallback.
     static func searchPaths() -> [String] {
         let cwd = FileManager.default.currentDirectoryPath
         return PermissionPolicy.skillDirs + [
+            // New structure: patterns/apps/
+            cwd + "/../mirroir-skills/patterns/apps",
+        ] + PermissionPolicy.skillDirs.map { $0 + "/patterns/apps" } + [
+            // Legacy fallback: apps/
             cwd + "/../mirroir-skills/apps",
             cwd + "/../mirroir-skills",
         ]
@@ -109,6 +112,7 @@ enum AppDescriptionLoader {
         return AppDescription(
             appName: description.appName,
             locale: description.locale,
+            archetype: description.archetype,
             obstacleMode: description.obstacleMode,
             context: description.context,
             obstacles: description.obstacles,

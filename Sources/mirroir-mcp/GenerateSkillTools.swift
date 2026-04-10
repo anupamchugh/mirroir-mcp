@@ -461,6 +461,18 @@ extension MirroirMCP {
         } else {
             let componentDefinitions = ComponentLoader.loadAll()
             let recipeDefinitions = RecipeLoader.loadAll()
+
+            // APP.md archetype: look up recipe by name and pre-set on session.
+            // This bypasses auto-detection — the developer's declaration wins.
+            if let archetypeName = appDesc?.archetype,
+               let recipe = recipeDefinitions.first(where: { $0.name == archetypeName }) {
+                let match = RecipeMatch(recipe: recipe, score: 100.0, reason: "APP.md archetype")
+                session.setRecipeMatch(match)
+                let refined = RecipeMatcher.strategyFromRecipe(recipe, fallback: strategyChoice)
+                session.setStrategy(refined.rawValue)
+                DebugLog.log("explore", "archetype from APP.md: '\(archetypeName)' " +
+                    "(nav=\(recipe.navigationModel.type), strategy=\(refined.rawValue))")
+            }
             let detectionMode = ComponentDetectionMode(rawValue: EnvConfig.componentDetection) ?? .llmFirstScreen
             let classifier = detectionMode.buildClassifier(server: server)
             let advisor: any ExplorationAdvising = EmbacleFFI.isAvailable
