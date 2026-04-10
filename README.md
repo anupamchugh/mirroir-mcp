@@ -113,6 +113,37 @@ Use the full path to the binary in your `.mcp.json`: `<repo>/.build/release/mirr
 
 Every interaction follows the same loop: **observe, reason, act**. `describe_screen` gives the AI every text element with tap coordinates (eyes). The LLM decides what to do next (brain). `tap`, `type_text`, `swipe` execute the action (hands) — then it loops back to observe. No scripts, no coordinates, just intent.
 
+## Describe Your App
+
+mirroir can explore any iOS app blindly — but it works best when you tell it what to expect. Write an `APP.md` file and mirroir gets a map before it starts:
+
+```markdown
+---
+app: Santé
+archetype: dashboard
+obstacle_mode: auto
+---
+
+## Structure
+Dashboard with 4 tabs: Résumé, Partage, Parcourir, Profil.
+
+## Résumé Tab
+- Summary cards for health metrics that drill down to charts
+- Cards often show "Aucune donnée" on test devices
+
+## Obstacles
+- Health Access permission → tap "Autoriser"
+- Notification permission → tap "Ne pas autoriser"
+
+## Skip
+- Supprimer les données de Santé
+- Réinitialiser
+```
+
+**30 seconds of writing saves minutes of blind exploration.** The `archetype` tells mirroir how the app navigates (dashboard = card drill-down, social-feed = infinite scroll, settings-list = chevron rows). Obstacles are auto-dismissed. Skip elements are never tapped. Structure and tab descriptions become AI context in generated skills.
+
+Three levels of patterns work together — elements (what rows look like), screens (what the page layout means), and apps (what the developer knows). See [Patterns & Skills](docs/components.md) for the full system.
+
 ## Examples
 
 Paste any of these into Claude Code, Claude Desktop, ChatGPT, Cursor, or any MCP client:
@@ -200,35 +231,9 @@ When you find yourself repeating the same agent workflow, capture it as a skill.
 
 Place files in `~/.mirroir-mcp/skills/` (global) or `<cwd>/.mirroir-mcp/skills/` (project-local).
 
-### APP.md — Teach mirroir Your App
+### APP.md
 
-Write an `APP.md` file to describe your app's structure, known obstacles, and danger zones. This gives mirroir a map before it starts exploring — no more blind trial and error.
-
-```markdown
----
-version: 1
-app: Santé
-locale: fr_CA
-archetype: dashboard
-obstacle_mode: auto
----
-
-## Structure
-Dashboard with 4 tabs: Résumé, Partage, Parcourir, Profil.
-
-## Résumé Tab
-- Summary cards for health metrics that drill down to charts
-
-## Obstacles
-- Health Access permission → tap "Autoriser"
-- Notification permission → tap "Ne pas autoriser"
-
-## Skip
-- Supprimer les données de Santé
-- Réinitialiser
-```
-
-The `archetype` field declares the navigation model (e.g. `dashboard`, `social-feed`, `settings-list`) — the developer knows their app best. APP.md files live in `patterns/apps/` in the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo. Matching is case-insensitive and diacritics-insensitive ("Sante" matches "Santé").
+Describe your app's structure to guide exploration — see [Describe Your App](#describe-your-app) above. Place APP.md files in `~/.mirroir-mcp/skills/` or the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo at `patterns/apps/`.
 
 ```markdown
 ---
