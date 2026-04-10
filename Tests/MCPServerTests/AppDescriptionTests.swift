@@ -314,38 +314,23 @@ final class AppDescriptionTests: XCTestCase {
 
     // MARK: - Loader Integration Tests
 
-    func testLoaderFindsSanteAppMd() {
-        // This test requires the sibling mirroir-skills repo to be present
-        let desc = AppDescriptionLoader.load(appName: "Sante")
-        if desc == nil {
-            // Log search paths for debugging
-            let paths = AppDescriptionLoader.searchPaths()
-            for path in paths {
-                print("Search path: \(path)")
-                let fm = FileManager.default
-                if let enumerator = fm.enumerator(atPath: path) {
-                    while let entry = enumerator.nextObject() as? String {
-                        let filename = (entry as NSString).lastPathComponent.lowercased()
-                        if filename == "app.md" {
-                            let full = path + "/" + entry
-                            print("  Found: \(full)")
-                            if let content = try? String(contentsOfFile: full, encoding: .utf8) {
-                                print("  Content length: \(content.count)")
-                                if let parsed = AppDescriptionParser.parse(content: content) {
-                                    print("  Parsed: app=\(parsed.appName)")
-                                    let folded = parsed.appName.folding(
-                                        options: [.diacriticInsensitive, .caseInsensitive],
-                                        locale: .current)
-                                    print("  Folded: \(folded)")
-                                } else {
-                                    print("  Parse FAILED")
-                                }
-                            }
-                        }
-                    }
+    func testLoaderFindsSanteAppMd() throws {
+        // This test requires the sibling mirroir-skills repo to be present.
+        // Skip gracefully when it's not (e.g. some CI environments).
+        let fm = FileManager.default
+        let repoFound = AppDescriptionLoader.searchPaths().contains { path in
+            guard let enumerator = fm.enumerator(atPath: path) else { return false }
+            while let entry = enumerator.nextObject() as? String {
+                if (entry as NSString).lastPathComponent.lowercased() == "app.md" {
+                    return true
                 }
             }
+            return false
         }
+        try XCTSkipUnless(repoFound,
+            "mirroir-skills repo with APP.md files not found — skipping loader integration test")
+
+        let desc = AppDescriptionLoader.load(appName: "Sante")
         XCTAssertNotNil(desc, "Should find Santé APP.md via diacritics-insensitive match")
         XCTAssertEqual(desc?.skipElements.isEmpty, false, "Should have skip elements")
         XCTAssertEqual(desc?.obstacles.isEmpty, false, "Should have obstacles")
