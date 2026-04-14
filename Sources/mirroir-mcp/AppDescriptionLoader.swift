@@ -118,7 +118,8 @@ enum AppDescriptionLoader {
             obstacles: description.obstacles,
             skipElements: description.skipElements,
             credentials: resolved,
-            hints: description.hints
+            hints: description.hints,
+            tabs: description.tabs
         )
     }
 

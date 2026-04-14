@@ -30,6 +30,10 @@ struct AppDescription: Sendable {
     let credentials: [String: String]
     /// Raw exploration hints for inclusion in generated skills.
     let hints: [String]
+    /// Tab names extracted from the Structure section (e.g. ["Pour toi", "Explorer", "Profil"]).
+    /// The explorer uses these to find and tap tab bar elements by text match,
+    /// bypassing component detection for apps with non-standard UI.
+    let tabs: [String]
 }
 
 /// How obstacle rules from APP.md are applied during exploration.
@@ -88,6 +92,7 @@ enum AppDescriptionParser {
         let skipElements = parseList(sections["Skip"] ?? "")
         let credentials = parseCredentials(sections["Credentials"] ?? "")
         let hints = parseList(sections["Tips"] ?? "")
+        let tabs = parseTabs(structure: sections["Structure"] ?? "", sections: sections)
 
         return AppDescription(
             appName: appName,
@@ -98,7 +103,8 @@ enum AppDescriptionParser {
             obstacles: obstacles,
             skipElements: skipElements,
             credentials: credentials,
-            hints: hints
+            hints: hints,
+            tabs: tabs
         )
     }
 
@@ -172,6 +178,51 @@ enum AppDescriptionParser {
             creds[key] = value
         }
         return creds
+    }
+
+    /// Extract tab names from the Structure section and ## Tab headings.
+    ///
+    /// Recognizes two patterns:
+    /// 1. Inline: "N tabs: Tab1, Tab2, Tab3" or "tabs: Tab1, Tab2"
+    /// 2. Section headings: "## Explorer Tab" → "Explorer"
+    private static func parseTabs(structure: String, sections: [String: String]) -> [String] {
+        var tabs: [String] = []
+
+        // Pattern 1: "N tabs: Tab1, Tab2, Tab3" or "tabs: Tab1, Tab2"
+        for line in structure.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let range = trimmed.range(of: "tabs:", options: .caseInsensitive) else {
+                continue
+            }
+            let afterColon = trimmed[range.upperBound...]
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            let names = afterColon.split(separator: ",").map { part in
+                var name = part.trimmingCharacters(in: .whitespaces)
+                // Strip parenthetical translations: "Pour toi (For You)" → "Pour toi"
+                if let parenStart = name.range(of: "(") {
+                    name = String(name[name.startIndex..<parenStart.lowerBound])
+                        .trimmingCharacters(in: .whitespaces)
+                }
+                return name
+            }
+            tabs.append(contentsOf: names.filter { !$0.isEmpty })
+            break // Only use the first "tabs:" line
+        }
+
+        // Pattern 2: "## Explorer Tab" headings → "Explorer"
+        if tabs.isEmpty {
+            for heading in sections.keys.sorted() {
+                if heading.hasSuffix("Tab") || heading.hasSuffix("tab") {
+                    let name = heading.replacingOccurrences(of: " Tab", with: "")
+                        .replacingOccurrences(of: " tab", with: "")
+                        .trimmingCharacters(in: .whitespaces)
+                    if !name.isEmpty { tabs.append(name) }
+                }
+            }
+        }
+
+        return tabs
     }
 
     // MARK: - Front Matter & Section Extraction

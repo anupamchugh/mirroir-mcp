@@ -69,35 +69,82 @@ extension BFSExplorer {
     }
 
     /// Build a screen plan using component detection or legacy per-element classification.
+    /// When the plan is empty and the session has APP.md tabs, injects tab elements
+    /// as high-priority navigation targets (tab-driven navigation).
     func buildScreenPlan(
         classified: [ClassifiedElement], visitedElements: Set<String>
     ) -> [RankedElement] {
-        guard !componentDefinitions.isEmpty else {
+        var plan: [RankedElement]
+
+        if componentDefinitions.isEmpty {
             DebugLog.log("bfs", "plan-path: LEGACY (0 component definitions)")
-            return ScreenPlanner.buildPlan(
+            plan = ScreenPlanner.buildPlan(
                 classified: classified, visitedElements: visitedElements,
                 scoutResults: [:], screenHeight: windowSize.height)
+        } else {
+            let rawComponents = classifier?.classify(
+                classified: classified, definitions: componentDefinitions,
+                screenHeight: windowSize.height
+            ) ?? ComponentDetector.detect(
+                classified: classified, definitions: componentDefinitions,
+                screenHeight: windowSize.height)
+            let components = ComponentDetector.applyAbsorption(rawComponents)
+            DebugLog.log("bfs", "plan-path: COMPONENT (\(componentDefinitions.count) defs, " +
+                "\(rawComponents.count) raw, \(components.count) absorbed)")
+            let explorableCount = components.filter { $0.definition.exploration.explorable }.count
+            DebugLog.log("bfs", "explorable: \(explorableCount)/\(components.count) components")
+            plan = ScreenPlanner.buildComponentPlan(
+                components: components, visitedElements: visitedElements,
+                scoutResults: [:], screenHeight: windowSize.height)
         }
-        let rawComponents = classifier?.classify(
-            classified: classified, definitions: componentDefinitions,
-            screenHeight: windowSize.height
-        ) ?? ComponentDetector.detect(
-            classified: classified, definitions: componentDefinitions,
-            screenHeight: windowSize.height)
-        let components = ComponentDetector.applyAbsorption(rawComponents)
-        DebugLog.log("bfs", "plan-path: COMPONENT (\(componentDefinitions.count) defs, " +
-            "\(rawComponents.count) raw, \(components.count) absorbed)")
-        let explorableCount = components.filter { $0.definition.exploration.explorable }.count
-        let nonExplorableNames = components
-            .filter { !$0.definition.exploration.explorable }
-            .map { $0.displayLabel }
-        if !nonExplorableNames.isEmpty {
-            DebugLog.log("bfs", "non-explorable components: \(nonExplorableNames)")
+
+        // Tab-driven navigation: when the plan is empty (no components matched),
+        // search for tab names from APP.md in the raw OCR elements. This enables
+        // exploration of apps with non-standard UI (TikTok, Instagram) where
+        // component detection fails but the developer listed tabs in their APP.md.
+        let appTabs = session.currentAppDescription?.tabs ?? []
+        if plan.isEmpty && !appTabs.isEmpty {
+            let allPoints = classified.map { $0.point }
+            let tabTargets = findTabTargets(
+                tabNames: appTabs, elements: allPoints, visitedElements: visitedElements)
+            if !tabTargets.isEmpty {
+                DebugLog.log("bfs", "tab-driven: injected \(tabTargets.count) tab targets " +
+                    "from APP.md: \(tabTargets.map { $0.displayLabel })")
+                plan = tabTargets
+            }
         }
-        DebugLog.log("bfs", "explorable: \(explorableCount)/\(components.count) components")
-        return ScreenPlanner.buildComponentPlan(
-            components: components, visitedElements: visitedElements,
-            scoutResults: [:], screenHeight: windowSize.height)
+
+        return plan
+    }
+
+    /// Find OCR elements matching APP.md tab names by case-insensitive substring match.
+    /// Returns ranked elements with breadth_navigation priority.
+    private func findTabTargets(
+        tabNames: [String], elements: [TapPoint], visitedElements: Set<String>
+    ) -> [RankedElement] {
+        var results: [RankedElement] = []
+        let visited = visitedElements
+
+        for tabName in tabNames {
+            let tabLower = tabName.lowercased()
+            // Find the best matching element for this tab name
+            guard let match = elements.first(where: { el in
+                let elLower = el.text.lowercased()
+                return (elLower == tabLower || elLower.contains(tabLower) || tabLower.contains(elLower))
+                    && !visited.contains(el.text)
+                    && !visited.contains(tabName)
+            }) else { continue }
+
+            results.append(RankedElement(
+                point: match,
+                score: ScreenPlanner.breadthRoleWeight + ScreenPlanner.highPriorityWeight,
+                reason: "tab-driven(\(tabName))",
+                displayLabel: tabName,
+                isBreadthNavigation: true
+            ))
+        }
+
+        return results
     }
 
     // MARK: - Calibration Pipeline
