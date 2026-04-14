@@ -18,6 +18,12 @@ npm/bin/com.jfarcand.mirroir-helper.plist
 .mirroir-mcp/skills/
 mirroir-test-results/
 integrations/
+scripts/test-vd*
+scripts/*.o
+opencode.json
+package.json
+package-lock.json
+.claude/worktrees/
 .vscode/launch.json
 website/node_modules/
 website/dist/
