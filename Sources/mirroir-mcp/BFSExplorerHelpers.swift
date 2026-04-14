@@ -98,19 +98,19 @@ extension BFSExplorer {
                 scoutResults: [:], screenHeight: windowSize.height)
         }
 
-        // Tab-driven navigation: when the plan is empty (no components matched),
-        // search for tab names from APP.md in the raw OCR elements. This enables
-        // exploration of apps with non-standard UI (TikTok, Instagram) where
-        // component detection fails but the developer listed tabs in their APP.md.
+        // Tab-driven navigation: when APP.md declares tabs, inject matching OCR
+        // elements as top-priority breadth navigation targets. This ensures tab
+        // exploration works even in apps with non-standard UI (TikTok, Instagram)
+        // where component detection can't classify the tab bar.
         let appTabs = session.currentAppDescription?.tabs ?? []
-        if plan.isEmpty && !appTabs.isEmpty {
+        if !appTabs.isEmpty {
             let allPoints = classified.map { $0.point }
             let tabTargets = findTabTargets(
                 tabNames: appTabs, elements: allPoints, visitedElements: visitedElements)
             if !tabTargets.isEmpty {
                 DebugLog.log("bfs", "tab-driven: injected \(tabTargets.count) tab targets " +
                     "from APP.md: \(tabTargets.map { $0.displayLabel })")
-                plan = tabTargets
+                plan = tabTargets + plan
             }
         }
 
