@@ -18,6 +18,8 @@ struct AppDescription: Sendable {
     /// Optional archetype name referencing a screen recipe (e.g. "dashboard", "social-feed").
     /// When set, bypasses recipe auto-detection and uses this recipe directly.
     let archetype: String?
+    /// Whether to force-quit the app via App Switcher before launching for exploration.
+    let resetBeforeExplore: Bool
     /// Obstacle handling mode: "auto", "hint", or "off".
     let obstacleMode: ObstacleMode
     /// Free-form sections concatenated as AI context (Structure, tab descriptions, Tips).
@@ -66,6 +68,8 @@ enum AppDescriptionParser {
         guard let appName = frontMatter["app"] else { return nil }
         let locale = frontMatter["locale"]
         let archetype = frontMatter["archetype"]
+        let resetBeforeExplore = ["true", "yes", "1"].contains(
+            (frontMatter["reset_before_explore"] ?? "false").lowercased())
         let obstacleMode = ObstacleMode(rawValue: frontMatter["obstacle_mode"] ?? "auto") ?? .auto
 
         // Collect free-form context from Structure, tab descriptions, and Tips
@@ -98,6 +102,7 @@ enum AppDescriptionParser {
             appName: appName,
             locale: locale,
             archetype: archetype,
+            resetBeforeExplore: resetBeforeExplore,
             obstacleMode: obstacleMode,
             context: context,
             obstacles: obstacles,

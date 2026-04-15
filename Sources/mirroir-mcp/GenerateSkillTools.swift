@@ -383,22 +383,38 @@ extension MirroirMCP {
         let (ctx, err) = registry.resolveForTool(args)
         guard let ctx else { return err! }
 
+        // Load APP.md description early — needed before launch to check reset_before_explore.
+        let appDesc = AppDescriptionLoader.load(appName: appName)
+
+        // Force-quit the app before launching if APP.md requests it.
+        // Ensures a clean start for apps with overlays or stateful UI (TikTok, Instagram).
+        if appDesc?.resetBeforeExplore == true {
+            DebugLog.log("explore", "reset_before_explore: force-quitting '\(appName)' before launch")
+            if let menuBridge = ctx.bridge as? (any MenuActionCapable) {
+                _ = menuBridge.triggerMenuAction(menu: "View", item: "App Switcher")
+                usleep(500_000)
+                // Swipe up to dismiss the frontmost app card
+                let preSize = ctx.bridge.getWindowInfo()?.size ?? CGSize(width: 410, height: 890)
+                _ = ctx.input.swipe(
+                    fromX: preSize.width / 2, fromY: preSize.height * 0.4,
+                    toX: preSize.width / 2, toY: 0, durationMs: 300)
+                usleep(500_000)
+                _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
+                usleep(300_000)
+            }
+        }
+
         // Launch the app
         if let launchError = ctx.input.launchApp(name: appName) {
             return .error("Failed to launch '\(appName)': \(launchError)")
         }
 
         // Wait for Spotlight to dismiss and the app to become visible.
-        // launchApp uses Spotlight search which may linger after pressing Return.
         guard let firstResult = SpotlightDetector.waitForDismissal(describer: ctx.describer) else {
             return .error(
                 "'\(appName)' did not appear after launch — " +
                 "Spotlight search may still be visible. Try launching the app manually first.")
         }
-
-        // Load APP.md description for this app (if available).
-        // Stored on session AFTER start() to avoid being cleared by start()'s reset.
-        let appDesc = AppDescriptionLoader.load(appName: appName)
 
         // Parse budget overrides; merge skip elements from permissions.json and APP.md
         let maxDepth = args["max_depth"]?.asInt() ?? ExplorationBudget.default.maxDepth

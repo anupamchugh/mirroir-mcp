@@ -113,6 +113,7 @@ enum AppDescriptionLoader {
             appName: description.appName,
             locale: description.locale,
             archetype: description.archetype,
+            resetBeforeExplore: description.resetBeforeExplore,
             obstacleMode: description.obstacleMode,
             context: description.context,
             obstacles: description.obstacles,
