@@ -117,22 +117,26 @@ extension BFSExplorer {
         return plan
     }
 
-    /// Find OCR elements matching APP.md tab names by case-insensitive substring match.
-    /// Returns ranked elements with breadth_navigation priority.
+    /// Find OCR elements matching APP.md tab names.
+    ///
+    /// Primary strategy: case-insensitive substring text match (works when tab bar has labels).
+    /// Fallback: ordinal position mapping in the tab_bar zone (for icon-only tab bars like
+    /// Instagram). Sorts tab_bar-zone elements by X coordinate and maps them to APP.md tab
+    /// names by index — the developer's tab list order matches the visual left-to-right order.
     private func findTabTargets(
         tabNames: [String], elements: [TapPoint], visitedElements: Set<String>
     ) -> [RankedElement] {
         var results: [RankedElement] = []
-        let visited = visitedElements
+        var matchedTabs: Set<String> = []
 
+        // Strategy 1: text matching
         for tabName in tabNames {
             let tabLower = tabName.lowercased()
-            // Find the best matching element for this tab name
             guard let match = elements.first(where: { el in
                 let elLower = el.text.lowercased()
                 return (elLower == tabLower || elLower.contains(tabLower) || tabLower.contains(elLower))
-                    && !visited.contains(el.text)
-                    && !visited.contains(tabName)
+                    && !visitedElements.contains(el.text)
+                    && !visitedElements.contains(tabName)
             }) else { continue }
 
             results.append(RankedElement(
@@ -142,6 +146,33 @@ extension BFSExplorer {
                 displayLabel: tabName,
                 isBreadthNavigation: true
             ))
+            matchedTabs.insert(tabName)
+        }
+
+        // Strategy 2: ordinal mapping for unmatched tabs (icon-only tab bars)
+        let unmatchedTabs = tabNames.filter { !matchedTabs.contains($0) }
+        if !unmatchedTabs.isEmpty {
+            let tabBarTop = windowSize.height * 0.88 // bottom 12% is tab_bar zone
+            let tabBarElements = elements
+                .filter { $0.tapY >= tabBarTop }
+                .sorted { $0.tapX < $1.tapX }
+
+            if tabBarElements.count >= tabNames.count {
+                // Map each tab name to the element at its index, skipping already-matched
+                for (index, tabName) in tabNames.enumerated() {
+                    guard !matchedTabs.contains(tabName),
+                          index < tabBarElements.count,
+                          !visitedElements.contains(tabName) else { continue }
+                    let target = tabBarElements[index]
+                    results.append(RankedElement(
+                        point: target,
+                        score: ScreenPlanner.breadthRoleWeight + ScreenPlanner.highPriorityWeight,
+                        reason: "tab-ordinal(\(tabName)@\(index))",
+                        displayLabel: tabName,
+                        isBreadthNavigation: true
+                    ))
+                }
+            }
         }
 
         return results
