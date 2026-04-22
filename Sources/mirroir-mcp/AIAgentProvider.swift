@@ -56,11 +56,6 @@ struct AISuggestedFix: Codable {
     }
 }
 
-/// Protocol for AI agent providers that can diagnose skill failures.
-protocol AIAgentProviding {
-    func diagnose(payload: DiagnosticPayload) -> AIDiagnosis?
-}
-
 /// Default system prompt for AI diagnosis, used when no prompt file is found.
 let aiDiagnosisDefaultPrompt = """
     You are an expert iOS UI automation debugger analyzing a failed test skill.

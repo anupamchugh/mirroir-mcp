@@ -386,6 +386,30 @@ protocol NavigationGraphing: AnyObject, Sendable {
     func isScrollExhausted(fingerprint: String) -> Bool
 }
 
+/// Protocol for AI agent providers that can diagnose skill failures.
+protocol AIAgentProviding {
+    func diagnose(payload: DiagnosticPayload) -> AIDiagnosis?
+}
+
+/// Protocol for AI-guided exploration advice during plateau phases.
+/// Abstracted for testability — production uses embacle, tests can inject stubs.
+protocol ExplorationAdvising: Sendable {
+    /// Given the current screen and exploration state, suggest elements to tap.
+    ///
+    /// - Parameters:
+    ///   - screenshotBase64: Current screen screenshot for vision analysis.
+    ///   - elements: OCR elements visible on the current screen.
+    ///   - visitedElements: Elements already tapped on this screen.
+    ///   - exploredScreenCount: Total screens discovered so far.
+    /// - Returns: Ranked suggestions, or empty if the advisor cannot help.
+    func suggest(
+        screenshotBase64: String,
+        elements: [TapPoint],
+        visitedElements: Set<String>,
+        exploredScreenCount: Int
+    ) -> [ExplorationSuggestion]
+}
+
 // MARK: - Conformances
 
 extension MirroringBridge: MenuActionCapable {}

@@ -250,6 +250,9 @@ enum IconDetector {
 
         guard allConsistent && medianGap > 10.0 else { return detected }
 
+        // sorted.count >= iconMinForInterpolation (checked above), so first/last are non-nil.
+        guard let leftmost = sorted.first, let rightmost = sorted.last else { return detected }
+
         // Average Y position of detected icons
         let avgY = sorted.map(\.tapY).reduce(0, +) / Double(sorted.count)
         let avgSize = sorted.map(\.estimatedSize).reduce(0, +) / Double(sorted.count)
@@ -257,14 +260,14 @@ enum IconDetector {
         var result = Array(sorted)
 
         // Extrapolate left from the leftmost icon
-        var x = sorted.first!.tapX - medianGap
+        var x = leftmost.tapX - medianGap
         while x > medianGap * 0.3 {
             result.append(DetectedIcon(tapX: x, tapY: avgY, estimatedSize: avgSize))
             x -= medianGap
         }
 
         // Extrapolate right from the rightmost icon
-        x = sorted.last!.tapX + medianGap
+        x = rightmost.tapX + medianGap
         while x < windowWidth - medianGap * 0.3 {
             result.append(DetectedIcon(tapX: x, tapY: avgY, estimatedSize: avgSize))
             x += medianGap

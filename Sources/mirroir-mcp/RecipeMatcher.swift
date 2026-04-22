@@ -44,9 +44,8 @@ enum RecipeMatcher {
 
             guard score >= minimumMatchScore else { continue }
 
-            if bestMatch == nil || score > bestMatch!.score {
-                bestMatch = RecipeMatch(recipe: recipe, score: score, reason: reason)
-            }
+            if let current = bestMatch, score <= current.score { continue }
+            bestMatch = RecipeMatch(recipe: recipe, score: score, reason: reason)
         }
 
         if let match = bestMatch {

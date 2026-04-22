@@ -77,14 +77,13 @@ enum FrontierPlanner {
                     isTabRoot: isTabRoot
                 )
 
-                if bestTarget == nil || score > bestTarget!.score {
-                    bestTarget = FrontierTarget(
-                        fingerprint: fp,
-                        element: element,
-                        score: score,
-                        depth: node.depth
-                    )
-                }
+                if let current = bestTarget, score <= current.score { continue }
+                bestTarget = FrontierTarget(
+                    fingerprint: fp,
+                    element: element,
+                    score: score,
+                    depth: node.depth
+                )
             }
         }
 
