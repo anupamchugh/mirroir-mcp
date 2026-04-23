@@ -7,12 +7,22 @@
 import Foundation
 import HelperLib
 
+/// The only supported APP.md schema version.
+/// Bumped whenever a breaking change to the parser is released. When a loaded
+/// file declares a newer version, the loader logs a warning and still parses
+/// best-effort so old binaries don't choke on a forward-compatible field.
+let appDescriptionSchemaVersion: Int = 1
+
 /// A human-authored description of an iOS app's structure, navigation patterns,
 /// and known obstacles. Loaded from APP.md files and injected into exploration
 /// sessions to guide the AI with domain knowledge the developer already has.
 struct AppDescription: Sendable {
     /// App name for matching (case-insensitive). From front matter `app:` field.
     let appName: String
+    /// APP.md schema version from the `version:` front-matter field. Defaults
+    /// to the current supported version when absent. Files declaring a newer
+    /// version log a warning at load time.
+    let schemaVersion: Int
     /// Optional locale (e.g. "fr_CA", "en_US"). When set, only matches that locale.
     let locale: String?
     /// Optional archetype name referencing a screen recipe (e.g. "dashboard", "social-feed").
@@ -36,6 +46,32 @@ struct AppDescription: Sendable {
     /// The explorer uses these to find and tap tab bar elements by text match,
     /// bypassing component detection for apps with non-standard UI.
     let tabs: [String]
+    /// Optional geometric hint for the tab bar's orientation and edge.
+    /// When present, IconDetector extrapolates missing icons along the declared
+    /// axis and findTabTargets falls back to position-ordinal mapping along
+    /// that axis when text matching fails.
+    let tabLayout: TabLayout?
+}
+
+/// Geometric hint for the tab bar layout. Defaults to `.horizontal` bottom-edge
+/// (standard iOS convention) when omitted.
+struct TabLayout: Sendable {
+    let orientation: TabOrientation
+    let edge: TabEdge
+}
+
+/// Axis along which tabs are arranged.
+enum TabOrientation: String, Sendable {
+    /// Tabs stacked in a row (X varies, Y ≈ constant). Standard iOS bottom tab bar.
+    case horizontal
+    /// Tabs stacked in a column (Y varies, X ≈ constant). Side rails, landscape
+    /// camera control columns, iPad sidebars.
+    case vertical
+}
+
+/// Which edge of the window the tab bar hugs.
+enum TabEdge: String, Sendable {
+    case top, bottom, left, right
 }
 
 /// How obstacle rules from APP.md are applied during exploration.
@@ -72,19 +108,27 @@ enum AppDescriptionParser {
             (frontMatter["reset_before_explore"] ?? "false").lowercased())
         let obstacleMode = ObstacleMode(rawValue: frontMatter["obstacle_mode"] ?? "auto") ?? .auto
 
-        // Collect free-form context from Structure, tab descriptions, and Tips
+        let schemaVersion = Int(frontMatter["version"] ?? "")
+            ?? appDescriptionSchemaVersion
+        if schemaVersion > appDescriptionSchemaVersion {
+            DebugLog.log("app-desc",
+                "APP.md for '\(appName)' declares version \(schemaVersion); "
+                + "this build only supports up to \(appDescriptionSchemaVersion). "
+                + "Parsing best-effort; forward-compatible fields may be ignored.")
+        }
+
+        // Collect free-form context from Structure + per-tab descriptions.
+        // Tips live on `AppDescription.hints` (rendered as a separate section
+        // by SkillMdGenerator) — intentionally excluded from `context` to avoid
+        // duplicate rendering.
         var contextParts: [String] = []
         if let structure = sections["Structure"] {
             contextParts.append("## Structure\n\(structure.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
-        // Collect tab description sections (any heading ending with "Tab")
         for (heading, body) in sections.sorted(by: { $0.key < $1.key }) {
             if heading.hasSuffix("Tab") || heading.hasSuffix("tab") {
                 contextParts.append("## \(heading)\n\(body.trimmingCharacters(in: .whitespacesAndNewlines))")
             }
-        }
-        if let tips = sections["Tips"] {
-            contextParts.append("## Tips\n\(tips.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
 
         let context = contextParts.joined(separator: "\n\n")
@@ -97,9 +141,11 @@ enum AppDescriptionParser {
         let credentials = parseCredentials(sections["Credentials"] ?? "")
         let hints = parseList(sections["Tips"] ?? "")
         let tabs = parseTabs(structure: sections["Structure"] ?? "", sections: sections)
+        let tabLayout = parseTabLayout(sections["Tab Layout"] ?? "")
 
         return AppDescription(
             appName: appName,
+            schemaVersion: schemaVersion,
             locale: locale,
             archetype: archetype,
             resetBeforeExplore: resetBeforeExplore,
@@ -109,7 +155,38 @@ enum AppDescriptionParser {
             skipElements: skipElements,
             credentials: credentials,
             hints: hints,
-            tabs: tabs
+            tabs: tabs,
+            tabLayout: tabLayout
+        )
+    }
+
+    /// Parse the `## Tab Layout` section.
+    /// Accepts `- key: value` bullets or plain `key: value` lines.
+    /// Returns nil when the section is absent or declares neither orientation nor edge.
+    private static func parseTabLayout(_ text: String) -> TabLayout? {
+        var orientation: TabOrientation?
+        var edge: TabEdge?
+        for rawLine in text.components(separatedBy: .newlines) {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("- ") { line = String(line.dropFirst(2)) }
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces).lowercased()
+            let value = String(line[line.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            switch key {
+            case "orientation":
+                orientation = TabOrientation(rawValue: value)
+            case "edge":
+                edge = TabEdge(rawValue: value)
+            default:
+                continue
+            }
+        }
+        guard orientation != nil || edge != nil else { return nil }
+        // Defaults: horizontal bottom (standard iOS tab bar convention).
+        return TabLayout(
+            orientation: orientation ?? .horizontal,
+            edge: edge ?? .bottom
         )
     }
 
@@ -185,15 +262,30 @@ enum AppDescriptionParser {
         return creds
     }
 
-    /// Extract tab names from the Structure section and ## Tab headings.
-    ///
-    /// Recognizes two patterns:
-    /// 1. Inline: "N tabs: Tab1, Tab2, Tab3" or "tabs: Tab1, Tab2"
-    /// 2. Section headings: "## Explorer Tab" → "Explorer"
+    /// Extract tab names. Three patterns accepted, in priority order:
+    /// 1. `## Tabs` section with a bullet list — cleanest syntax.
+    /// 2. Inline in `## Structure`: "N tabs: Tab1, Tab2" or "tabs: Tab1, Tab2".
+    /// 3. Per-tab section headings: "## Explorer Tab" → "Explorer".
+    /// The first pattern that yields at least one name wins.
     private static func parseTabs(structure: String, sections: [String: String]) -> [String] {
+        // Pattern 1: `## Tabs` section with bullet list.
+        if let body = sections["Tabs"] {
+            let tabs = parseList(body)
+                .map { name -> String in
+                    // Strip parenthetical translations: "Pour toi (For You)" → "Pour toi"
+                    if let paren = name.range(of: "(") {
+                        return String(name[name.startIndex..<paren.lowerBound])
+                            .trimmingCharacters(in: .whitespaces)
+                    }
+                    return name
+                }
+                .filter { !$0.isEmpty }
+            if !tabs.isEmpty { return tabs }
+        }
+
         var tabs: [String] = []
 
-        // Pattern 1: "N tabs: Tab1, Tab2, Tab3" or "tabs: Tab1, Tab2"
+        // Pattern 2: "N tabs: Tab1, Tab2, Tab3" or "tabs: Tab1, Tab2" in Structure
         for line in structure.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard let range = trimmed.range(of: "tabs:", options: .caseInsensitive) else {
@@ -204,7 +296,6 @@ enum AppDescriptionParser {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "."))
             let names = afterColon.split(separator: ",").map { part in
                 var name = part.trimmingCharacters(in: .whitespaces)
-                // Strip parenthetical translations: "Pour toi (For You)" → "Pour toi"
                 if let parenStart = name.range(of: "(") {
                     name = String(name[name.startIndex..<parenStart.lowerBound])
                         .trimmingCharacters(in: .whitespaces)
@@ -212,10 +303,10 @@ enum AppDescriptionParser {
                 return name
             }
             tabs.append(contentsOf: names.filter { !$0.isEmpty })
-            break // Only use the first "tabs:" line
+            break
         }
 
-        // Pattern 2: "## Explorer Tab" headings → "Explorer"
+        // Pattern 3: "## Explorer Tab" headings → "Explorer"
         if tabs.isEmpty {
             for heading in sections.keys.sorted() {
                 if heading.hasSuffix("Tab") || heading.hasSuffix("tab") {

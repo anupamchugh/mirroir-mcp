@@ -111,6 +111,7 @@ enum AppDescriptionLoader {
 
         return AppDescription(
             appName: description.appName,
+            schemaVersion: description.schemaVersion,
             locale: description.locale,
             archetype: description.archetype,
             resetBeforeExplore: description.resetBeforeExplore,
@@ -120,7 +121,8 @@ enum AppDescriptionLoader {
             skipElements: description.skipElements,
             credentials: resolved,
             hints: description.hints,
-            tabs: description.tabs
+            tabs: description.tabs,
+            tabLayout: description.tabLayout
         )
     }
 

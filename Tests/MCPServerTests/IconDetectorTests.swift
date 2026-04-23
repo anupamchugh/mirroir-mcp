@@ -306,6 +306,55 @@ final class IconDetectorTests: XCTestCase {
             "Should not interpolate when spacing is uneven")
     }
 
+    func testInterpolateVerticalRailFillsGapsAlongY() {
+        // Simulate Tapo landscape: 3 of 5 right-edge icons detected at ~46pt
+        // spacing (y=149, 195, 239). Missing: camera at top (~103), phone at
+        // bottom (~285). Window is 868×440 landscape.
+        let detected = [
+            IconDetector.DetectedIcon(tapX: 917, tapY: 149, estimatedSize: 24),
+            IconDetector.DetectedIcon(tapX: 917, tapY: 195, estimatedSize: 24),
+            IconDetector.DetectedIcon(tapX: 918, tapY: 239, estimatedSize: 24),
+        ]
+        let zone = IconDetector.EmptyZone(yStart: 100, yEnd: 300)
+
+        let result = IconDetector.interpolateEvenSpacing(
+            detected: detected,
+            windowWidth: 868,
+            windowHeight: 440,
+            zone: zone
+        )
+
+        XCTAssertEqual(result.count, 5,
+            "Should extrapolate 2 missing icons along Y, got \(result.count)")
+        let sortedY = result.map(\.tapY).sorted()
+        XCTAssertEqual(sortedY[0], 103, accuracy: 5, "Topmost interpolated icon")
+        XCTAssertEqual(sortedY[4], 285, accuracy: 5, "Bottommost interpolated icon")
+        // All synthesized icons inherit the average X (~917).
+        for icon in result {
+            XCTAssertEqual(icon.tapX, 917, accuracy: 2)
+        }
+    }
+
+    func testInterpolateChoosesAxisBySpread() {
+        // X spread = 0, Y spread = 160, zone spans Y=0..440 so extrapolation
+        // can walk outward in both directions.
+        let verticalDetected = [
+            IconDetector.DetectedIcon(tapX: 500, tapY: 100, estimatedSize: 24),
+            IconDetector.DetectedIcon(tapX: 500, tapY: 180, estimatedSize: 24),
+            IconDetector.DetectedIcon(tapX: 500, tapY: 260, estimatedSize: 24),
+        ]
+        let verticalResult = IconDetector.interpolateEvenSpacing(
+            detected: verticalDetected, windowWidth: 868, windowHeight: 440,
+            zone: IconDetector.EmptyZone(yStart: 0, yEnd: 440)
+        )
+        // Vertical axis selected → output has extra Y positions outside input range.
+        let yValues = verticalResult.map { $0.tapY }.sorted()
+        XCTAssertGreaterThan(verticalResult.count, 3,
+            "Vertical cluster should extrapolate along Y; got \(verticalResult.count)")
+        XCTAssertTrue(yValues.first! < 100 || yValues.last! > 260,
+            "Extrapolation should extend beyond detected Y range")
+    }
+
     func testMergeDetectionsDeduplicatesNearby() {
         let primary = [
             IconDetector.DetectedIcon(tapX: 50, tapY: 850, estimatedSize: 25),

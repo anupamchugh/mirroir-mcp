@@ -10,7 +10,8 @@ import HelperLib
 extension MirroirMCP {
     static func registerGenerateSkillTools(
         server: MCPServer,
-        registry: TargetRegistry
+        registry: TargetRegistry,
+        policy: PermissionPolicy
     ) {
         let session = ExplorationSession()
 
@@ -147,7 +148,10 @@ extension MirroirMCP {
                 case "finish":
                     return handleFinish(session: session)
                 case "explore":
-                    return handleExplore(args: args, session: session, registry: registry, server: server)
+                    return handleExplore(
+                        args: args, session: session,
+                        registry: registry, server: server, policy: policy
+                    )
                 default:
                     return .error("Unknown action '\(action)'. Use: start, capture, finish, explore.")
                 }

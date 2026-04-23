@@ -76,6 +76,32 @@ enum SkillMdGenerator {
             lines.append("")
         }
 
+        // Developer-authored tips from APP.md, rendered as a distinct section so
+        // they're easy to spot vs. the free-form Structure / tab descriptions.
+        if let desc = appDescription, !desc.hints.isEmpty {
+            lines.append("## Tips")
+            lines.append("")
+            for hint in desc.hints {
+                lines.append("- \(hint)")
+            }
+            lines.append("")
+        }
+
+        // Declared credential keys (NOT values) so the AI knows what credentials
+        // the flow needs. Resolved env-var values never leak into the skill file.
+        if let desc = appDescription, !desc.credentials.isEmpty {
+            lines.append("## Required Credentials")
+            lines.append("")
+            lines.append("This app declares the following credentials in its APP.md. "
+                + "Values are resolved from environment variables at runtime — "
+                + "do not hardcode secrets in the skill.")
+            lines.append("")
+            for key in desc.credentials.keys.sorted() {
+                lines.append("- `\(key)`")
+            }
+            lines.append("")
+        }
+
         // Steps heading
         lines.append("## Steps")
 

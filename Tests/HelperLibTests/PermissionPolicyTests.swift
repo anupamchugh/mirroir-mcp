@@ -512,3 +512,66 @@ struct PermissionConfigTests {
         #expect(decoded.blockedApps == original.blockedApps)
     }
 }
+
+// MARK: - Per-App Tool Rules
+
+@Suite("PermissionPolicy - per-app tool rules")
+struct PerAppToolRulesTests {
+
+    @Test("perApp deny overrides global allow")
+    func perAppDenyWinsOverGlobalAllow() {
+        let config = PermissionConfig(
+            allow: ["*"],
+            perApp: ["Banking": AppToolRules(deny: ["type_text"])]
+        )
+        let policy = PermissionPolicy(skipPermissions: false, config: config)
+        #expect(policy.checkTool("type_text") == .allowed)
+        if case .denied = policy.checkTool("type_text", forApp: "Banking") {
+            // expected
+        } else {
+            Issue.record("Expected per-app deny to override global allow for Banking")
+        }
+        #expect(policy.checkTool("type_text", forApp: "Instagram") == .allowed)
+    }
+
+    @Test("perApp allow opens a globally denied tool")
+    func perAppAllowOpensDeniedTool() {
+        let config = PermissionConfig(
+            allow: ["tap"],
+            perApp: ["Debug": AppToolRules(allow: ["shake"])]
+        )
+        let policy = PermissionPolicy(skipPermissions: false, config: config)
+        if case .denied = policy.checkTool("shake") { /* expected */ } else {
+            Issue.record("Expected global denial for shake")
+        }
+        #expect(policy.checkTool("shake", forApp: "Debug") == .allowed)
+    }
+
+    @Test("perApp key match is case-insensitive")
+    func perAppKeyCaseInsensitive() {
+        let config = PermissionConfig(
+            allow: ["*"],
+            perApp: ["BANKING": AppToolRules(deny: ["tap"])]
+        )
+        let policy = PermissionPolicy(skipPermissions: false, config: config)
+        if case .denied = policy.checkTool("tap", forApp: "banking") {
+            // expected
+        } else {
+            Issue.record("Expected case-insensitive per-app match")
+        }
+    }
+
+    @Test("toolsDenied returns only denied tools for the app")
+    func toolsDeniedForApp() {
+        let config = PermissionConfig(
+            allow: ["*"],
+            perApp: ["Banking": AppToolRules(deny: ["type_text", "open_url"])]
+        )
+        let policy = PermissionPolicy(skipPermissions: false, config: config)
+        let denied = policy.toolsDenied(
+            for: "Banking",
+            requiredTools: ["tap", "swipe", "type_text", "press_key", "open_url"]
+        )
+        #expect(Set(denied) == Set(["type_text", "open_url"]))
+    }
+}

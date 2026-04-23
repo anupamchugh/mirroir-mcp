@@ -22,8 +22,9 @@ Create `~/.mirroir-mcp/permissions.json` (or `<cwd>/.mirroir-mcp/permissions.jso
 
 - **`allow`** — whitelist of mutating tools to expose (case-insensitive). Use `["*"]` to allow all.
 - **`deny`** — blocklist that overrides allow. A tool in both lists is denied.
-- **`blockedApps`** — app names that `launch_app` refuses to open (case-insensitive).
+- **`blockedApps`** — app names that `launch_app` refuses to open (case-insensitive). `generate_skill(action:"explore")` also honors this list.
 - **`skipElements`** — element text patterns the explorer should never tap (case-insensitive containment match). Useful for preventing the explorer from tapping destructive elements like "Delete Account".
+- **`perApp`** — per-app tool allow/deny layered on top of the global `allow`/`deny`. Keys are app names (case-insensitive); values are `{ "allow": […], "deny": […] }`. Per-app `deny` overrides global `allow`; per-app `allow` opens tools the global rules would close. Evaluated during `generate_skill` exploration — if an app's `deny` list blocks tools the explorer needs (`tap`, `swipe`, `type_text`, `press_key`), exploration refuses to start.
 
 ## Examples
 
@@ -51,6 +52,17 @@ Block Instagram from being launched:
 {
   "allow": ["*"],
   "blockedApps": ["Instagram"]
+}
+```
+
+Allow everything, but disable typing and URL-opening while exploring a banking app:
+
+```json
+{
+  "allow": ["*"],
+  "perApp": {
+    "Banking": { "deny": ["type_text", "open_url"] }
+  }
 }
 ```
 

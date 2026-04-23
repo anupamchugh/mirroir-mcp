@@ -178,7 +178,9 @@ final class AppDescriptionTests: XCTestCase {
         XCTAssertTrue(desc?.context.contains("Home Tab") ?? false)
         XCTAssertTrue(desc?.context.contains("Summary cards") ?? false)
         XCTAssertTrue(desc?.context.contains("Settings Tab") ?? false)
-        XCTAssertTrue(desc?.context.contains("Tip one") ?? false)
+        // Tips live on `.hints` now, rendered as a separate skill section — not in context.
+        XCTAssertFalse(desc?.context.contains("Tip one") ?? true)
+        XCTAssertEqual(desc?.hints, ["Tip one", "Tip two"])
     }
 
     func testParseReturnsNilWithoutAppName() {

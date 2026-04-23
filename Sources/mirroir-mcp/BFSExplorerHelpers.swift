@@ -120,9 +120,10 @@ extension BFSExplorer {
     /// Find OCR elements matching APP.md tab names.
     ///
     /// Primary strategy: case-insensitive substring text match (works when tab bar has labels).
-    /// Fallback: ordinal position mapping in the tab_bar zone (for icon-only tab bars like
-    /// Instagram). Sorts tab_bar-zone elements by X coordinate and maps them to APP.md tab
-    /// names by index — the developer's tab list order matches the visual left-to-right order.
+    /// Fallback: ordinal position mapping inside the tab-bar zone (for icon-only tab bars).
+    /// The layout hint from APP.md (`TabLayout.orientation`, `TabLayout.edge`) decides which
+    /// window edge to sample and whether to sort by X (horizontal bars) or Y (vertical rails).
+    /// When no layout hint is given, the legacy bottom/horizontal convention applies.
     private func findTabTargets(
         tabNames: [String], elements: [TapPoint], visitedElements: Set<String>
     ) -> [RankedElement] {
@@ -149,25 +150,31 @@ extension BFSExplorer {
             matchedTabs.insert(tabName)
         }
 
-        // Strategy 2: ordinal mapping for unmatched tabs (icon-only tab bars)
+        // Strategy 2: ordinal mapping for unmatched tabs (icon-only tab bars).
+        // Layout hint drives which window edge to sample and which axis to sort on.
         let unmatchedTabs = tabNames.filter { !matchedTabs.contains($0) }
         if !unmatchedTabs.isEmpty {
-            let tabBarTop = windowSize.height * 0.88 // bottom 12% is tab_bar zone
-            let tabBarElements = elements
-                .filter { $0.tapY >= tabBarTop }
-                .sorted { $0.tapX < $1.tapX }
+            let layout = session.currentAppDescription?.tabLayout
+                ?? TabLayout(orientation: .horizontal, edge: .bottom)
+            let zoneElements = elementsInTabZone(elements: elements, layout: layout)
+            let sorted: [TapPoint]
+            switch layout.orientation {
+            case .horizontal:
+                sorted = zoneElements.sorted { $0.tapX < $1.tapX }
+            case .vertical:
+                sorted = zoneElements.sorted { $0.tapY < $1.tapY }
+            }
 
-            if tabBarElements.count >= tabNames.count {
-                // Map each tab name to the element at its index, skipping already-matched
+            if sorted.count >= tabNames.count {
                 for (index, tabName) in tabNames.enumerated() {
                     guard !matchedTabs.contains(tabName),
-                          index < tabBarElements.count,
+                          index < sorted.count,
                           !visitedElements.contains(tabName) else { continue }
-                    let target = tabBarElements[index]
+                    let target = sorted[index]
                     results.append(RankedElement(
                         point: target,
                         score: ScreenPlanner.breadthRoleWeight + ScreenPlanner.highPriorityWeight,
-                        reason: "tab-ordinal(\(tabName)@\(index))",
+                        reason: "tab-ordinal(\(tabName)@\(index),\(layout.orientation.rawValue))",
                         displayLabel: tabName,
                         isBreadthNavigation: true
                     ))
@@ -176,6 +183,29 @@ extension BFSExplorer {
         }
 
         return results
+    }
+
+    /// Filter OCR elements to those inside the declared tab-bar zone.
+    /// Zone widths are 12% of the relevant axis — consistent with the existing
+    /// bottom-edge convention used for iPhone portrait tab bars.
+    private func elementsInTabZone(
+        elements: [TapPoint], layout: TabLayout
+    ) -> [TapPoint] {
+        let band: Double = 0.12
+        switch layout.edge {
+        case .bottom:
+            let minY = windowSize.height * (1 - band)
+            return elements.filter { $0.tapY >= minY }
+        case .top:
+            let maxY = windowSize.height * band
+            return elements.filter { $0.tapY <= maxY }
+        case .right:
+            let minX = windowSize.width * (1 - band)
+            return elements.filter { $0.tapX >= minX }
+        case .left:
+            let maxX = windowSize.width * band
+            return elements.filter { $0.tapX <= maxX }
+        }
     }
 
     // MARK: - Calibration Pipeline

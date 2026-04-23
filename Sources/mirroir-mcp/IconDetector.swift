@@ -99,6 +99,7 @@ enum IconDetector {
             icons = interpolateEvenSpacing(
                 detected: combined,
                 windowWidth: windowWidth,
+                windowHeight: windowHeight,
                 zone: zone
             )
 
@@ -220,60 +221,126 @@ enum IconDetector {
 
     // MARK: - Spacing Interpolation
 
-    /// Infer missing icon positions from even spacing of detected icons.
-    /// Tab bars use uniform spacing. When 2+ icons are detected with consistent gaps,
-    /// extrapolate to fill missing positions left and right within the window bounds.
+    /// Which axis the detected icons are arranged along.
+    enum InterpolationAxis {
+        case horizontal   // Bottom tab bar, top toolbar — X varies, Y ≈ constant.
+        case vertical     // Right rail, sidebar — Y varies, X ≈ constant.
+    }
+
+    /// Infer missing icon positions from even spacing of detected icons. The
+    /// dominant axis is chosen automatically: if detections span more range
+    /// along X than Y, we treat the cluster as horizontal; otherwise vertical.
+    /// Extrapolation walks outward along the dominant axis until bounded by the
+    /// window edge or the detection-gap floor.
+    static func interpolateEvenSpacing(
+        detected: [DetectedIcon],
+        windowWidth: Double,
+        windowHeight: Double,
+        zone: EmptyZone
+    ) -> [DetectedIcon] {
+        guard detected.count >= EnvConfig.iconMinForInterpolation else { return detected }
+
+        let xs = detected.map(\.tapX)
+        let ys = detected.map(\.tapY)
+        let xSpread = (xs.max() ?? 0) - (xs.min() ?? 0)
+        let ySpread = (ys.max() ?? 0) - (ys.min() ?? 0)
+        let axis: InterpolationAxis = xSpread >= ySpread ? .horizontal : .vertical
+
+        switch axis {
+        case .horizontal:
+            return interpolateAlongX(detected: detected, windowWidth: windowWidth)
+        case .vertical:
+            return interpolateAlongY(detected: detected, windowHeight: windowHeight, zone: zone)
+        }
+    }
+
+    /// Backward-compatible overload: callers that only have `windowWidth` (e.g.
+    /// older test fixtures, the bottom-tab-bar path) keep the horizontal
+    /// behavior they already depend on.
     static func interpolateEvenSpacing(
         detected: [DetectedIcon],
         windowWidth: Double,
         zone: EmptyZone
     ) -> [DetectedIcon] {
+        interpolateAlongX(detected: detected, windowWidth: windowWidth)
+    }
+
+    /// Extrapolate along the X axis. Expects detections that share approximately
+    /// the same Y (horizontal row / tab bar).
+    private static func interpolateAlongX(
+        detected: [DetectedIcon], windowWidth: Double
+    ) -> [DetectedIcon] {
         guard detected.count >= EnvConfig.iconMinForInterpolation else { return detected }
 
         let sorted = detected.sorted { $0.tapX < $1.tapX }
-
-        // Compute pairwise gaps between consecutive icons
-        var gaps: [Double] = []
-        for i in 1..<sorted.count {
-            gaps.append(sorted[i].tapX - sorted[i - 1].tapX)
-        }
-
-        guard !gaps.isEmpty else { return detected }
-
-        // Use median gap as the estimated spacing
-        let sortedGaps = gaps.sorted()
-        let medianGap = sortedGaps[sortedGaps.count / 2]
-
-        // Verify spacing is roughly even: all gaps within tolerance of the median
-        let maxDeviation = medianGap * EnvConfig.iconSpacingTolerance
-        let allConsistent = gaps.allSatisfy { abs($0 - medianGap) <= maxDeviation }
-
-        guard allConsistent && medianGap > 10.0 else { return detected }
-
-        // sorted.count >= iconMinForInterpolation (checked above), so first/last are non-nil.
+        let gaps = (1..<sorted.count).map { sorted[$0].tapX - sorted[$0 - 1].tapX }
+        guard let medianGap = medianEvenGap(gaps: gaps) else { return detected }
         guard let leftmost = sorted.first, let rightmost = sorted.last else { return detected }
 
-        // Average Y position of detected icons
         let avgY = sorted.map(\.tapY).reduce(0, +) / Double(sorted.count)
         let avgSize = sorted.map(\.estimatedSize).reduce(0, +) / Double(sorted.count)
-
         var result = Array(sorted)
 
-        // Extrapolate left from the leftmost icon
         var x = leftmost.tapX - medianGap
         while x > medianGap * 0.3 {
             result.append(DetectedIcon(tapX: x, tapY: avgY, estimatedSize: avgSize))
             x -= medianGap
         }
-
-        // Extrapolate right from the rightmost icon
         x = rightmost.tapX + medianGap
         while x < windowWidth - medianGap * 0.3 {
             result.append(DetectedIcon(tapX: x, tapY: avgY, estimatedSize: avgSize))
             x += medianGap
         }
-
         return result
+    }
+
+    /// Extrapolate along the Y axis. Expects detections that share approximately
+    /// the same X (vertical column / side rail). Respects the zone's Y bounds
+    /// so extrapolation stops at the visual edge of the rail, not the window.
+    private static func interpolateAlongY(
+        detected: [DetectedIcon], windowHeight: Double, zone: EmptyZone
+    ) -> [DetectedIcon] {
+        guard detected.count >= EnvConfig.iconMinForInterpolation else { return detected }
+
+        let sorted = detected.sorted { $0.tapY < $1.tapY }
+        let gaps = (1..<sorted.count).map { sorted[$0].tapY - sorted[$0 - 1].tapY }
+        guard let medianGap = medianEvenGap(gaps: gaps) else { return detected }
+        guard let topmost = sorted.first, let bottommost = sorted.last else { return detected }
+
+        let avgX = sorted.map(\.tapX).reduce(0, +) / Double(sorted.count)
+        let avgSize = sorted.map(\.estimatedSize).reduce(0, +) / Double(sorted.count)
+        // Zone-bounded extrapolation: walk one half-gap past the detections but
+        // clamp to the declared rail region so we don't synthesize icons where
+        // there are none (e.g., above a camera-feed toolbar's first icon).
+        let upperBound = max(zone.yStart, medianGap * 0.3)
+        let lowerBound = min(zone.yEnd, windowHeight - medianGap * 0.3)
+        var result = Array(sorted)
+
+        var y = topmost.tapY - medianGap
+        while y >= upperBound {
+            result.append(DetectedIcon(tapX: avgX, tapY: y, estimatedSize: avgSize))
+            y -= medianGap
+        }
+        y = bottommost.tapY + medianGap
+        while y <= lowerBound {
+            result.append(DetectedIcon(tapX: avgX, tapY: y, estimatedSize: avgSize))
+            y += medianGap
+        }
+        return result
+    }
+
+    /// Compute the median gap across consecutive detections and return it only
+    /// if gaps are roughly even (within `iconSpacingTolerance` of the median)
+    /// and larger than a 10-pt floor. Returns nil when the cluster is too
+    /// irregular to interpolate safely.
+    private static func medianEvenGap(gaps: [Double]) -> Double? {
+        guard !gaps.isEmpty else { return nil }
+        let sortedGaps = gaps.sorted()
+        let median = sortedGaps[sortedGaps.count / 2]
+        let maxDeviation = median * EnvConfig.iconSpacingTolerance
+        let allConsistent = gaps.allSatisfy { abs($0 - median) <= maxDeviation }
+        guard allConsistent && median > 10.0 else { return nil }
+        return median
     }
 
     // MARK: - Merging & Filtering

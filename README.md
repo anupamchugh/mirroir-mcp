@@ -115,7 +115,7 @@ Every interaction follows the same loop: **observe, reason, act**. `describe_scr
 
 ## Describe Your App
 
-mirroir can explore any iOS app blindly — but it works best when you tell it what to expect. Write an `APP.md` file and mirroir gets a map before it starts:
+mirroir can explore any iOS app blindly, but it works better when you tell it what to expect. Write an `APP.md` file and mirroir reads it before exploration starts:
 
 ```markdown
 ---
@@ -140,9 +140,9 @@ Dashboard with 4 tabs: Résumé, Partage, Parcourir, Profil.
 - Réinitialiser
 ```
 
-**30 seconds of writing saves minutes of blind exploration.** The `archetype` tells mirroir how the app navigates (dashboard = card drill-down, social-feed = infinite scroll, settings-list = chevron rows). Obstacles are auto-dismissed. Skip elements are never tapped. Structure and tab descriptions become AI context in generated skills.
+What the code actually uses today: `archetype` overrides recipe auto-detection; `obstacles` are auto-dismissed when `obstacle_mode: auto`; `skip` merges with `permissions.json.skipElements`; `tabs` (inline or as a section) are injected as high-priority targets; Structure + tab body + Tips become AI context in generated skills.
 
-Three levels of patterns work together — elements (what rows look like), screens (what the page layout means), and apps (what the developer knows). See [Patterns & Skills](docs/components.md) for the full system.
+See the [APP.md specification](docs/APP.md.spec.md) for the complete field list, loader resolution rules, and the permission-system bridge. Three levels of patterns work together — elements (what rows look like), screens (what the page layout means), and apps (what the developer knows). [Patterns & Skills](docs/components.md) covers the full system.
 
 ## Examples
 
@@ -233,7 +233,7 @@ Place files in `~/.mirroir-mcp/skills/` (global) or `<cwd>/.mirroir-mcp/skills/`
 
 ### APP.md
 
-Describe your app's structure to guide exploration — see [Describe Your App](#describe-your-app) above. Place APP.md files in `~/.mirroir-mcp/skills/` or the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo at `patterns/apps/`.
+Describe your app's structure to guide exploration — see [Describe Your App](#describe-your-app) above and the full [APP.md specification](docs/APP.md.spec.md). Place APP.md files in `~/.mirroir-mcp/skills/` or the [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo at `patterns/apps/`.
 
 ```markdown
 ---

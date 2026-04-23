@@ -12,6 +12,22 @@ public enum PermissionDecision: Sendable, Equatable {
     case denied(reason: String)
 }
 
+/// Per-app tool rules layered on top of the global `allow` / `deny` lists.
+/// Evaluated by `PermissionPolicy.checkTool(_:forApp:)` during exploration of
+/// a specific app. Both fields are case-insensitive.
+public struct AppToolRules: Codable, Sendable {
+    /// Tools explicitly allowed for this app, even if the global rules would deny them.
+    public var allow: [String]?
+    /// Tools denied for this app, overriding the global allow list. Useful for
+    /// locking down typing or URL opening while exploring a sensitive app.
+    public var deny: [String]?
+
+    public init(allow: [String]? = nil, deny: [String]? = nil) {
+        self.allow = allow
+        self.deny = deny
+    }
+}
+
 /// JSON-decodable permission configuration loaded from ~/.mirroir-mcp/permissions.json.
 /// The loader checks project-local (<cwd>/.mirroir-mcp/) first, then global (~/.mirroir-mcp/).
 public struct PermissionConfig: Codable, Sendable {
@@ -23,15 +39,22 @@ public struct PermissionConfig: Codable, Sendable {
     public var blockedApps: [String]?
     /// Element text patterns the explorer should never tap (case-insensitive containment).
     public var skipElements: [String]?
+    /// Per-app tool rules. Keys are app display names (case-insensitive).
+    /// When an app is being explored, its entry — if any — layers on top of the
+    /// global `allow`/`deny` lists: per-app `deny` wins over global `allow`, and
+    /// per-app `allow` opens tools that the global lists would close.
+    public var perApp: [String: AppToolRules]?
 
     public init(
         allow: [String]? = nil, deny: [String]? = nil,
-        blockedApps: [String]? = nil, skipElements: [String]? = nil
+        blockedApps: [String]? = nil, skipElements: [String]? = nil,
+        perApp: [String: AppToolRules]? = nil
     ) {
         self.allow = allow
         self.deny = deny
         self.blockedApps = blockedApps
         self.skipElements = skipElements
+        self.perApp = perApp
     }
 }
 
@@ -147,6 +170,45 @@ public struct PermissionPolicy: Sendable {
             "Use --dangerously-skip-permissions or configure \(Self.configPath).")
     }
 
+    /// Check a tool against global rules AND the per-app overrides (if any).
+    /// Precedence, after the global `checkTool` decision is computed:
+    ///   1. Per-app `deny` always wins (denies even a globally-allowed tool).
+    ///   2. Per-app `allow` can open a tool that was globally denied.
+    /// Readonly tools and `--dangerously-skip-permissions` behave exactly as in
+    /// `checkTool` — per-app rules only affect mutating tools.
+    public func checkTool(_ toolName: String, forApp appName: String) -> PermissionDecision {
+        let baseline = checkTool(toolName)
+        guard let rules = config?.perApp?[caseInsensitive: appName] else { return baseline }
+        let name = toolName.lowercased()
+
+        if let denyList = rules.deny,
+           denyList.contains(where: { $0.lowercased() == name }) {
+            return .denied(reason:
+                "Tool '\(toolName)' is denied for app '\(appName)' by permissions.json perApp rules. "
+                + "Remove it from perApp.\(appName).deny to allow it during this app's exploration.")
+        }
+
+        if case .denied = baseline,
+           let allowList = rules.allow,
+           allowList.contains(where: { $0.lowercased() == name }) {
+            return .allowed
+        }
+
+        return baseline
+    }
+
+    /// Return the subset of `tools` that are denied for `appName` when per-app
+    /// rules are taken into account. Used at exploration start to fail fast when
+    /// the app's rules block something the explorer actually needs (e.g. `tap`).
+    public func toolsDenied(
+        for appName: String, requiredTools tools: [String]
+    ) -> [String] {
+        tools.filter {
+            if case .denied = checkTool($0, forApp: appName) { return true }
+            return false
+        }
+    }
+
     /// Check whether an app is allowed to be launched.
     public func checkAppLaunch(_ appName: String) -> PermissionDecision {
         let name = appName.lowercased()
@@ -221,5 +283,14 @@ public struct PermissionPolicy: Sendable {
     /// Returns true if `--dangerously-skip-permissions` or `--yolo` is present.
     public static func parseSkipPermissions(from args: [String]) -> Bool {
         args.contains("--dangerously-skip-permissions") || args.contains("--yolo")
+    }
+}
+
+private extension Dictionary where Key == String {
+    /// Case-insensitive subscript lookup. Used so `perApp["Banking"]` matches
+    /// `perApp["banking"]` in the JSON config.
+    subscript(caseInsensitive key: String) -> Value? {
+        let lower = key.lowercased()
+        return first(where: { $0.key.lowercased() == lower })?.value
     }
 }

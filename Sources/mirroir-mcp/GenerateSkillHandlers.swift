@@ -224,7 +224,8 @@ extension MirroirMCP {
         args: [String: JSONValue],
         session: ExplorationSession,
         registry: TargetRegistry,
-        server: MCPServer
+        server: MCPServer,
+        policy: PermissionPolicy
     ) -> MCPToolResult {
         guard let appName = args["app_name"]?.asString(), !appName.isEmpty else {
             return .error("Missing required parameter: app_name (for explore action)")
@@ -272,19 +273,49 @@ extension MirroirMCP {
                 "Spotlight search may still be visible. Try launching the app manually first.")
         }
 
-        // Parse budget overrides; merge skip elements from permissions.json and APP.md
+        // Apply the same blocked-apps guard that `launch_app` enforces, so an app
+        // can't be explored via back-door when launching is forbidden.
+        if case .denied(let reason) = policy.checkAppLaunch(appName) {
+            return .error(reason)
+        }
+
+        // Per-app tool gate: exploration needs at minimum these tools. If the
+        // app's perApp.deny list blocks any of them, refuse early with a
+        // specific message naming which tool(s) are the problem.
+        let requiredTools = ["tap", "swipe", "type_text", "press_key"]
+        let denied = policy.toolsDenied(for: appName, requiredTools: requiredTools)
+        if !denied.isEmpty {
+            return .error(
+                "Cannot explore '\(appName)': permissions.json perApp rules deny "
+                + "tools needed by the explorer: \(denied.joined(separator: ", ")). "
+                + "Adjust perApp.\(appName).deny to permit exploration.")
+        }
+
+        // Budget + skip-list merge. Built-ins, the global permissions.json list,
+        // and the per-app APP.md list are combined with APP.md taking precedence
+        // on duplicates so per-app casing survives.
         let maxDepth = args["max_depth"]?.asInt() ?? ExplorationBudget.default.maxDepth
         let maxScreens = args["max_screens"]?.asInt() ?? ExplorationBudget.default.maxScreens
         let maxTime = args["max_time"]?.asInt() ?? ExplorationBudget.default.maxTimeSeconds
-        let extraPatterns = PermissionPolicy.loadConfig()?.skipElements ?? []
+        let extraPatterns = policy.config?.skipElements ?? []
         let appSkipPatterns = appDesc?.skipElements ?? []
+        let mergedSkip = mergeSkipPatterns(
+            builtIn: ExplorationBudget.builtInSkipPatterns,
+            global: extraPatterns,
+            perApp: appSkipPatterns
+        )
+        DebugLog.log("explore",
+            "skip patterns: \(mergedSkip.count) total "
+            + "(built-in \(ExplorationBudget.builtInSkipPatterns.count), "
+            + "permissions.json \(extraPatterns.count), "
+            + "APP.md \(appSkipPatterns.count))")
         let budget = ExplorationBudget(
             maxDepth: maxDepth,
             maxScreens: maxScreens,
             maxTimeSeconds: maxTime,
             maxActionsPerScreen: ExplorationBudget.default.maxActionsPerScreen,
             scrollLimit: ExplorationBudget.default.scrollLimit,
-            skipPatterns: ExplorationBudget.builtInSkipPatterns + extraPatterns + appSkipPatterns
+            skipPatterns: mergedSkip
         )
 
         let goal = args["goal"]?.asString() ?? ""
@@ -420,5 +451,24 @@ extension MirroirMCP {
 
         // Should not reach here, but just in case
         return .text(stepResults.joined(separator: "\n"))
+    }
+
+    /// Merge three layers of skip patterns with duplicate collapsing.
+    /// Order of precedence is preserved so logs can attribute a match to its
+    /// authoritative source (per-app wins over global wins over built-in).
+    static func mergeSkipPatterns(
+        builtIn: [String], global: [String], perApp: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        var merged: [String] = []
+        // Per-app first so it claims the canonical casing when permissions.json
+        // uses different capitalization for the same pattern.
+        for pattern in perApp + global + builtIn {
+            let key = pattern.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            merged.append(pattern)
+        }
+        return merged
     }
 }
