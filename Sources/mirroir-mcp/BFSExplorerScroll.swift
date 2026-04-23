@@ -185,8 +185,7 @@ extension BFSExplorer {
         componentCount: Int? = nil, unclassifiedCount: Int? = nil,
         validationPassed: Bool? = nil, validationReport: String? = nil
     ) {
-        lock.lock()
-        calibrationSummary = ExplorationReportFormatter.CalibrationSummary(
+        reporter.setCalibrationSummary(ExplorationReportFormatter.CalibrationSummary(
             scrollCount: scrollData.scrollCount,
             newElementCount: scrollData.novelCount,
             totalElements: scrollData.totalElements,
@@ -194,7 +193,6 @@ extension BFSExplorer {
             componentCount: componentCount,
             unclassifiedCount: unclassifiedCount,
             validationPassed: validationPassed,
-            validationReport: validationReport)
-        lock.unlock()
+            validationReport: validationReport))
     }
 }

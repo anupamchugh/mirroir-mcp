@@ -65,7 +65,7 @@ extension BFSExplorer {
                 classified: classified, visitedElements: visitedElements
             )
             graph.setScreenPlan(for: currentFP, plan: applyQBoostIfAvailable(plan: plan, fingerprint: currentFP))
-            DebugLog.log("bfs", "=== VIEWPORT \(currentViewportIndex + 1)/\(totalViewpoints) ===")
+            DebugLog.log("bfs", "=== VIEWPORT \(frontierManager.currentViewportIndex + 1)/\(frontierManager.totalViewpoints) ===")
             DebugLog.log("bfs", "viewport elements: \(viewportElements.count)")
             DebugLog.log("bfs", "components matched: \(plan.count)")
             let planTexts = plan.map { "\($0.displayLabel)(y=\(Int($0.point.tapY)), score=\(String(format: "%.1f", $0.score)))" }
@@ -78,9 +78,7 @@ extension BFSExplorer {
             describer: describer, input: input, strategy: strategy
         )
 
-        lock.lock()
-        let currentActions = actionsOnCurrentScreen
-        lock.unlock()
+        let currentActions = frontierManager.actionsOnCurrentScreen
 
         let visited = graph.node(for: currentFP)?.visitedElements ?? []
         DebugLog.log("bfs", "exploring depth=\(screen.depth) fp=\(currentFP.prefix(8)) " +
@@ -94,11 +92,9 @@ extension BFSExplorer {
                 currentFP: currentFP, input: input, describer: describer
             ) {
                 graph.clearScreenPlan(for: currentFP)
-                lock.lock()
-                currentViewportIndex += 1
-                actionsOnCurrentScreen = 0
-                lock.unlock()
-                DebugLog.log("bfs", "=== VIEWPORT \(currentViewportIndex)/\(totalViewpoints) — scrolled down, plan cleared ===")
+                frontierManager.advanceViewport()
+                frontierManager.resetActionsOnCurrentScreen()
+                DebugLog.log("bfs", "=== VIEWPORT \(frontierManager.currentViewportIndex)/\(frontierManager.totalViewpoints) — scrolled down, plan cleared ===")
                 return scrollResult
             }
 
@@ -106,9 +102,9 @@ extension BFSExplorer {
             let visited = graph.node(for: currentFP)?.visitedElements ?? []
             DebugLog.log("bfs", "=== SCREEN DONE depth=\(screen.depth) visited=\(visited.count) items ===")
             if screen.depth == 0 {
-                phase = .atRoot
+                frontierManager.phase = .atRoot
             } else {
-                phase = .returning(depthRemaining: screen.depth)
+                frontierManager.phase = .returning(depthRemaining: screen.depth)
             }
             return .continue(description: "Finished exploring depth-\(screen.depth) screen")
         }
@@ -137,13 +133,13 @@ extension BFSExplorer {
             DebugLog.log("bfs", "SKIP \"\(label)\" at (\(Int(target.tapX)),\(Int(target.tapY))) — " +
                 "already tapped nearby (cache has \(graph.tapCount(for: currentFP)) entries)")
             graph.markElementVisited(fingerprint: currentFP, elementText: label)
-            lock.lock()
-            cacheHitsPerScreen[currentFP, default: 0] += 1
-            screenActions[currentFP, default: []].append(
-                ExplorationReportFormatter.ActionEntry(
+            reporter.recordCacheHit(fingerprint: currentFP)
+            reporter.recordAction(
+                fingerprint: currentFP,
+                entry: ExplorationReportFormatter.ActionEntry(
                     label: label, x: target.tapX, y: target.tapY,
-                    result: "cache_skip", skippedByCache: true))
-            lock.unlock()
+                    result: "cache_skip", skippedByCache: true)
+            )
             return .continue(description: "Skipped \"\(label)\" — already tapped nearby")
         }
 
@@ -208,8 +204,8 @@ extension BFSExplorer {
 
         lock.lock()
         actionCount += 1
-        actionsOnCurrentScreen += 1
         lock.unlock()
+        frontierManager.incrementActionsOnCurrentScreen()
 
         let transitionDesc: String
         switch transition {
@@ -221,12 +217,12 @@ extension BFSExplorer {
         // Update learned Q-value for this edge (Fastbot2 pattern)
         (graph as? NavigationGraph)?.updateQValue(
             fromFingerprint: currentFP, displayLabel: label, result: transition)
-        lock.lock()
-        screenActions[currentFP, default: []].append(
-            ExplorationReportFormatter.ActionEntry(
+        reporter.recordAction(
+            fingerprint: currentFP,
+            entry: ExplorationReportFormatter.ActionEntry(
                 label: label, x: target.tapX, y: target.tapY,
-                result: transitionDesc, skippedByCache: false))
-        lock.unlock()
+                result: transitionDesc, skippedByCache: false)
+        )
 
         switch transition {
         case .newScreen(let fp):
@@ -236,7 +232,7 @@ extension BFSExplorer {
                 let newPath = screen.pathFromRoot + [PathSegment(
                     elementText: target.text, tapX: target.tapX, tapY: target.tapY
                 )]
-                frontier.append(FrontierScreen(
+                frontierManager.enqueue(FrontierScreen(
                     fingerprint: fp, pathFromRoot: newPath, depth: childDepth
                 ))
             }

@@ -121,7 +121,7 @@ extension BFSExplorer {
 
         // Recovery 2: Retry back button with fresh elements
         DebugLog.log("bfs", "backtrack-verify: retrying back button")
-        ExplorerUtilities.tapBackButton(
+        backtracker.tapBack(
             elements: result.elements, input: input, windowSize: windowSize
         )
 
@@ -153,7 +153,7 @@ extension BFSExplorer {
         let retryTexts = retryResult.elements.map { $0.text }.joined(separator: ", ")
         DebugLog.log("bfs", "backtrack-verify: still lost after 2 backs — trying 3rd back " +
             "(current: \(retryTexts.prefix(100)))")
-        ExplorerUtilities.tapBackButton(
+        backtracker.tapBack(
             elements: retryResult.elements, input: input, windowSize: windowSize
         )
         guard let thirdResult = ExplorerUtilities.dismissAlertIfPresent(
@@ -188,7 +188,7 @@ extension BFSExplorer {
         describer: ScreenDescribing,
         input: InputProviding
     ) -> ExploreStepResult? {
-        ExplorerUtilities.tapBackButton(
+        backtracker.tapBack(
             elements: afterElements, input: input, windowSize: windowSize
         )
 
@@ -215,7 +215,7 @@ extension BFSExplorer {
                 _ = input.launchApp(name: appName)
                 usleep(EnvConfig.toolSettlingDelayUs)
                 graph.setCurrentFingerprint(graph.rootFingerprint)
-                phase = .atRoot
+                frontierManager.phase = .atRoot
                 return .continue(description: "Backtrack landed on wrong screen — relaunched app")
             }
             return nil
@@ -229,9 +229,9 @@ extension BFSExplorer {
             // If we were exploring root, stay in exploring phase to continue the plan.
             // Don't switch to .atRoot which would dequeue frontier children.
             if expectedFP != graph.rootFingerprint {
-                phase = .atRoot
+                frontierManager.phase = .atRoot
             }
-            DebugLog.log("bfs", "recovered — phase=\(phase)")
+            DebugLog.log("bfs", "recovered — phase=\(frontierManager.phase)")
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
                 category: .backtrackFailed,
                 screenFingerprint: expectedFP,
@@ -298,16 +298,16 @@ extension BFSExplorer {
         }
 
         if !handled {
-            ExplorerUtilities.tapBackButton(
+            backtracker.tapBack(
                 elements: elements, input: input, windowSize: windowSize
             )
         }
 
         let remaining = depthRemaining - 1
         if remaining > 0 {
-            phase = .returning(depthRemaining: remaining)
+            frontierManager.phase = .returning(depthRemaining: remaining)
         } else {
-            phase = .atRoot
+            frontierManager.phase = .atRoot
             graph.setCurrentFingerprint(graph.rootFingerprint)
         }
 
@@ -403,7 +403,8 @@ extension BFSExplorer {
         graph.markElementVisited(fingerprint: fingerprint, elementText: target.text)
         _ = input.tap(x: target.tapX, y: target.tapY)
         usleep(EnvConfig.stepSettlingDelayMs * 1000)
-        lock.lock(); actionCount += 1; actionsOnCurrentScreen += 1; lock.unlock()
+        lock.lock(); actionCount += 1; lock.unlock()
+        frontierManager.incrementActionsOnCurrentScreen()
         return .continue(
             description: "Plateau advisor: tapped \"\(suggestion.elementText)\""
         )

@@ -391,6 +391,41 @@ protocol AIAgentProviding {
     func diagnose(payload: DiagnosticPayload) -> AIDiagnosis?
 }
 
+/// Returns-to-previous-screen strategy. Varies per target: iPhone Mirroring must
+/// OCR-detect a back chevron and tap it (iOS apps ignore keyboard shortcuts),
+/// while native macOS apps can use Cmd+[ or similar keybindings.
+protocol Backtracking: Sendable {
+    /// Attempt to navigate one screen back. Returns true if a back action was
+    /// issued (the caller verifies arrival separately via OCR).
+    ///
+    /// - Parameters:
+    ///   - elements: Current screen OCR elements (used by OCR-based backtrackers
+    ///     to locate the back chevron; ignored by keyboard-shortcut backtrackers).
+    ///   - input: Input provider for issuing the back action.
+    ///   - windowSize: Size of the target window in points (used for the
+    ///     canonical-position fallback when OCR misses the chevron).
+    func tapBack(
+        elements: [TapPoint],
+        input: any InputProviding,
+        windowSize: CGSize
+    ) -> Bool
+}
+
+/// App lifecycle operations that vary per target: launch, force-quit before explore,
+/// and open-URL semantics. iPhone Mirroring uses Spotlight-via-Mirroring + App Switcher
+/// swipe-up; macOS apps use `open -a` and Cmd+Q.
+protocol AppLifecycleHandling: Sendable {
+    /// Launch the app by display name. Returns an error message on failure.
+    func launch(appName: String, input: any InputProviding) -> String?
+    /// Force-quit the app before a fresh explore run. Only called when APP.md
+    /// declares `reset_before_explore: true`.
+    func forceQuitBeforeExplore(
+        appName: String,
+        bridge: any WindowBridging,
+        input: any InputProviding
+    )
+}
+
 /// Protocol for AI-guided exploration advice during plateau phases.
 /// Abstracted for testability — production uses embacle, tests can inject stubs.
 protocol ExplorationAdvising: Sendable {

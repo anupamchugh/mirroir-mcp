@@ -19,13 +19,16 @@ final class NavigationGraph: @unchecked Sendable {
     var currentFP: String = ""
     var rootFP: String = ""
     var isStarted: Bool = false
-    var scrollCounts: [String: Int] = [:]
+    /// Per-screen runtime state (scroll counts + tap-area dedup cache).
+    /// NavigationGraph delegates the `recordTap`, `wasAlreadyTapped`,
+    /// `tapCount`, `scrollCount`, `incrementScrollCount` methods to this
+    /// collaborator.
+    let perScreen = PerScreenExplorationState()
     var scoutResultsMap: [String: [String: ScoutResult]] = [:]
     var traversalPhases: [String: TraversalPhase] = [:]
     var screenPlans: [String: [RankedElement]] = [:]
     /// Viewpoints captured during calibration: ordered scroll positions with visible elements.
     var viewpointsMap: [String: [CalibrationScroller.Viewpoint]] = [:]
-    var tapCaches: [String: TapAreaCache] = [:]
     /// Labels of breadth_navigation components (e.g. tab bar items) registered during calibration.
     var breadthLabels: Set<String> = []
     /// Labels of breadth_navigation components already explored. Shared across all screens
@@ -55,12 +58,11 @@ final class NavigationGraph: @unchecked Sendable {
         nodes = [:]
         edges = []
         adjacency = [:]
-        scrollCounts = [:]
+        perScreen.reset()
         scoutResultsMap = [:]
         traversalPhases = [:]
         screenPlans = [:]
         viewpointsMap = [:]
-        tapCaches = [:]
         breadthLabels = []
         globalVisited = []
         deadEdges = []
@@ -391,23 +393,17 @@ final class NavigationGraph: @unchecked Sendable {
 
     /// Record a tap at the given coordinates on a screen.
     func recordTap(fingerprint: String, x: Double, y: Double) {
-        lock.lock()
-        defer { lock.unlock() }
-        tapCaches[fingerprint, default: TapAreaCache()].record(x: x, y: y)
+        perScreen.recordTap(fingerprint: fingerprint, x: x, y: y)
     }
 
     /// Check whether a point was already tapped on a screen (within proximity radius).
     func wasAlreadyTapped(fingerprint: String, x: Double, y: Double) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return tapCaches[fingerprint]?.wasAlreadyTapped(x: x, y: y) ?? false
+        perScreen.wasAlreadyTapped(fingerprint: fingerprint, x: x, y: y)
     }
 
     /// Number of tapped areas recorded for a screen.
     func tapCount(for fingerprint: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return tapCaches[fingerprint]?.count ?? 0
+        perScreen.tapCount(for: fingerprint)
     }
 
 }

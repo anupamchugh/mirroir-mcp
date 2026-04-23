@@ -50,7 +50,7 @@ extension BFSExplorer {
             ))
             // App was relaunched — reset to root and continue exploring
             graph.setCurrentFingerprint(graph.rootFingerprint)
-            phase = .atRoot
+            frontierManager.phase = .atRoot
             return .continue(description: "App escaped — relaunched and continuing from root")
         case .failed(let reason):
             graph.appendRecoveryEvent(PostActionVerifier.buildEvent(
@@ -63,7 +63,7 @@ extension BFSExplorer {
             _ = input.launchApp(name: appName)
             usleep(EnvConfig.toolSettlingDelayUs)
             graph.setCurrentFingerprint(graph.rootFingerprint)
-            phase = .atRoot
+            frontierManager.phase = .atRoot
             return .continue(description: "App stuck — reset and continuing from root")
         }
     }
@@ -210,10 +210,11 @@ extension BFSExplorer {
         // The explorer will build per-viewport plans from fresh OCR, processing one
         // viewport at a time (scroll → describe → classify → tap → next viewport).
         if skipComponentDetection || componentDefinitions.isEmpty {
-            // Record viewpoint count for per-viewport processing
-            totalViewpoints = scrollData.scrollCount + 1  // +1 for the initial viewport
-            currentViewportIndex = 0
-            DebugLog.log("bfs", "=== CALIBRATION: \(totalViewpoints) viewpoints, " +
+            // Record viewpoint count for per-viewport processing.
+            // +1 for the initial viewport captured before any scroll.
+            frontierManager.resetViewports(total: scrollData.scrollCount + 1)
+
+            DebugLog.log("bfs", "=== CALIBRATION: \(frontierManager.totalViewpoints) viewpoints, " +
                 "\(allElements.count) total elements ===")
             DebugLog.log("bfs", "plan will be built per viewport (no full-page plan)")
             storeSummary(scrollData: scrollData, fingerprint: fingerprint)
@@ -301,10 +302,9 @@ extension BFSExplorer {
             scoutResults: [:], screenHeight: windowSize.height)
         graph.setScreenPlan(for: fingerprint, plan: plan)
 
-        totalViewpoints = scrollData.scrollCount + 1
-        currentViewportIndex = 0
+        frontierManager.resetViewports(total: scrollData.scrollCount + 1)
         let explorableCount = components.filter { $0.definition.exploration.explorable }.count
-        DebugLog.log("bfs", "=== CALIBRATION: \(totalViewpoints) viewpoints ===")
+        DebugLog.log("bfs", "=== CALIBRATION: \(frontierManager.totalViewpoints) viewpoints ===")
         DebugLog.log("bfs", "calibration plan: \(plan.count) items " +
             "(\(explorableCount) explorable / \(components.count) total components)")
 
@@ -391,20 +391,14 @@ extension BFSExplorer {
     /// Generate a structured exploration report covering calibration, per-screen actions,
     /// and tap cache statistics.
     func generateReport() -> String {
-        lock.lock()
-        let allScreenActions = screenActions
-        let allCacheHits = cacheHitsPerScreen
-        let calSummary = calibrationSummary
-        lock.unlock()
-
+        let report = reporter.snapshot()
         let currentStats = stats
         var screenSummaries: [ExplorationReportFormatter.ScreenSummary] = []
-        let totalCacheHits = allCacheHits.values.reduce(0, +)
 
         let snapshot = graph.finalize()
         for (fp, node) in snapshot.nodes.sorted(by: { $0.value.depth < $1.value.depth }) {
-            let actions = allScreenActions[fp] ?? []
-            let cacheHits = allCacheHits[fp] ?? 0
+            let actions = report.screenActions[fp] ?? []
+            let cacheHits = report.cacheHitsPerScreen[fp] ?? 0
             let plan = graph.screenPlan(for: fp)
             screenSummaries.append(ExplorationReportFormatter.ScreenSummary(
                 depth: node.depth,
@@ -418,10 +412,10 @@ extension BFSExplorer {
 
         return ExplorationReportFormatter.formatExplorationReport(
             appName: appName,
-            calibration: calSummary,
+            calibration: report.calibrationSummary,
             screens: screenSummaries,
             stats: currentStats,
-            tapCacheTotal: totalCacheHits
+            tapCacheTotal: report.totalCacheHits
         )
     }
 }

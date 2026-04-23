@@ -60,16 +60,10 @@ final class InputSimulation: Sendable {
         } else {
             self.cursorFreePID = nil
         }
-        // Resolve the process name for AppleScript focus management.
-        // iPhone Mirroring uses the configured process name; generic targets
-        // fall back to the process name from the running application.
-        if let menuBridge = bridge as? MirroringBridge {
-            self.mirroringBundleID = menuBridge.targetName == "iphone"
-                ? EnvConfig.mirroringBundleID
-                : bridge.findProcess()?.bundleIdentifier ?? EnvConfig.mirroringBundleID
-        } else {
-            self.mirroringBundleID = bridge.findProcess()?.bundleIdentifier ?? ""
-        }
+        // Resolve the bundle ID for AppleScript focus management. The bridge
+        // knows which process it points at (iPhone Mirroring's ScreenContinuity,
+        // a macOS app, etc.); look it up via findProcess() uniformly.
+        self.mirroringBundleID = bridge.findProcess()?.bundleIdentifier ?? ""
 
         // Build layout substitution table when the iPhone's hardware keyboard
         // layout differs from US QWERTY. Option-modified keycodes go through

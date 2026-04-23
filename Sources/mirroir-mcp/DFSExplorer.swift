@@ -30,12 +30,24 @@ final class DFSExplorer: @unchecked Sendable {
     let budget: ExplorationBudget
     let windowSize: CGSize
     let appName: String
-    var backtrackStack: [String] = []
+    /// Owns the backtrack stack + per-screen action counter. Thread-safe internally.
+    let depthTracker = DepthTracker()
     private var startTime: Date = Date()
     var actionCount: Int = 0
-    var actionsOnCurrentScreen: Int = 0
     var isFinished: Bool = false
     let lock = NSLock()
+
+    /// Backward-compatible read-only accessor for the backtrack stack.
+    /// Kept so tests and external callers that inspect exploration state
+    /// continue to work. All writes go through `depthTracker`.
+    var backtrackStack: [String] { depthTracker.snapshot }
+
+    /// Backward-compatible read-only accessor for the action counter.
+    var actionsOnCurrentScreen: Int { depthTracker.actionsOnCurrentScreen }
+
+    /// Back-navigation strategy. Target-dependent: iPhone Mirroring uses
+    /// OCR-chevron tap; macOS apps use keyboard shortcuts.
+    let backtracker: any Backtracking
 
     /// Initialize the DFS explorer.
     ///
@@ -43,21 +55,29 @@ final class DFSExplorer: @unchecked Sendable {
     ///   - session: The exploration session tracking screens and graph state.
     ///   - budget: Exploration budget limits.
     ///   - windowSize: Size of the target window for scroll coordinate computation.
-    init(session: ExplorationSession, budget: ExplorationBudget, windowSize: CGSize = CGSize(width: 410, height: 890)) {
+    ///   - backtracker: Back-navigation strategy. Defaults to OCR-chevron tap
+    ///     (the iPhone-Mirroring path) so existing tests keep working.
+    init(
+        session: ExplorationSession,
+        budget: ExplorationBudget,
+        windowSize: CGSize = CGSize(width: 410, height: 890),
+        backtracker: any Backtracking = OCRChevronBacktracker()
+    ) {
         self.session = session
         self.graph = session.currentGraph
         self.budget = budget
         self.windowSize = windowSize
         self.appName = session.currentAppName
+        self.backtracker = backtracker
     }
 
     /// Record the exploration start time. Call once after the initial screen capture.
     func markStarted() {
         lock.lock()
-        defer { lock.unlock() }
         startTime = Date()
+        lock.unlock()
         if graph.started {
-            backtrackStack = [graph.currentFingerprint]
+            depthTracker.seed(rootFP: graph.currentFingerprint)
         }
     }
 
@@ -77,9 +97,9 @@ final class DFSExplorer: @unchecked Sendable {
         lock.lock()
         let finished = isFinished
         let elapsed = Int(Date().timeIntervalSince(startTime))
-        let depth = backtrackStack.count - 1
         let screenCount = graph.nodeCount
         lock.unlock()
+        let depth = depthTracker.depth
 
         guard !finished else {
             return .finished(bundle: generateBundle())
@@ -156,9 +176,7 @@ final class DFSExplorer: @unchecked Sendable {
         let rankedElement: RankedElement? = if let ranked = graph.nextPlannedElement(for: currentFP),
             !strategy.shouldSkip(elementText: ranked.point.text, budget: budget) { ranked } else { nil }
 
-        lock.lock()
-        let currentActions = actionsOnCurrentScreen
-        lock.unlock()
+        let currentActions = depthTracker.actionsOnCurrentScreen
 
         // Check if we should tap an element or backtrack
         if let ranked = rankedElement, currentActions < budget.maxActionsPerScreen {
@@ -175,9 +193,7 @@ final class DFSExplorer: @unchecked Sendable {
             currentFP: currentFP, input: input, describer: describer
         ) {
             DebugLog.log("dfs", "scroll revealed new elements, resetting action counter")
-            lock.lock()
-            actionsOnCurrentScreen = 0
-            lock.unlock()
+            depthTracker.resetActionsOnCurrentScreen()
             return scrollResult
         }
 
@@ -265,9 +281,7 @@ final class DFSExplorer: @unchecked Sendable {
     /// Generate a summary report of the DFS exploration.
     func generateReport() -> String {
         let s = stats
-        lock.lock()
-        let depth = backtrackStack.count - 1
-        lock.unlock()
+        let depth = depthTracker.depth
         var lines = [
             "## DFS Exploration Report",
             "- Screens: \(s.nodeCount), Edges: \(s.edgeCount)",

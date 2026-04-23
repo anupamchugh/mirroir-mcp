@@ -21,19 +21,22 @@ final class BFSExplorer: @unchecked Sendable {
     let classifier: (any ComponentClassifying)?
     let bridge: (any WindowBridging)?
 
-    var frontier: [FrontierScreen] = []
-    var frontierIndex: Int = 0
-    var phase: BFSPhase = .atRoot
-    var actionsOnCurrentScreen: Int = 0
+    /// Collaborator owning the frontier queue, phase state machine, per-screen
+    /// action counter, and viewport tracking. Replaces six scattered mutable
+    /// fields (frontier, frontierIndex, phase, actionsOnCurrentScreen,
+    /// currentViewportIndex, totalViewpoints).
+    let frontierManager = FrontierManager()
+
+    /// Read-only passthroughs for tests and external readers.
+    var totalViewpoints: Int { frontierManager.totalViewpoints }
+    var currentViewportIndex: Int { frontierManager.currentViewportIndex }
     var startTime: Date = Date()
     /// Fingerprints of screens that have been calibrated (full-page scroll + component detection).
     var calibratedScreens: Set<String> = []
-    /// Report data: calibration summary, collected during calibration phase.
-    var calibrationSummary: ExplorationReportFormatter.CalibrationSummary?
-    /// Report data: per-screen action entries, keyed by fingerprint.
-    var screenActions: [String: [ExplorationReportFormatter.ActionEntry]] = [:]
-    /// Report data: tap cache hit count per screen.
-    var cacheHitsPerScreen: [String: Int] = [:]
+    /// Collaborator owning per-screen action entries, tap-cache-hit counts,
+    /// and the calibration summary. Thread-safe internally — callers no
+    /// longer lock around these accesses.
+    let reporter = ExplorationReporter()
     var actionCount: Int = 0
     var isFinished: Bool = false
     let coverageMonitor: CoverageMonitor
@@ -47,10 +50,12 @@ final class BFSExplorer: @unchecked Sendable {
     /// Loaded screen recipes for archetype detection.
     let recipes: [ScreenRecipe]
     /// Total viewpoints discovered during calibration scroll.
-    var totalViewpoints: Int = 0
-    /// Current viewport index being processed (0-based, increments on scroll-down).
-    var currentViewportIndex: Int = 0
     let lock = NSLock()
+
+    /// Back-navigation strategy. Target-dependent: iPhone Mirroring uses
+    /// OCR-chevron tap; macOS apps use keyboard shortcuts. Defaults to the
+    /// OCR backtracker so tests and the single-target fallback keep working.
+    let backtracker: any Backtracking
 
     init(
         session: ExplorationSession,
@@ -63,7 +68,8 @@ final class BFSExplorer: @unchecked Sendable {
         skipCalibration: Bool = false,
         advisor: (any ExplorationAdvising)? = nil,
         coverageMonitor: CoverageMonitor = CoverageMonitor(),
-        recipes: [ScreenRecipe] = []
+        recipes: [ScreenRecipe] = [],
+        backtracker: any Backtracking = OCRChevronBacktracker()
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -78,18 +84,20 @@ final class BFSExplorer: @unchecked Sendable {
         self.advisor = advisor
         self.coverageMonitor = coverageMonitor
         self.recipes = recipes
+        self.backtracker = backtracker
     }
 
     /// Record start time and seed frontier with the root screen. Call once after initial capture.
     func markStarted() {
         lock.lock()
-        defer { lock.unlock() }
         startTime = Date()
+        lock.unlock()
         coverageMonitor.start()
         if graph.started {
             let rootFP = graph.rootFingerprint
-            frontier = [FrontierScreen(fingerprint: rootFP, pathFromRoot: [], depth: 0)]
-            frontierIndex = 0
+            frontierManager.seed(FrontierScreen(
+                fingerprint: rootFP, pathFromRoot: [], depth: 0
+            ))
         }
     }
     /// Perform one BFS exploration step. Dispatches to the current phase handler.
@@ -122,8 +130,9 @@ final class BFSExplorer: @unchecked Sendable {
             return .finished(bundle: generateBundle())
         }
 
-        DebugLog.log("bfs", "step: phase=\(phase) screens=\(screenCount) elapsed=\(elapsed)s")
-        switch phase {
+        let currentPhase = frontierManager.phase
+        DebugLog.log("bfs", "step: phase=\(currentPhase) screens=\(screenCount) elapsed=\(elapsed)s")
+        switch currentPhase {
         case .atRoot:
             return stepAtRoot(describer: describer, input: input, strategy: strategy)
         case .navigating(let target, let pathIndex):
@@ -150,19 +159,14 @@ final class BFSExplorer: @unchecked Sendable {
         input: InputProviding,
         strategy: S.Type
     ) -> ExploreStepResult {
-        lock.lock()
-        guard frontierIndex < frontier.count else {
-            isFinished = true
-            lock.unlock()
+        guard let target = frontierManager.dequeueNext() else {
+            lock.lock(); isFinished = true; lock.unlock()
             return .finished(bundle: generateBundle())
         }
-        let target = frontier[frontierIndex]
-        frontierIndex += 1
-        actionsOnCurrentScreen = 0
-        lock.unlock()
 
         let pathDesc = target.pathFromRoot.map { $0.elementText }.joined(separator: " → ")
-        DebugLog.log("bfs", "dequeue frontier[\(frontierIndex - 1)/\(frontier.count)] " +
+        let progress = frontierManager.progress
+        DebugLog.log("bfs", "dequeue frontier[\(progress.index)/\(progress.total)] " +
             "depth=\(target.depth) path=[\(pathDesc)] fp=\(target.fingerprint.prefix(8))")
 
         if target.pathFromRoot.isEmpty {
@@ -170,14 +174,14 @@ final class BFSExplorer: @unchecked Sendable {
             // to discover all elements, run component detection, build plan, then
             // scroll back to top before exploring.
             graph.setCurrentFingerprint(target.fingerprint)
-            phase = .exploring(screen: target)
+            frontierManager.phase = .exploring(screen: target)
             return stepExploring(
                 screen: target, describer: describer, input: input, strategy: strategy
             )
         }
 
         // Navigate from root to the target screen
-        phase = .navigating(target: target, pathIndex: 0)
+        frontierManager.phase = .navigating(target: target, pathIndex: 0)
         return stepNavigating(
             target: target, pathIndex: 0,
             describer: describer, input: input, strategy: strategy
@@ -209,7 +213,7 @@ final class BFSExplorer: @unchecked Sendable {
             describer: describer, input: input
         ) != nil else {
             // OCR failed — skip this frontier screen, return to root
-            phase = target.depth > 1
+            frontierManager.phase = target.depth > 1
                 ? .returning(depthRemaining: pathIndex + 1) : .atRoot
             return .paused(reason: "OCR failed during navigation to depth-\(target.depth) screen")
         }
@@ -220,17 +224,15 @@ final class BFSExplorer: @unchecked Sendable {
             // Structural verification was too strict — clock changes, scroll position
             // differences, and dynamic content cause false negatives on nearly identical screens.
             graph.setCurrentFingerprint(target.fingerprint)
-            lock.lock()
-            actionsOnCurrentScreen = 0
-            lock.unlock()
-            phase = .exploring(screen: target)
+            frontierManager.resetActionsOnCurrentScreen()
+            frontierManager.phase = .exploring(screen: target)
             return .continue(
                 description: "Navigated to depth-\(target.depth) screen via \"\(segment.elementText)\""
             )
         }
 
         // More path segments to go
-        phase = .navigating(target: target, pathIndex: nextIndex)
+        frontierManager.phase = .navigating(target: target, pathIndex: nextIndex)
         return .continue(
             description: "Navigating: tapped \"\(segment.elementText)\" " +
                 "(step \(nextIndex)/\(target.pathFromRoot.count))"

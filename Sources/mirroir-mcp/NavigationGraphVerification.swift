@@ -74,16 +74,12 @@ extension NavigationGraph {
 
     /// Get the number of scroll actions performed on a screen.
     func scrollCount(for fingerprint: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return scrollCounts[fingerprint, default: 0]
+        perScreen.scrollCount(for: fingerprint)
     }
 
     /// Increment the scroll count for a screen.
     func incrementScrollCount(for fingerprint: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        scrollCounts[fingerprint, default: 0] += 1
+        perScreen.incrementScrollCount(for: fingerprint)
     }
 
     /// Mark a screen as having infinite scroll (content never exhausts).

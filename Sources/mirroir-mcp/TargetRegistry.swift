@@ -18,17 +18,86 @@ enum TargetCapability: String, Sendable, Codable {
     case appSwitcher
 }
 
-/// All subsystems needed to interact with a single target.
-struct TargetContext: Sendable {
+/// All subsystems needed to interact with a single target. Conforms to `Target`
+/// so callers can use the capability-composition API (`ctx.profile.X`,
+/// `ctx.backtracker.tapBack(...)`) without threading through a separate type.
+struct TargetContext: Target, Sendable {
     let name: String
+    /// Stable legacy identifier ("iphone-mirroring" / "generic-window") kept for
+    /// config-file compatibility and telemetry. All runtime behavior should query
+    /// `profile.*` instead of comparing this string.
     let targetType: String
     let bundleID: String?
+    let profile: TargetProfile
     let bridge: any WindowBridging
     let input: any InputProviding
     let capture: any ScreenCapturing
     let describer: any ScreenDescribing
     let recorder: any ScreenRecording
+    let backtracker: any Backtracking
+    let lifecycle: any AppLifecycleHandling
     let capabilities: Set<TargetCapability>
+
+    /// Canonical initializer: callers provide every capability explicitly.
+    init(
+        name: String,
+        targetType: String,
+        bundleID: String?,
+        profile: TargetProfile,
+        bridge: any WindowBridging,
+        input: any InputProviding,
+        capture: any ScreenCapturing,
+        describer: any ScreenDescribing,
+        recorder: any ScreenRecording,
+        backtracker: any Backtracking,
+        lifecycle: any AppLifecycleHandling,
+        capabilities: Set<TargetCapability>
+    ) {
+        self.name = name
+        self.targetType = targetType
+        self.bundleID = bundleID
+        self.profile = profile
+        self.bridge = bridge
+        self.input = input
+        self.capture = capture
+        self.describer = describer
+        self.recorder = recorder
+        self.backtracker = backtracker
+        self.lifecycle = lifecycle
+        self.capabilities = capabilities
+    }
+
+    /// Legacy initializer for existing call sites (tests and targets constructed
+    /// outside the `TargetKind` registry). Infers `profile`, `backtracker`, and
+    /// `lifecycle` from the `targetType` string by asking `TargetKind` for the
+    /// matching profile. New code should use the canonical initializer or the
+    /// per-target `build()` factories directly.
+    init(
+        name: String,
+        targetType: String,
+        bundleID: String?,
+        bridge: any WindowBridging,
+        input: any InputProviding,
+        capture: any ScreenCapturing,
+        describer: any ScreenDescribing,
+        recorder: any ScreenRecording,
+        capabilities: Set<TargetCapability>
+    ) {
+        let profile = TargetKind.profile(for: targetType)
+        let backtracker: any Backtracking = profile.coordinateSystem == .mobile
+            ? OCRChevronBacktracker()
+            : KeyboardShortcutBacktracker.cmdBracket
+        let lifecycle: any AppLifecycleHandling = profile.coordinateSystem == .mobile
+            ? MirroringAppLifecycle()
+            : MacOSAppLifecycle()
+        self.init(
+            name: name, targetType: targetType, bundleID: bundleID,
+            profile: profile, bridge: bridge, input: input,
+            capture: capture, describer: describer, recorder: recorder,
+            backtracker: backtracker, lifecycle: lifecycle,
+            capabilities: capabilities
+        )
+    }
 }
 
 /// Registry of all configured targets with an active-target model.

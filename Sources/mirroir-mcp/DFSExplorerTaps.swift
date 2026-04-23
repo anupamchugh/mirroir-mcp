@@ -98,16 +98,11 @@ extension DFSExplorer {
 
         switch transition {
         case .newScreen(let fp):
-            lock.lock()
-            backtrackStack.append(fp)
-            actionsOnCurrentScreen = 0
-            lock.unlock()
+            depthTracker.push(fp)
             return .continue(description: "Tapped \"\(displayLabel)\" → new screen (\(graph.nodeCount) total)")
 
         case .revisited:
-            lock.lock()
-            actionsOnCurrentScreen += 1
-            lock.unlock()
+            depthTracker.incrementActionsOnCurrentScreen()
             return .continue(description: "Tapped \"\(displayLabel)\" → revisited screen")
 
         case .duplicate:
@@ -119,9 +114,7 @@ extension DFSExplorer {
                 description: "Tapped \"\(displayLabel)\" but screen did not change"
             ))
             DebugLog.log("dfs", "dead tap: \"\(displayLabel)\" on \(currentFP.prefix(8))")
-            lock.lock()
-            actionsOnCurrentScreen += 1
-            lock.unlock()
+            depthTracker.incrementActionsOnCurrentScreen()
             return .continue(description: "Tapped \"\(displayLabel)\" → dead tap (marked)")
         }
     }

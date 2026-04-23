@@ -41,18 +41,16 @@ enum StrategyDetector {
             }
         }
 
-        // Target type: generic windows → desktop strategy
-        if targetType == "generic-window" {
-            return .desktop
-        }
+        // Target profile drives the baseline — no string sniffing.
+        let profile = TargetKind.profile(for: targetType)
 
-        // App name matching for social apps
-        if socialAppNames.contains(appName.lowercased()) {
+        // App name matching for social apps overrides only mobile defaults.
+        if profile.defaultStrategy == .mobile
+            && socialAppNames.contains(appName.lowercased()) {
             return .social
         }
 
-        // Default: mobile
-        return .mobile
+        return profile.defaultStrategy
     }
 
     /// Refine strategy using detected screen components and loaded recipes.

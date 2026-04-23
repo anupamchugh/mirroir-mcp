@@ -128,25 +128,13 @@ struct MirroirMCP {
                                             defaultName: file.defaultTarget)
         }
 
-        // Single-target mode: identical behavior to pre-multi-target code
-        let bridge = MirroringBridge()
-        let capture = ScreenCapture(bridge: bridge)
-        let describer = buildDescriber(bridge: bridge, capture: capture, isMobile: true)
-        let ctx = TargetContext(
-            name: "iphone",
-            targetType: "iphone-mirroring",
-            bundleID: nil,
-            bridge: bridge,
-            input: InputSimulation(bridge: bridge),
-            capture: capture,
-            describer: describer,
-            recorder: ScreenRecorder(bridge: bridge),
-            capabilities: iphoneMirroringCapabilities
-        )
+        // Single-target fallback: no config file → default iPhone-Mirroring target.
+        let ctx = IPhoneMirroringTarget.build(config: nil)
         return TargetRegistry(targets: ["iphone": ctx], defaultName: "iphone")
     }
 
-    /// Build a TargetRegistry from multiple target configurations.
+    /// Build a TargetRegistry from multiple target configurations. Dispatches
+    /// each entry to its self-contained target module via `TargetKind`.
     private static func buildMultiTargetRegistry(
         configs: [String: TargetConfig],
         defaultName: String?
@@ -154,40 +142,12 @@ struct MirroirMCP {
         var targets = [String: TargetContext]()
 
         for (name, config) in configs {
-            let bridge: any WindowBridging
-            let capabilities: Set<TargetCapability>
-
-            if config.type == "iphone-mirroring" {
-                bridge = MirroringBridge(
-                    targetName: name,
-                    bundleID: config.bundleID
-                )
-                capabilities = iphoneMirroringCapabilities
-            } else {
-                bridge = GenericWindowBridge(
-                    targetName: name,
-                    bundleID: config.bundleID ?? "",
-                    processName: config.processName,
-                    windowTitleContains: config.windowTitleContains
-                )
-                capabilities = []
+            guard let ctx = TargetKind.build(config: config, name: name) else {
+                DebugLog.log("TargetRegistry",
+                    "Unknown target type '\(config.type)' for '\(name)' — skipped")
+                continue
             }
-
-            let cursorMode: CursorMode = config.type == "iphone-mirroring"
-                ? .direct : .preserving
-            let capture = ScreenCapture(bridge: bridge)
-            let isMobile = config.type == "iphone-mirroring"
-            targets[name] = TargetContext(
-                name: name,
-                targetType: config.type,
-                bundleID: config.bundleID,
-                bridge: bridge,
-                input: InputSimulation(bridge: bridge, cursorMode: cursorMode),
-                capture: capture,
-                describer: buildDescriber(bridge: bridge, capture: capture, isMobile: isMobile),
-                recorder: ScreenRecorder(bridge: bridge),
-                capabilities: capabilities
-            )
+            targets[name] = ctx
         }
 
         // Resolve default: use specified default if it exists, otherwise first alphabetical.
@@ -268,7 +228,7 @@ struct MirroirMCP {
     /// "auto" (default) resolves to "ocr" for reliable coordinate accuracy.
     /// "vision" uses VisionScreenDescriber (AI vision model via configured agent).
     /// "ocr" forces local Vision OCR + YOLO regardless of embacle availability.
-    private static func buildDescriber(
+    static func buildDescriber(
         bridge: any WindowBridging,
         capture: any ScreenCapturing,
         isMobile: Bool

@@ -91,7 +91,7 @@ extension MirroirMCP {
             startElements: nil,
             actionLog: [],
             screenCount: 1,
-            isMobile: ctx.targetType == "iphone-mirroring"
+            isMobile: ctx.profile.coordinateSystem == .mobile
         )
 
         let guidanceText = ExplorationGuide.formatGuidance(guidance)
@@ -139,7 +139,7 @@ extension MirroirMCP {
             let guidance = ExplorationGuidanceHelper.generateGuidance(
                 session: session, elements: result.elements,
                 icons: result.icons, hints: result.hints,
-                isMobile: ctx.targetType == "iphone-mirroring"
+                isMobile: ctx.profile.coordinateSystem == .mobile
             )
             let guidanceText = ExplorationGuide.formatGuidance(guidance)
 
@@ -162,7 +162,7 @@ extension MirroirMCP {
         let guidance = ExplorationGuidanceHelper.generateGuidance(
             session: session, elements: result.elements,
             icons: result.icons, hints: result.hints,
-            isMobile: ctx.targetType == "iphone-mirroring"
+            isMobile: ctx.profile.coordinateSystem == .mobile
         )
 
         let guidanceText = ExplorationGuide.formatGuidance(guidance)
@@ -328,7 +328,8 @@ extension MirroirMCP {
         let explorer: any Exploring
         if explorerChoice == "dfs" {
             explorer = DFSExplorer(
-                session: session, budget: budget, windowSize: windowSize
+                session: session, budget: budget, windowSize: windowSize,
+                backtracker: ctx.backtracker
             )
         } else {
             let componentDefinitions = ComponentLoader.loadAll()
@@ -357,7 +358,8 @@ extension MirroirMCP {
                 seed: seed,
                 skipCalibration: skipCalibration,
                 advisor: advisor,
-                recipes: recipeDefinitions
+                recipes: recipeDefinitions,
+                backtracker: ctx.backtracker
             )
         }
         explorer.markStarted()

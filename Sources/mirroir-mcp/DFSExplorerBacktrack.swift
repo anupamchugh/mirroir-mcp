@@ -11,15 +11,17 @@ extension DFSExplorer {
 
     // MARK: - Back Button Tap
 
-    /// Find and tap the "<" back button on the current screen.
-    /// Delegates to `ExplorerUtilities.tapBackButton` which owns the shared implementation.
+    /// Navigate one screen back using the target-specific backtracker. For
+    /// iPhone Mirroring this taps the OCR-detected "<" chevron; for native
+    /// macOS apps it issues the configured keyboard shortcut (Cmd+[ by default).
     ///
     /// - Parameters:
-    ///   - elements: OCR elements from the current screen (avoids redundant OCR call).
-    ///   - input: Input provider for tap actions.
-    /// - Returns: `true` if a back button was found and tapped (always true with fallback).
+    ///   - elements: OCR elements from the current screen (used by OCR-based
+    ///     backtrackers; ignored by keyboard-shortcut backtrackers).
+    ///   - input: Input provider for the back action.
+    /// - Returns: `true` if a back action was issued (caller verifies arrival).
     func tapBackButton(elements: [TapPoint], input: InputProviding) -> Bool {
-        ExplorerUtilities.tapBackButton(elements: elements, input: input, windowSize: windowSize)
+        backtracker.tapBack(elements: elements, input: input, windowSize: windowSize)
     }
 
     // MARK: - Backtrack with Verification
@@ -37,9 +39,7 @@ extension DFSExplorer {
         hints: [String],
         elements: [TapPoint]
     ) -> ExploreStepResult {
-        lock.lock()
-        let stackDepth = backtrackStack.count
-        lock.unlock()
+        let stackDepth = depthTracker.stackCount
 
         // Can't backtrack past root
         guard stackDepth > 1 else {
@@ -118,11 +118,8 @@ extension DFSExplorer {
             }
         }
 
-        lock.lock()
-        let fromFP = backtrackStack.removeLast()
-        let expectedParentFP = backtrackStack.last ?? graph.rootFingerprint
-        actionsOnCurrentScreen = 0
-        lock.unlock()
+        let fromFP = depthTracker.popOne() ?? graph.rootFingerprint
+        let expectedParentFP = depthTracker.current ?? graph.rootFingerprint
 
         // Verify the backtrack actually reached the expected parent screen.
         // If tapBackButton missed or hit the wrong element, the graph would desync
@@ -185,15 +182,8 @@ extension DFSExplorer {
 
         // Still mismatched — identify where we actually are
         if let matchedFP = graph.findMatchingNode(elements: retryResult.elements) {
-            // Correct the backtrack stack to reflect actual position
-            lock.lock()
-            if let idx = backtrackStack.lastIndex(of: matchedFP) {
-                // Pop stack down to the matched node
-                while backtrackStack.count > idx + 1 {
-                    backtrackStack.removeLast()
-                }
-            }
-            lock.unlock()
+            // Correct the backtrack stack to reflect actual position.
+            depthTracker.truncateToLastMatching(matchedFP)
             return matchedFP
         }
 
@@ -221,9 +211,7 @@ extension DFSExplorer {
     ) -> ExploreStepResult? {
         guard stackDepth > 2 else { return nil }
 
-        lock.lock()
-        let stack = backtrackStack
-        lock.unlock()
+        let stack = depthTracker.snapshot
 
         guard let target = FrontierPlanner.bestTarget(
             graph: graph, backtrackStack: stack, screenHeight: windowSize.height
@@ -247,14 +235,8 @@ extension DFSExplorer {
             }
         }
 
-        lock.lock()
-        let previousFP = backtrackStack.last ?? ""
-        // Pop stack down to the target
-        while backtrackStack.count > targetIndex + 1 {
-            backtrackStack.removeLast()
-        }
-        actionsOnCurrentScreen = 0
-        lock.unlock()
+        let previousFP = depthTracker.current ?? ""
+        depthTracker.truncateToLastMatching(target.fingerprint)
 
         graph.setCurrentFingerprint(target.fingerprint)
 
