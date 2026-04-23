@@ -329,7 +329,9 @@ extension MirroirMCP {
         if explorerChoice == "dfs" {
             explorer = DFSExplorer(
                 session: session, budget: budget, windowSize: windowSize,
-                backtracker: ctx.backtracker
+                backtracker: ctx.backtracker,
+                profile: ctx.profile,
+                bridge: ctx.bridge
             )
         } else {
             let componentDefinitions = ComponentLoader.loadAll()
@@ -359,7 +361,8 @@ extension MirroirMCP {
                 skipCalibration: skipCalibration,
                 advisor: advisor,
                 recipes: recipeDefinitions,
-                backtracker: ctx.backtracker
+                backtracker: ctx.backtracker,
+                profile: ctx.profile
             )
         }
         explorer.markStarted()

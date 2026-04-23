@@ -57,6 +57,13 @@ final class BFSExplorer: @unchecked Sendable {
     /// OCR backtracker so tests and the single-target fallback keep working.
     let backtracker: any Backtracking
 
+    /// Target profile providing orientation-aware layout zones. Used by the
+    /// tap-safety stencil and any site that needs to know the target's layout
+    /// conventions (status-bar fraction, tab-bar fraction, etc.). Defaults to
+    /// the iPhone-Mirroring profile so tests and the single-target fallback
+    /// keep working.
+    let profile: TargetProfile
+
     init(
         session: ExplorationSession,
         budget: ExplorationBudget,
@@ -69,7 +76,8 @@ final class BFSExplorer: @unchecked Sendable {
         advisor: (any ExplorationAdvising)? = nil,
         coverageMonitor: CoverageMonitor = CoverageMonitor(),
         recipes: [ScreenRecipe] = [],
-        backtracker: any Backtracking = OCRChevronBacktracker()
+        backtracker: any Backtracking = OCRChevronBacktracker(),
+        profile: TargetProfile = IPhoneMirroringTarget.profile
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -85,6 +93,14 @@ final class BFSExplorer: @unchecked Sendable {
         self.coverageMonitor = coverageMonitor
         self.recipes = recipes
         self.backtracker = backtracker
+        self.profile = profile
+    }
+
+    /// Resolve the current layout zones from the profile using the bridge's
+    /// reported orientation. Safe to call repeatedly — orientation can change
+    /// during an exploration session.
+    var currentLayoutZones: LayoutZones {
+        profile.layoutZones(bridge?.getOrientation())
     }
 
     /// Record start time and seed frontier with the root screen. Call once after initial capture.

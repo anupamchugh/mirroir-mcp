@@ -49,6 +49,18 @@ final class DFSExplorer: @unchecked Sendable {
     /// OCR-chevron tap; macOS apps use keyboard shortcuts.
     let backtracker: any Backtracking
 
+    /// Target profile providing orientation-aware layout zones.
+    let profile: TargetProfile
+
+    /// Bridge reference used to query current orientation at tap time.
+    let bridge: (any WindowBridging)?
+
+    /// Resolve the current layout zones from the profile using the bridge's
+    /// reported orientation.
+    var currentLayoutZones: LayoutZones {
+        profile.layoutZones(bridge?.getOrientation())
+    }
+
     /// Initialize the DFS explorer.
     ///
     /// - Parameters:
@@ -57,11 +69,15 @@ final class DFSExplorer: @unchecked Sendable {
     ///   - windowSize: Size of the target window for scroll coordinate computation.
     ///   - backtracker: Back-navigation strategy. Defaults to OCR-chevron tap
     ///     (the iPhone-Mirroring path) so existing tests keep working.
+    ///   - profile: Target profile providing orientation-aware layout zones.
+    ///   - bridge: Bridge used to query current orientation (nil-safe).
     init(
         session: ExplorationSession,
         budget: ExplorationBudget,
         windowSize: CGSize = CGSize(width: 410, height: 890),
-        backtracker: any Backtracking = OCRChevronBacktracker()
+        backtracker: any Backtracking = OCRChevronBacktracker(),
+        profile: TargetProfile = IPhoneMirroringTarget.profile,
+        bridge: (any WindowBridging)? = nil
     ) {
         self.session = session
         self.graph = session.currentGraph
@@ -69,6 +85,8 @@ final class DFSExplorer: @unchecked Sendable {
         self.windowSize = windowSize
         self.appName = session.currentAppName
         self.backtracker = backtracker
+        self.profile = profile
+        self.bridge = bridge
     }
 
     /// Record the exploration start time. Call once after the initial screen capture.

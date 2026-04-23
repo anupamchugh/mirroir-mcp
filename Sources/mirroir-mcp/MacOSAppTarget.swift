@@ -17,6 +17,16 @@ enum MacOSAppTarget {
     /// `targets.json` files that predate the self-contained target restructure.
     static let legacyConfigTypeName = "generic-window"
 
+    /// Layout zones for a macOS-app target. Desktop windows have no mobile-style
+    /// safe zone; the entire window is tappable. Orientation-invariant.
+    static let desktopZones = LayoutZones(
+        safeZone: SafeZoneConfig(minTapYFraction: 0.0, maxTapYFraction: 1.0),
+        backButtonFallback: BackButtonFallback(xFraction: 0.02, yFraction: 0.05),
+        statusBarZoneFraction: 0.0,
+        navBarZoneFraction: 0.06,
+        tabBarZoneFraction: 0.94
+    )
+
     /// The capability profile for every macOS-app target.
     static let profile = TargetProfile(
         name: configTypeName,
@@ -26,8 +36,8 @@ enum MacOSAppTarget {
         supportsKeyboardShortcuts: true,
         supportsDirectURLOpen: true,
         urlOpenUnsupportedMessage: nil,
-        safeZone: .desktop,
-        defaultStrategy: .desktop
+        defaultStrategy: .desktop,
+        layoutZones: { _ in desktopZones }
     )
 
     /// Capabilities exposed by `list_targets` for this target.

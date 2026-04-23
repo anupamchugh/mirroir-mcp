@@ -122,7 +122,8 @@ extension BFSExplorer {
         // Recovery 2: Retry back button with fresh elements
         DebugLog.log("bfs", "backtrack-verify: retrying back button")
         backtracker.tapBack(
-            elements: result.elements, input: input, windowSize: windowSize
+            elements: result.elements, input: input, windowSize: windowSize,
+            fallback: currentLayoutZones.backButtonFallback
         )
 
         guard let retryResult = ExplorerUtilities.dismissAlertIfPresent(
@@ -154,7 +155,8 @@ extension BFSExplorer {
         DebugLog.log("bfs", "backtrack-verify: still lost after 2 backs — trying 3rd back " +
             "(current: \(retryTexts.prefix(100)))")
         backtracker.tapBack(
-            elements: retryResult.elements, input: input, windowSize: windowSize
+            elements: retryResult.elements, input: input, windowSize: windowSize,
+            fallback: currentLayoutZones.backButtonFallback
         )
         guard let thirdResult = ExplorerUtilities.dismissAlertIfPresent(
             describer: describer, input: input
@@ -189,7 +191,8 @@ extension BFSExplorer {
         input: InputProviding
     ) -> ExploreStepResult? {
         backtracker.tapBack(
-            elements: afterElements, input: input, windowSize: windowSize
+            elements: afterElements, input: input, windowSize: windowSize,
+            fallback: currentLayoutZones.backButtonFallback
         )
 
         let verification = verifyBacktrack(
@@ -299,7 +302,8 @@ extension BFSExplorer {
 
         if !handled {
             backtracker.tapBack(
-                elements: elements, input: input, windowSize: windowSize
+                elements: elements, input: input, windowSize: windowSize,
+            fallback: currentLayoutZones.backButtonFallback
             )
         }
 

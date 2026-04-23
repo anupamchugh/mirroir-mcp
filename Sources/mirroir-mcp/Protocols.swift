@@ -404,10 +404,14 @@ protocol Backtracking: Sendable {
     ///   - input: Input provider for issuing the back action.
     ///   - windowSize: Size of the target window in points (used for the
     ///     canonical-position fallback when OCR misses the chevron).
+    ///   - fallback: Canonical back-button position as fractions of window
+    ///     width and height. Orientation-sensitive for iPhone Mirroring;
+    ///     ignored by keyboard-shortcut backtrackers.
     func tapBack(
         elements: [TapPoint],
         input: any InputProviding,
-        windowSize: CGSize
+        windowSize: CGSize,
+        fallback: BackButtonFallback
     ) -> Bool
 }
 

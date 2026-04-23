@@ -11,13 +11,12 @@ import HelperLib
 /// Pure transformation: all static methods, no stored state.
 enum ExplorerUtilities {
 
-    /// Fraction of window width for the canonical back button X position.
-    /// iOS UINavigationBar back buttons sit at roughly 11% from the left edge.
-    static let backButtonXFraction = 0.112
-
-    /// Fraction of window height for the canonical back button Y position.
-    /// iOS UINavigationBar back buttons sit at roughly 13.5% from the top.
-    static let backButtonYFraction = 0.135
+    /// Portrait-iPhone back-button fallback position. Preserved as a default
+    /// for call sites that don't thread a target profile through (tests, legacy).
+    /// Orientation-aware sites pass an explicit `BackButtonFallback` instead.
+    static let defaultBackButtonFallback = BackButtonFallback(
+        xFraction: 0.112, yFraction: 0.135
+    )
 
     // MARK: - Alert Dismissal
 
@@ -104,7 +103,8 @@ enum ExplorerUtilities {
     static func tapBackButton(
         elements: [TapPoint],
         input: InputProviding,
-        windowSize: CGSize
+        windowSize: CGSize,
+        fallback: BackButtonFallback = defaultBackButtonFallback
     ) -> Bool {
         let topZone = windowSize.height * NavigationHintDetector.topZoneFraction
         if let backButton = elements.first(where: { element in
@@ -118,9 +118,9 @@ enum ExplorerUtilities {
         }
 
         // OCR sometimes fails to detect the "<" chevron, but the back button is
-        // at a predictable position in the iOS navigation bar. Tap there as fallback.
-        let fallbackX = windowSize.width * backButtonXFraction
-        let fallbackY = windowSize.height * backButtonYFraction
+        // at a predictable position. Tap the target-provided fallback.
+        let fallbackX = windowSize.width * fallback.xFraction
+        let fallbackY = windowSize.height * fallback.yFraction
         _ = input.tap(x: fallbackX, y: fallbackY)
         usleep(EnvConfig.stepSettlingDelayMs * 1000)
         return true
@@ -135,14 +135,19 @@ enum ExplorerUtilities {
     ///   - input: Input provider for tap actions.
     ///   - describer: Screen describer for OCR.
     ///   - windowSize: Window size for fallback position calculation.
+    ///   - fallback: Canonical back-button position used when OCR misses the chevron.
     /// - Returns: OCR result of the screen after tapping back, or nil if OCR fails.
     static func navigateBack(
         currentElements: [TapPoint],
         input: InputProviding,
         describer: ScreenDescribing,
-        windowSize: CGSize
+        windowSize: CGSize,
+        fallback: BackButtonFallback = defaultBackButtonFallback
     ) -> ScreenDescriber.DescribeResult? {
-        tapBackButton(elements: currentElements, input: input, windowSize: windowSize)
+        tapBackButton(
+            elements: currentElements, input: input,
+            windowSize: windowSize, fallback: fallback
+        )
         return dismissAlertIfPresent(describer: describer, input: input)
     }
 

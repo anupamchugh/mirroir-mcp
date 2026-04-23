@@ -113,11 +113,12 @@ extension BFSExplorer {
         let label = ranked.displayLabel
 
         // Global safe zone stencil: reject taps outside the app content area.
-        // Status bar (y < 80pt) and home indicator zone are never valid tap targets.
-        // Breadth navigation items (tab bar) are exempt from the bottom margin because
-        // they are designed to sit at the very bottom of the screen.
-        let safeMinY = LandmarkPicker.statusBarMaxY
-        let safeMaxY = windowSize.height * 0.95
+        // Fractions come from the target profile (orientation-aware for iPhone,
+        // orientation-invariant for macOS). Breadth-navigation items (tab bar)
+        // are exempt from the bottom margin because they sit at the very bottom.
+        let zones = currentLayoutZones
+        let safeMinY = windowSize.height * zones.safeZone.minTapYFraction
+        let safeMaxY = windowSize.height * zones.safeZone.maxTapYFraction
         let outsideBottom = !ranked.isBreadthNavigation && target.tapY > safeMaxY
         if target.tapY < safeMinY || outsideBottom
             || target.tapX < 0 || target.tapX > windowSize.width {

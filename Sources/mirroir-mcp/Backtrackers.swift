@@ -15,10 +15,12 @@ struct OCRChevronBacktracker: Backtracking {
     func tapBack(
         elements: [TapPoint],
         input: any InputProviding,
-        windowSize: CGSize
+        windowSize: CGSize,
+        fallback: BackButtonFallback
     ) -> Bool {
         ExplorerUtilities.tapBackButton(
-            elements: elements, input: input, windowSize: windowSize
+            elements: elements, input: input,
+            windowSize: windowSize, fallback: fallback
         )
     }
 }
@@ -42,7 +44,8 @@ struct KeyboardShortcutBacktracker: Backtracking {
     func tapBack(
         elements: [TapPoint],
         input: any InputProviding,
-        windowSize: CGSize
+        windowSize: CGSize,
+        fallback: BackButtonFallback
     ) -> Bool {
         let result = input.pressKey(keyName: keyName, modifiers: modifiers)
         usleep(EnvConfig.stepSettlingDelayMs * 1000)

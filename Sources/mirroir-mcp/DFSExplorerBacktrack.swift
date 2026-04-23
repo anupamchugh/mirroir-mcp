@@ -21,7 +21,11 @@ extension DFSExplorer {
     ///   - input: Input provider for the back action.
     /// - Returns: `true` if a back action was issued (caller verifies arrival).
     func tapBackButton(elements: [TapPoint], input: InputProviding) -> Bool {
-        backtracker.tapBack(elements: elements, input: input, windowSize: windowSize)
+        backtracker.tapBack(
+            elements: elements, input: input,
+            windowSize: windowSize,
+            fallback: currentLayoutZones.backButtonFallback
+        )
     }
 
     // MARK: - Backtrack with Verification

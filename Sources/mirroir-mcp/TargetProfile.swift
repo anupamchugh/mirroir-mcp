@@ -1,7 +1,7 @@
 // Copyright 2026 jfarcand@apache.org
 // Licensed under the Apache License, Version 2.0
 //
-// ABOUTME: TargetProfile — pure value type describing an automation target's capabilities and user-facing messages.
+// ABOUTME: TargetProfile — pure value type describing an automation target's capabilities, user-facing messages, and orientation-aware layout zones.
 // ABOUTME: Per-target profile constants live in the target-specific file (IPhoneMirroringTarget, MacOSAppTarget, …).
 
 import Foundation
@@ -17,20 +17,38 @@ enum CoordinateSystem: String, Sendable {
 }
 
 /// Vertical safe-zone stencil for rejecting invalid tap targets.
-/// Mobile targets exclude status bar (top) and home indicator (bottom);
-/// desktop targets treat the entire window as tappable.
+/// Both bounds are fractions of the window height so the same config scales
+/// across orientations (portrait 410×890 vs landscape 868×440).
 struct SafeZoneConfig: Sendable {
-    /// Minimum tap Y in points. Taps above this are rejected as "in status bar".
-    let minTapY: Double
+    /// Minimum tap Y as a fraction of window height. Taps above this are rejected
+    /// as "in status bar / status HUD zone".
+    let minTapYFraction: Double
     /// Maximum tap Y as a fraction of window height. Taps below this are rejected
     /// unless the element is marked as breadth-navigation (tab bar).
     let maxTapYFraction: Double
+}
 
-    /// iOS mobile safe zone: reject above status bar and below 95% of window.
-    static let mobile = SafeZoneConfig(minTapY: 80.0, maxTapYFraction: 0.95)
+/// Fallback canonical position for an OCR-detected back chevron that failed to
+/// detect. Expressed as fractions of window width × height so the same config
+/// scales across orientations.
+struct BackButtonFallback: Sendable {
+    let xFraction: Double
+    let yFraction: Double
+}
 
-    /// Desktop safe zone: the entire window is valid.
-    static let desktop = SafeZoneConfig(minTapY: 0.0, maxTapYFraction: 1.0)
+/// Layout zones that vary per target (and, for iPhone Mirroring, per orientation).
+/// All fields are fractions of the current window dimensions — no absolute pixels.
+struct LayoutZones: Sendable {
+    /// Tap-acceptance stencil for the explorer.
+    let safeZone: SafeZoneConfig
+    /// Canonical back-button position used when OCR fails to detect a chevron.
+    let backButtonFallback: BackButtonFallback
+    /// Top-of-window fraction considered "status bar" for element classification.
+    let statusBarZoneFraction: Double
+    /// Top-of-window fraction considered "nav bar" for component matching.
+    let navBarZoneFraction: Double
+    /// Fraction above which elements are considered "tab bar" for edge classification.
+    let tabBarZoneFraction: Double
 }
 
 /// Capability metadata describing how an automation target behaves.
@@ -56,8 +74,11 @@ struct TargetProfile: Sendable {
     /// User-facing explanation when `open_url` is invoked on a target that does
     /// not support it. `nil` when the target supports URL opening.
     let urlOpenUnsupportedMessage: String?
-    /// Stencil for rejecting taps outside the valid content area.
-    let safeZone: SafeZoneConfig
     /// Default exploration strategy when no explicit override or recipe match applies.
     let defaultStrategy: StrategyChoice
+    /// Orientation-aware layout zones. Accepts the current `DeviceOrientation`
+    /// (from `WindowBridging.getOrientation()`) so targets that care (iPhone
+    /// Mirroring) can return portrait vs landscape configurations. Targets that
+    /// do not care (macOS apps) ignore the argument and return a single zone.
+    let layoutZones: @Sendable (DeviceOrientation?) -> LayoutZones
 }
