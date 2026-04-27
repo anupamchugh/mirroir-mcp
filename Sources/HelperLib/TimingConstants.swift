@@ -174,9 +174,12 @@ public enum TimingConstants {
     public static let appSwitcherCardOffset: Double = 250.0
 
     /// Horizontal position of the current app card in the App Switcher, as a fraction
-    /// of window width. Modern iOS (15+) centers the most-recently-used app — the
-    /// one we just launched via Spotlight, which `reset_app` then dismisses.
-    public static let appSwitcherCardXFraction: Double = 0.5
+    /// of window width. Empirically tuned — in the iPhone Mirroring window, after
+    /// Spotlight-launching an app then opening App Switcher, the just-launched
+    /// card sits at ~75% from the left edge, not visually centered. Do not
+    /// "correct" this to 0.5 without testing on a real device — value was
+    /// reverted from 0.5 → 0.75 after a regression closed the wrong app.
+    public static let appSwitcherCardXFraction: Double = 0.75
 
     /// Vertical position for the drag start point in the App Switcher, as a fraction
     /// of window height. Targets the middle of the card body.
