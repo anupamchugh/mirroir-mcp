@@ -110,3 +110,14 @@ See [AI Vision Mode](../README.md#ai-vision-mode-embacle) for full setup.
 | Best for | Speed-critical skill execution, regression testing, CI | Exploration of unfamiliar apps, complex layouts |
 
 Use local OCR when speed matters and text is sufficient. Use AI vision when the agent needs to understand UI structure — especially during `generate_skill(action: "explore")` where semantic elements produce better exploration plans. You can combine both: use vision for exploration, then switch to OCR for compiled skill replay.
+
+## How do I kill (force-quit) an app?
+
+Use the `reset_app` tool with the app name. It launches the app via Spotlight (so the just-launched app sits centered in the App Switcher), opens the App Switcher, drags the centered card upward to dismiss it, and returns to the home screen.
+
+If you want to do it manually with the lower-level tools, the gesture must be **`drag`**, not **`swipe`**:
+
+- `swipe` posts a CGEvent **scroll wheel** event — iOS reads that as scrolling, not as a touch swipe.
+- `drag` posts a CGEvent **mouse-down → move → up** sequence — iPhone Mirroring relays it as a touch gesture, which `UIScreenEdgePanGestureRecognizer` (the App Switcher card-dismiss recognizer) accepts.
+
+Manual sequence: `press_app_switcher` → wait briefly → `drag(fromX: <half_width>, fromY: <half_height>, toX: <half_width>, toY: 0, durationMs: 200)` → `press_home`.

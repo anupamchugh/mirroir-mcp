@@ -174,8 +174,9 @@ public enum TimingConstants {
     public static let appSwitcherCardOffset: Double = 250.0
 
     /// Horizontal position of the current app card in the App Switcher, as a fraction
-    /// of window width. iOS places the most-recently-used app to the right of center.
-    public static let appSwitcherCardXFraction: Double = 0.75
+    /// of window width. Modern iOS (15+) centers the most-recently-used app — the
+    /// one we just launched via Spotlight, which `reset_app` then dismisses.
+    public static let appSwitcherCardXFraction: Double = 0.5
 
     /// Vertical position for the drag start point in the App Switcher, as a fraction
     /// of window height. Targets the middle of the card body.

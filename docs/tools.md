@@ -79,7 +79,15 @@ For navigating within apps, combine `spotlight` + `type_text` + `press_key`. For
 
 ## Reset App
 
-`reset_app` force-quits an app via the iOS App Switcher. Opens the App Switcher, finds the app card by OCR, swipes it up to dismiss, then returns to the home screen. If the app isn't in the switcher, it's treated as already quit (success). Use before `launch_app` to ensure a fresh app state.
+`reset_app` force-quits an app via the iOS App Switcher.
+
+Steps:
+1. Launch the app via Spotlight (handles localization — `Settings` → `Réglages` on a French iPhone).
+2. Open the App Switcher. The just-launched app is the centered card.
+3. Drag the centered card upward to dismiss it (touch drag, not scroll-wheel swipe — iOS only accepts touch events for card dismiss).
+4. Return to the home screen.
+
+Use before `launch_app` to ensure a fresh app state. Tunable via `appSwitcherCardXFraction`, `appSwitcherCardYFraction`, `appSwitcherSwipeDistance`, and `appSwitcherSwipeDurationMs` if your iPhone model places the centered card differently.
 
 ## Measure
 
