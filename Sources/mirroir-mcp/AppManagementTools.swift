@@ -50,31 +50,51 @@ extension MirroirMCP {
                 }
                 usleep(EnvConfig.toolSettlingDelayUs)
 
-                // Open the App Switcher. The just-launched app is guaranteed
-                // to be the centered (most-recently-used) card.
+                // Capture the foreground app's text before opening App
+                // Switcher. This becomes the fingerprint we use to identify
+                // the right card — iPhone Mirroring's App Switcher does NOT
+                // always center the just-launched app, so a hard-coded
+                // x-fraction is unreliable.
+                let describer = ctx.describer
+                let appOcr = describer.describe()
+                guard let appElements = appOcr?.elements, !appElements.isEmpty else {
+                    return .error("Failed to capture foreground OCR for '\(appName)'")
+                }
+
+                // Open the App Switcher.
                 guard menuBridge.triggerMenuAction(menu: "View", item: "App Switcher") else {
                     _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
                     return .error("Failed to open App Switcher. Is '\(ctx.name)' running?")
                 }
                 usleep(EnvConfig.toolSettlingDelayUs)
 
-                // Verify the App Switcher is showing cards before swiping.
-                // We don't match the app name because Spotlight already
-                // resolved localization (e.g. "Settings" → "Réglages") and
-                // the just-launched app is guaranteed to be the centered card.
-                let describer = ctx.describer
                 let windowSize = ctx.bridge.getWindowInfo()?.size
-                guard let ocrResult = describer.describe() else {
+                guard let switcherOcr = describer.describe() else {
                     _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
                     return .error("Failed to capture App Switcher screen for verification")
                 }
-                guard !ocrResult.elements.isEmpty else {
+                guard !switcherOcr.elements.isEmpty else {
                     _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
                     return .error("App Switcher appears empty — no app cards detected")
                 }
 
-                // Drag up on the centered card to dismiss it.
-                let cardX = (windowSize.map { Double($0.width) } ?? 410.0) * EnvConfig.appSwitcherCardXFraction
+                // Find the card whose preview shows the just-launched app by
+                // intersecting OCR text. Falls back to the configured
+                // x-fraction if no clear match (e.g. preview text too small
+                // for OCR to read).
+                let windowWidth = windowSize.map { Double($0.width) } ?? 410.0
+                let cardX: Double
+                if let locatedX = AppSwitcherCardLocator.locateCardX(
+                    appElements: appElements,
+                    switcherElements: switcherOcr.elements
+                ) {
+                    DebugLog.log("reset_app", "located '\(appName)' card at x=\(Int(locatedX)) via OCR match")
+                    cardX = locatedX
+                } else {
+                    DebugLog.log("reset_app", "no OCR match for '\(appName)' card, falling back to xFraction=\(EnvConfig.appSwitcherCardXFraction)")
+                    cardX = windowWidth * EnvConfig.appSwitcherCardXFraction
+                }
+
                 let cardY = (windowSize.map { Double($0.height) } ?? 890.0) * EnvConfig.appSwitcherCardYFraction
                 let toY = max(0, cardY - EnvConfig.appSwitcherSwipeDistance)
                 if let error = input.drag(fromX: cardX, fromY: cardY,
@@ -86,8 +106,22 @@ extension MirroirMCP {
 
                 usleep(EnvConfig.toolSettlingDelayUs)
 
-                // Return to home screen
+                // Return to home screen.
+                //
+                // After a successful card-dismiss drag, iOS occasionally
+                // interprets the next View > Home Screen menu trigger as a
+                // Spotlight invocation instead of a home gesture — landing
+                // the user on Spotlight (with the previous query still
+                // typed). Verify the result by OCR and retry once when
+                // Spotlight is detected; the second trigger reliably
+                // reaches home.
                 _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
+                usleep(EnvConfig.toolSettlingDelayUs)
+                if let postHomeOcr = describer.describe(),
+                   SpotlightDetector.isSpotlightVisible(elements: postHomeOcr.elements) {
+                    DebugLog.log("reset_app", "Home Screen menu landed on Spotlight, retrying once")
+                    _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
+                }
 
                 return .text("Force-quit '\(appName)'")
             }
