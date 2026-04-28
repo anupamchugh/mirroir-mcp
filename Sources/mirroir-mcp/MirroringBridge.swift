@@ -146,12 +146,28 @@ final class MirroringBridge: Sendable {
     }
 
     /// Trigger a menu bar action (e.g., View > Home Screen).
+    ///
+    /// Uses an exact-string match on AX menu and item titles. On non-English
+    /// macOS locales iPhone Mirroring's menu titles are translated and the
+    /// AX lookup misses; for the three View-menu navigation items the
+    /// Cmd+digit keyboard shortcuts are locale-invariant, so the bridge
+    /// falls back to CGEvent in that case (issue #23).
     func triggerMenuAction(menu menuName: String, item itemName: String) -> Bool {
+        if axTriggerMenuAction(menu: menuName, item: itemName) {
+            return true
+        }
+        if let shortcut = MenuShortcuts.viewNavShortcut(for: itemName) {
+            DebugLog.log("menu", "AX miss for '\(menuName)' > '\(itemName)' (likely localized title) — falling back to Cmd+\(shortcut.label)")
+            return triggerKeyboardShortcut(keycode: shortcut.keycode)
+        }
+        return false
+    }
+
+    private func axTriggerMenuAction(menu menuName: String, item itemName: String) -> Bool {
         guard let app = findProcess() else { return false }
         let pid = app.processIdentifier
         let appRef = AXUIElementCreateApplication(pid)
 
-        // Get menu bar
         var menuBarValue: CFTypeRef?
         let menuBarResult = AXUIElementCopyAttributeValue(
             appRef, kAXMenuBarAttribute as CFString, &menuBarValue
@@ -162,7 +178,6 @@ final class MirroringBridge: Sendable {
         else { return false }
         let menuBar = unsafeDowncast(menuBarRef, to: AXUIElement.self)
 
-        // Find the target menu
         var menuBarChildren: CFTypeRef?
         AXUIElementCopyAttributeValue(
             menuBar, kAXChildrenAttribute as CFString, &menuBarChildren
@@ -174,7 +189,6 @@ final class MirroringBridge: Sendable {
             AXUIElementCopyAttributeValue(menuBarItem, kAXTitleAttribute as CFString, &title)
             guard let t = title as? String, t == menuName else { continue }
 
-            // Open the menu
             var submenuValue: CFTypeRef?
             AXUIElementCopyAttributeValue(
                 menuBarItem, kAXChildrenAttribute as CFString, &submenuValue
@@ -183,7 +197,6 @@ final class MirroringBridge: Sendable {
                   let submenu = submenus.first
             else { continue }
 
-            // Find the menu item
             var itemsValue: CFTypeRef?
             AXUIElementCopyAttributeValue(
                 submenu, kAXChildrenAttribute as CFString, &itemsValue
@@ -200,6 +213,18 @@ final class MirroringBridge: Sendable {
             }
         }
         return false
+    }
+
+    /// Send a Cmd+<key> keyboard shortcut to iPhone Mirroring via CGEvent.
+    /// Activates the app first so the event reaches the right window.
+    private func triggerKeyboardShortcut(keycode: UInt16) -> Bool {
+        guard let app = findProcess() else { return false }
+        let alreadyFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        if !alreadyFront {
+            app.activate()
+            usleep(EnvConfig.spaceSwitchSettleUs)
+        }
+        return CGEventInput.postKey(keycode: keycode, flags: .maskCommand)
     }
 
     /// Determine device orientation from the mirroring window dimensions.
