@@ -86,6 +86,11 @@ public enum TapPointCalculator {
     /// Elements within this vertical distance are treated as the same row.
     /// Ensures all labels in an icon row get the same gap calculation.
     static var rowTolerance: Double { EnvConfig.tapRowTolerance }
+    /// Maximum allowed `maxSpacing / minSpacing` ratio between adjacent
+    /// elements before a row is rejected as an icon-grid row. Prevents
+    /// horizontal in-content toolbars (variable-width buttons) from
+    /// triggering the upward icon-label offset.
+    static var iconRowMaxSpacingRatio: Double { EnvConfig.tapIconRowMaxSpacingRatio }
 
     // MARK: - Pipeline stage types
 
@@ -159,7 +164,9 @@ public enum TapPointCalculator {
                     && $0.bboxWidth < windowWidth * maxLabelWidthFraction
             }.count
             let allShortLabels = shortLabelsInRow == row.elements.count
-            let isIconRow = allShortLabels && shortLabelsInRow >= iconRowMinLabels
+            let isIconRow = allShortLabels
+                && shortLabelsInRow >= iconRowMinLabels
+                && hasUniformSpacing(row.elements)
 
             let gap: Double
             if isIconRow {
@@ -182,6 +189,32 @@ public enum TapPointCalculator {
         }
 
         return classified
+    }
+
+    // MARK: - Spacing uniformity check
+
+    /// Returns true when adjacent elements in `elements` are spaced uniformly
+    /// enough to look like an icon grid (e.g. iOS home screen, tab bar).
+    /// Returns false for horizontal in-content toolbars whose buttons have
+    /// widely varying widths and uneven gaps (e.g. Chrome's download bar).
+    ///
+    /// The check compares the largest and smallest gap between adjacent
+    /// element X centers; the ratio stays near 1.0 for icon grids and
+    /// blows up (≥4×) for ad-hoc toolbars. Rows with fewer than 3
+    /// elements never reach this check (caller has already gated on the
+    /// `iconRowMinLabels` count).
+    public static func hasUniformSpacing(_ elements: [RawTextElement]) -> Bool {
+        let xs = elements.map(\.tapX).sorted()
+        guard xs.count >= 3 else { return true }
+
+        var spacings: [Double] = []
+        for i in 1..<xs.count {
+            spacings.append(xs[i] - xs[i - 1])
+        }
+        guard let minGap = spacings.min(),
+              let maxGap = spacings.max(),
+              minGap > 0 else { return true }
+        return maxGap / minGap <= iconRowMaxSpacingRatio
     }
 
     // MARK: - Stage 3: Apply offsets

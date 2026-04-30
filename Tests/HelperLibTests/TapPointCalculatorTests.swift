@@ -640,4 +640,94 @@ struct TapPointCalculatorTests {
             #expect(point.tapY == 826.0, "\(point.text) should get 30pt iconOffset")
         }
     }
+
+    // MARK: - Spacing uniformity (issue #24: Chrome download bar)
+
+    @Test("hasUniformSpacing accepts evenly spaced home-screen icon row")
+    func uniformSpacingHomeRow() {
+        // Real captured iOS home grid: x = 68, 159, 251, 340 → spacings 91/92/89.
+        let elements = [
+            element(text: "Météo", tapX: 68, textTopY: 195, textBottomY: 210),
+            element(text: "Horloge", tapX: 159, textTopY: 195, textBottomY: 210),
+            element(text: "Calendrier", tapX: 251, textTopY: 195, textBottomY: 210),
+            element(text: "Livres", tapX: 340, textTopY: 195, textBottomY: 210),
+        ]
+        #expect(TapPointCalculator.hasUniformSpacing(elements) == true)
+    }
+
+    @Test("hasUniformSpacing rejects Chrome download bar (uneven spacing)")
+    func nonUniformSpacingChromeDownloadBar() {
+        // From issue #24: x = 54, 252, 298 → spacings 198/46 → ratio 4.30 > 1.5.
+        let elements = [
+            element(text: "· (1.9 MB)", tapX: 54, textTopY: 605, textBottomY: 620),
+            element(text: "DOWNLOAD", tapX: 252, textTopY: 605, textBottomY: 620),
+            element(text: "X", tapX: 298, textTopY: 605, textBottomY: 620),
+        ]
+        #expect(TapPointCalculator.hasUniformSpacing(elements) == false)
+    }
+
+    @Test("Chrome download bar gets text-center tapY (no upward offset)")
+    func chromeDownloadBarTapYIsTextCenter() {
+        // Issue #24 repro: row above is a long file name; row below is a
+        // From: hostname. Heuristic used to flag this as an icon row and
+        // shift tapY upward by 30pt — now blocked by the spacing check.
+        let elements = [
+            // Row above: long file name (single multi-element row not relevant here).
+            element(text: "1731837266182378409.mp4", tapX: 114, textTopY: 619,
+                    textBottomY: 635, bboxWidth: 220),
+            // The button row — short labels, large gap above (~580pt from y=0
+            // since file-name is the only thing between).
+            element(text: "· (1.9 MB)", tapX: 54, textTopY: 605, textBottomY: 620,
+                    bboxWidth: 65),
+            element(text: "DOWNLOAD", tapX: 252, textTopY: 605, textBottomY: 620,
+                    bboxWidth: 80),
+            element(text: "X", tapX: 298, textTopY: 605, textBottomY: 620,
+                    bboxWidth: 12),
+        ]
+        let results = TapPointCalculator.computeTapPoints(
+            elements: elements, windowWidth: windowWidth, windowHeight: windowHeight
+        )
+        // DOWNLOAD's text center y = (605 + 620) / 2 = 612.5; without the
+        // fix it would be 605 - 30 = 575 (above the button → tap misses).
+        let download = results.first { $0.text == "DOWNLOAD" }
+        #expect(download != nil)
+        #expect(download?.tapY == 612.5,
+                "DOWNLOAD should land on text center, not 30pt above")
+    }
+
+    @Test("hasUniformSpacing accepts 5-icon dock row")
+    func uniformSpacingDockRow() {
+        // Tab-bar / dock with 5 evenly-spaced icons (typical iOS home dock).
+        let elements = [
+            element(text: "A", tapX: 41, textTopY: 840, textBottomY: 855),
+            element(text: "B", tapX: 125, textTopY: 840, textBottomY: 855),
+            element(text: "C", tapX: 209, textTopY: 840, textBottomY: 855),
+            element(text: "D", tapX: 292, textTopY: 840, textBottomY: 855),
+            element(text: "E", tapX: 377, textTopY: 840, textBottomY: 855),
+        ]
+        #expect(TapPointCalculator.hasUniformSpacing(elements) == true)
+    }
+
+    @Test("hasUniformSpacing tolerates minor jitter from OCR")
+    func uniformSpacingWithJitter() {
+        // Real-world icon grid OCR centers may shift a few px; 83/98/91
+        // ratio 1.18 — still under the 1.5 threshold.
+        let elements = [
+            element(text: "Mail", tapX: 69, textTopY: 392, textBottomY: 405),
+            element(text: "Doodga", tapX: 152, textTopY: 392, textBottomY: 405),
+            element(text: "Localiser", tapX: 250, textTopY: 392, textBottomY: 405),
+            element(text: "Snapchat", tapX: 341, textTopY: 392, textBottomY: 405),
+        ]
+        #expect(TapPointCalculator.hasUniformSpacing(elements) == true)
+    }
+
+    @Test("hasUniformSpacing returns true for fewer than 3 elements")
+    func uniformSpacingTrivialRow() {
+        // <3 elements never reach the icon-row classification anyway.
+        let two = [
+            element(text: "A", tapX: 50, textTopY: 100, textBottomY: 115),
+            element(text: "B", tapX: 200, textTopY: 100, textBottomY: 115),
+        ]
+        #expect(TapPointCalculator.hasUniformSpacing(two) == true)
+    }
 }

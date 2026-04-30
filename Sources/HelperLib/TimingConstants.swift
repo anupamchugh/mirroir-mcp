@@ -113,6 +113,14 @@ public enum TimingConstants {
     /// to handle in-app tab bars where content sits close above the tab labels.
     public static let tapBottomZoneFraction: Double = 0.90
 
+    /// Maximum allowed `maxSpacing / minSpacing` ratio between adjacent
+    /// elements in a row before it is rejected as an icon-grid row.
+    /// Icon grids (home screen, tab bars) have evenly-spaced columns
+    /// (observed ratio ≤ 1.2). In-content horizontal toolbars (e.g. Chrome's
+    /// download bar) pack variable-width buttons with uneven gaps (observed
+    /// ratio ≥ 4.0). 1.5 separates the two cleanly with margin for OCR jitter.
+    public static let tapIconRowMaxSpacingRatio: Double = 1.5
+
 
     // MARK: - Safe Area
 

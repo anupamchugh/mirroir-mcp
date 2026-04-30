@@ -165,6 +165,10 @@ public enum EnvConfig {
         readDouble("tapBottomZoneFraction", default: TimingConstants.tapBottomZoneFraction)
     }
 
+    public static var tapIconRowMaxSpacingRatio: Double {
+        readDouble("tapIconRowMaxSpacingRatio", default: TimingConstants.tapIconRowMaxSpacingRatio)
+    }
+
 
     // MARK: - Grid Overlay
 
