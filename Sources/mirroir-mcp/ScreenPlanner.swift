@@ -151,7 +151,10 @@ enum ScreenPlanner {
                 return RankedElement(point: tapTarget, score: score, reason: reason,
                     displayLabel: component.displayLabel, isBreadthNavigation: isBreadth)
             }
-            .sorted { $0.point.tapY != $1.point.tapY ? $0.point.tapY < $1.point.tapY : $0.score > $1.score }
+            // Sort score-first so role/priority/chevron weight wins; tapY
+            // is the deterministic tie-breaker (top-down reading order
+            // among elements that scored equally).
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.point.tapY < $1.point.tapY }
     }
 
     // MARK: - Private
@@ -320,6 +323,8 @@ enum ScreenPlanner {
                     isBreadthNavigation: element.isBreadthNavigation
                 )
             }
-            .sorted { $0.point.tapY != $1.point.tapY ? $0.point.tapY < $1.point.tapY : $0.score > $1.score }
+            // Same score-first ordering as the initial plan rank — see
+            // comment on the primary sort site above.
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.point.tapY < $1.point.tapY }
     }
 }
