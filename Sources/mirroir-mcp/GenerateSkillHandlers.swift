@@ -240,24 +240,38 @@ extension MirroirMCP {
         let (ctx, err) = registry.resolveForTool(args)
         guard let ctx else { return err! }
 
-        // Load APP.md description early — needed before launch to check reset_before_explore.
+        // Permission checks must run BEFORE any destructive action. A blocked
+        // app should never have its current session force-quit/reset, even
+        // if reset_before_explore is set in APP.md.
+        if case .denied(let reason) = policy.checkAppLaunch(appName) {
+            return .error(reason)
+        }
+        let requiredTools = ["tap", "swipe", "type_text", "press_key"]
+        let denied = policy.toolsDenied(for: appName, requiredTools: requiredTools)
+        if !denied.isEmpty {
+            return .error(
+                "Cannot explore '\(appName)': permissions.json perApp rules deny "
+                + "tools needed by the explorer: \(denied.joined(separator: ", ")). "
+                + "Adjust perApp.\(appName).deny to permit exploration.")
+        }
+
+        // Load APP.md description — needed below to check reset_before_explore.
         let appDesc = AppDescriptionLoader.load(appName: appName)
 
         // Force-quit the app before launching if APP.md requests it.
-        // Ensures a clean start for apps with overlays or stateful UI (TikTok, Instagram).
+        // Ensures a clean start for apps with overlays or stateful UI
+        // (TikTok, Instagram). Delegates to the target's lifecycle so all
+        // dismissal paths share the OCR-based App Switcher card locator.
         if appDesc?.resetBeforeExplore == true {
             DebugLog.log("explore", "reset_before_explore: force-quitting '\(appName)' before launch")
-            if let menuBridge = ctx.bridge as? (any MenuActionCapable) {
-                _ = menuBridge.triggerMenuAction(menu: "View", item: "App Switcher")
-                usleep(500_000)
-                // Swipe up to dismiss the frontmost app card
-                let preSize = ctx.bridge.getWindowInfo()?.size ?? CGSize(width: 410, height: 890)
-                _ = ctx.input.swipe(
-                    fromX: preSize.width / 2, fromY: preSize.height * 0.4,
-                    toX: preSize.width / 2, toY: 0, durationMs: 300)
-                usleep(500_000)
-                _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-                usleep(300_000)
+            if let resetError = ctx.lifecycle.forceQuitBeforeExplore(
+                appName: appName,
+                bridge: ctx.bridge,
+                input: ctx.input,
+                describer: ctx.describer
+            ) {
+                return .error(
+                    "Failed to reset '\(appName)' before explore: \(resetError)")
             }
         }
 
@@ -271,24 +285,6 @@ extension MirroirMCP {
             return .error(
                 "'\(appName)' did not appear after launch — " +
                 "Spotlight search may still be visible. Try launching the app manually first.")
-        }
-
-        // Apply the same blocked-apps guard that `launch_app` enforces, so an app
-        // can't be explored via back-door when launching is forbidden.
-        if case .denied(let reason) = policy.checkAppLaunch(appName) {
-            return .error(reason)
-        }
-
-        // Per-app tool gate: exploration needs at minimum these tools. If the
-        // app's perApp.deny list blocks any of them, refuse early with a
-        // specific message naming which tool(s) are the problem.
-        let requiredTools = ["tap", "swipe", "type_text", "press_key"]
-        let denied = policy.toolsDenied(for: appName, requiredTools: requiredTools)
-        if !denied.isEmpty {
-            return .error(
-                "Cannot explore '\(appName)': permissions.json perApp rules deny "
-                + "tools needed by the explorer: \(denied.joined(separator: ", ")). "
-                + "Adjust perApp.\(appName).deny to permit exploration.")
         }
 
         // Budget + skip-list merge. Built-ins, the global permissions.json list,

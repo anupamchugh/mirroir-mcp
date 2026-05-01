@@ -148,61 +148,16 @@ extension StepExecutor {
                               message: "Target '\(bridge.targetName)' does not support reset_app",
                               durationSeconds: elapsed(startTime))
         }
-
-        // Launch the app via Spotlight. This handles localization: typing
-        // "Settings" finds "Réglages" on a French iPhone, for example.
-        if let error = input.launchApp(name: appName) {
-            return StepResult(step: step, status: .failed,
-                              message: "Failed to launch '\(appName)': \(error)",
+        if let error = AppSwitcherDismissal.forceQuit(
+            appName: appName,
+            input: input,
+            bridge: bridge,
+            menuBridge: menuBridge,
+            describer: describer
+        ) {
+            return StepResult(step: step, status: .failed, message: error,
                               durationSeconds: elapsed(startTime))
         }
-        usleep(config.settlingDelayMs * 1000)
-
-        // Open the App Switcher. The just-launched app is guaranteed
-        // to be the centered (most-recently-used) card.
-        guard menuBridge.triggerMenuAction(menu: "View", item: "App Switcher") else {
-            _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-            return StepResult(step: step, status: .failed,
-                              message: "Failed to open App Switcher",
-                              durationSeconds: elapsed(startTime))
-        }
-        usleep(config.settlingDelayMs * 1000)
-
-        // Verify the App Switcher is showing cards before swiping.
-        // We don't match the app name because Spotlight already
-        // resolved localization (e.g. "Settings" → "Réglages") and
-        // the just-launched app is guaranteed to be the centered card.
-        guard let ocrResult = describer.describe() else {
-            _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-            return StepResult(step: step, status: .failed,
-                              message: "Failed to capture App Switcher screen for verification",
-                              durationSeconds: elapsed(startTime))
-        }
-        guard !ocrResult.elements.isEmpty else {
-            _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-            return StepResult(step: step, status: .failed,
-                              message: "App Switcher appears empty — no app cards detected",
-                              durationSeconds: elapsed(startTime))
-        }
-
-        // Drag up on the centered card to dismiss it.
-        let windowSize = bridge.getWindowInfo()?.size
-        let cardX = (windowSize.map { Double($0.width) } ?? 410.0) * EnvConfig.appSwitcherCardXFraction
-        let cardY = (windowSize.map { Double($0.height) } ?? 890.0) * EnvConfig.appSwitcherCardYFraction
-        let toY = max(0, cardY - EnvConfig.appSwitcherSwipeDistance)
-        if let error = input.drag(fromX: cardX, fromY: cardY,
-                                   toX: cardX, toY: toY,
-                                   durationMs: EnvConfig.appSwitcherSwipeDurationMs) {
-            _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-            return StepResult(step: step, status: .failed,
-                              message: "Failed to swipe app card: \(error)",
-                              durationSeconds: elapsed(startTime))
-        }
-
-        usleep(config.settlingDelayMs * 1000)
-
-        _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-
         return StepResult(step: step, status: .passed,
                           message: "Force-quit \(appName)",
                           durationSeconds: elapsed(startTime))

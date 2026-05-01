@@ -19,25 +19,21 @@ struct MirroringAppLifecycle: AppLifecycleHandling {
     func forceQuitBeforeExplore(
         appName: String,
         bridge: any WindowBridging,
-        input: any InputProviding
-    ) {
+        input: any InputProviding,
+        describer: any ScreenDescribing
+    ) -> String? {
         DebugLog.log("lifecycle",
-            "MirroringAppLifecycle.forceQuit('\(appName)') — App Switcher swipe-up")
+            "MirroringAppLifecycle.forceQuit('\(appName)') — App Switcher OCR-locate + drag")
         guard let menuBridge = bridge as? (any MenuActionCapable) else {
-            DebugLog.log("lifecycle", "bridge is not MenuActionCapable — skipping force-quit")
-            return
+            return "Bridge for '\(bridge.targetName)' is not MenuActionCapable — cannot force-quit"
         }
-        _ = menuBridge.triggerMenuAction(menu: "View", item: "App Switcher")
-        usleep(500_000)
-        let preSize = bridge.getWindowInfo()?.size ?? CGSize(width: 410, height: 890)
-        // Swipe up to dismiss the frontmost app card.
-        _ = input.swipe(
-            fromX: preSize.width / 2, fromY: preSize.height * 0.4,
-            toX: preSize.width / 2, toY: 0, durationMs: 300
+        return AppSwitcherDismissal.forceQuit(
+            appName: appName,
+            input: input,
+            bridge: bridge,
+            menuBridge: menuBridge,
+            describer: describer
         )
-        usleep(500_000)
-        _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-        usleep(300_000)
     }
 }
 
@@ -52,13 +48,18 @@ struct MacOSAppLifecycle: AppLifecycleHandling {
     func forceQuitBeforeExplore(
         appName: String,
         bridge: any WindowBridging,
-        input: any InputProviding
-    ) {
+        input: any InputProviding,
+        describer: any ScreenDescribing
+    ) -> String? {
         DebugLog.log("lifecycle",
             "MacOSAppLifecycle.forceQuit('\(appName)') — Cmd+Q")
         bridge.activate()
         usleep(200_000)
-        _ = input.pressKey(keyName: "q", modifiers: ["command"])
+        let result = input.pressKey(keyName: "q", modifiers: ["command"])
         usleep(500_000)
+        if !result.success {
+            return result.error ?? "Cmd+Q failed for '\(appName)'"
+        }
+        return nil
     }
 }

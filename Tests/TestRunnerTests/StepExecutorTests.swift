@@ -397,32 +397,43 @@ final class StepExecutorTests: XCTestCase {
     }
 
     func testResetAppSwitcherFailed() {
+        // Foreground OCR succeeds (so the helper proceeds past the launch
+        // step), but the AX menu action returns false → helper aborts before
+        // opening App Switcher and reports the menu failure.
+        describer.describeResult = ScreenDescriber.DescribeResult(
+            elements: [TapPoint(text: "Settings", tapX: 200, tapY: 400, confidence: 0.95)],
+            screenshotBase64: ""
+        )
         bridge.menuActionResult = false
 
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
         XCTAssertEqual(result.status, .failed)
-        XCTAssertTrue(result.message?.contains("App Switcher") ?? false)
+        XCTAssertTrue(result.message?.contains("App Switcher") ?? false,
+                      "Expected error message to mention App Switcher; got \(result.message ?? "")")
+        XCTAssertEqual(input.dragCalls.count, 0, "Must not drag when App Switcher cannot be opened")
     }
 
     func testResetAppFailsClosedOnNilOCR() {
-        // When OCR/capture returns nil, reset_app must NOT proceed with the
-        // destructive swipe. It should fail instead of silently killing the
-        // wrong app.
+        // When the foreground OCR capture returns nil (after launch),
+        // reset_app must abort before touching the App Switcher — never
+        // open it and never drag.
         describer.describeResult = nil
 
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
         XCTAssertEqual(result.status, .failed)
-        XCTAssertTrue(result.message?.contains("capture") ?? false)
-        XCTAssertEqual(input.dragCalls.count, 0, "Must not swipe when OCR fails")
-        XCTAssertTrue(bridge.menuActionCalls.contains(where: { $0.item == "Home Screen" }),
-                       "Should return to Home Screen on OCR failure")
+        XCTAssertTrue(result.message?.contains("OCR") ?? false,
+                      "Expected message to mention OCR; got \(result.message ?? "")")
+        XCTAssertEqual(input.dragCalls.count, 0, "Must not drag when OCR fails")
+        XCTAssertFalse(bridge.menuActionCalls.contains(where: { $0.item == "App Switcher" }),
+                       "Must not open App Switcher when foreground OCR fails")
     }
 
     func testResetAppEmptySwitcher() {
-        // When the App Switcher has no cards (empty OCR), reset_app should
-        // fail rather than blindly swiping.
+        // When OCR returns an empty result (foreground app exposes no
+        // recognizable text yet), reset_app should fail closed without
+        // dragging — we have no fingerprint to match a card with.
         describer.describeResult = ScreenDescriber.DescribeResult(
             elements: [],
             screenshotBase64: ""
@@ -431,8 +442,28 @@ final class StepExecutorTests: XCTestCase {
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
         XCTAssertEqual(result.status, .failed)
-        XCTAssertTrue(result.message?.contains("empty") ?? false)
-        XCTAssertEqual(input.dragCalls.count, 0, "Must not swipe when App Switcher is empty")
+        XCTAssertTrue(result.message?.contains("OCR") ?? false,
+                      "Expected message to mention OCR; got \(result.message ?? "")")
+        XCTAssertEqual(input.dragCalls.count, 0, "Must not drag when foreground OCR is empty")
+    }
+
+    func testResetAppFailsClosedWhenLocatorMissesCard() {
+        // App Switcher OCR has cards, but none of them match the launched
+        // app's foreground text — locator returns nil → must NOT fall back
+        // to a hard-coded x-fraction and drag a guess.
+        let foreground = TapPoint(text: "AmbiguousApp", tapX: 200, tapY: 400, confidence: 0.95)
+        let switcherCard = TapPoint(text: "SomethingElse", tapX: 300, tapY: 300, confidence: 0.9)
+        describer.describeResults = [
+            ScreenDescriber.DescribeResult(elements: [foreground], screenshotBase64: ""),
+            ScreenDescriber.DescribeResult(elements: [switcherCard], screenshotBase64: ""),
+        ]
+
+        let result = executor.execute(
+            step: .resetApp(appName: "AmbiguousApp"), stepIndex: 0, skillName: "test")
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertTrue(result.message?.lowercased().contains("locate") ?? false,
+                      "Expected message to mention card-locate failure; got \(result.message ?? "")")
+        XCTAssertEqual(input.dragCalls.count, 0, "Must not drag when card cannot be located")
     }
 
     func testResetAppWorksWithLocalizedName() {

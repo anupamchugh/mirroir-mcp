@@ -422,12 +422,14 @@ protocol AppLifecycleHandling: Sendable {
     /// Launch the app by display name. Returns an error message on failure.
     func launch(appName: String, input: any InputProviding) -> String?
     /// Force-quit the app before a fresh explore run. Only called when APP.md
-    /// declares `reset_before_explore: true`.
+    /// declares `reset_before_explore: true`. Returns `nil` on success or an
+    /// error message on failure (caller decides whether to abort the run).
     func forceQuitBeforeExplore(
         appName: String,
         bridge: any WindowBridging,
-        input: any InputProviding
-    )
+        input: any InputProviding,
+        describer: any ScreenDescribing
+    ) -> String?
 }
 
 /// Protocol for AI-guided exploration advice during plateau phases.
