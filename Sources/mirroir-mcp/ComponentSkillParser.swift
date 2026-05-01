@@ -31,7 +31,10 @@ enum ComponentSkillParser {
     ]
 
     /// Parse with validation. Returns nil and logs an error if the definition
-    /// contains unknown keys in any section (catches typos like "has_dismiss_icon").
+    /// contains unknown keys (typos like "has_dismiss_icon") OR invalid enum
+    /// values (e.g. priority: critical when only low/normal/high exist).
+    /// Strict validation surfaces taxonomy drift in pattern files at load
+    /// time instead of letting it silently degrade to defaults at runtime.
     static func parseValidated(content: String, fallbackName: String) -> ComponentDefinition? {
         let body = extractBody(content: content)
         let sections = extractSections(from: body)
@@ -49,7 +52,46 @@ enum ComponentSkillParser {
             }
         }
 
+        if let problem = invalidEnumValue(in: sections) {
+            DebugLog.log("components",
+                "REJECTED \"\(name)\": invalid value '\(problem.value)' for "
+                + "\(problem.section).\(problem.key)")
+            return nil
+        }
+
         return parse(content: content, fallbackName: fallbackName)
+    }
+
+    /// Returns the first invalid enum-typed key found in the parsed sections,
+    /// or nil if every typed value parses cleanly. Used by `parseValidated`
+    /// to fail-loud on taxonomy drift.
+    private static func invalidEnumValue(
+        in sections: [String: String]
+    ) -> (section: String, key: String, value: String)? {
+        let checks: [(section: String, key: String, validator: @Sendable (String) -> Bool)] = [
+            ("Match Rules", "zone", { ScreenZone(rawValue: $0) != nil }),
+            ("Match Rules", "chevron_mode", { ChevronMode(rawValue: $0) != nil }),
+            ("Interaction", "click_target", { ClickTargetRule(rawValue: $0) != nil }),
+            ("Interaction", "click_result", { value in
+                // ClickResult accepts the new enum values plus legacy aliases.
+                ClickResult(rawValue: value) != nil
+                    || value == "navigates" || value == "toggles"
+            }),
+            ("Interaction", "label_rule", { LabelRule(rawValue: $0) != nil }),
+            ("Exploration", "role", { ExplorationRole(rawValue: $0) != nil }),
+            ("Exploration", "priority", { ExplorationPriority(rawValue: $0) != nil }),
+            ("Grouping", "absorb_condition", { AbsorbCondition(rawValue: $0) != nil }),
+            ("Grouping", "split_mode", { SplitMode(rawValue: $0) != nil }),
+        ]
+        for check in checks {
+            guard let text = sections[check.section] else { continue }
+            let kv = extractKeyValues(from: text)
+            guard let value = kv[check.key] else { continue }
+            if !check.validator(value) {
+                return (check.section, check.key, value)
+            }
+        }
+        return nil
     }
 
     /// Parse a COMPONENT.md file's content into a ComponentDefinition.

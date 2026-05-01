@@ -649,6 +649,93 @@ final class ComponentSkillParserTests: XCTestCase {
             "parseValidated should reject unknown interaction keys")
     }
 
+    // MARK: - Invalid Enum Value Validation
+
+    func testParseValidatedRejectsInvalidExplorationRole() {
+        let content = """
+            ---
+            name: bad-role
+            ---
+
+            # Bad Role
+
+            ## Exploration
+
+            - role: critical_navigation
+            - priority: normal
+            """
+
+        let result = ComponentSkillParser.parseValidated(
+            content: content, fallbackName: "bad")
+
+        XCTAssertNil(result,
+            "parseValidated should reject unknown exploration role values instead of silently coercing to depth_navigation")
+    }
+
+    func testParseValidatedRejectsInvalidExplorationPriority() {
+        let content = """
+            ---
+            name: bad-priority
+            ---
+
+            # Bad Priority
+
+            ## Exploration
+
+            - role: depth_navigation
+            - priority: urgent
+            """
+
+        let result = ComponentSkillParser.parseValidated(
+            content: content, fallbackName: "bad")
+
+        XCTAssertNil(result,
+            "parseValidated should reject unknown exploration priority values instead of silently coercing to normal")
+    }
+
+    func testParseValidatedRejectsInvalidZone() {
+        let content = """
+            ---
+            name: bad-zone
+            ---
+
+            # Bad Zone
+
+            ## Match Rules
+
+            - zone: middle
+            """
+
+        let result = ComponentSkillParser.parseValidated(
+            content: content, fallbackName: "bad")
+
+        XCTAssertNil(result,
+            "parseValidated should reject unknown zone values")
+    }
+
+    func testParseValidatedAcceptsLegacyClickResultAlias() {
+        // 'navigates' / 'toggles' are legacy synonyms for ClickResult
+        // (mapped via ClickResult.init(legacy:)). They must still validate.
+        let content = """
+            ---
+            name: legacy-click
+            ---
+
+            # Legacy Click
+
+            ## Interaction
+
+            - clickable: true
+            - click_result: navigates
+            """
+
+        let result = ComponentSkillParser.parseValidated(
+            content: content, fallbackName: "legacy")
+
+        XCTAssertNotNil(result,
+            "Legacy click_result alias 'navigates' should still validate")
+    }
+
     func testParseValidatedAcceptsValidKeys() {
         let content = """
             ---
