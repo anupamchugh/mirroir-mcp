@@ -348,6 +348,11 @@ enum ComponentDetector {
         element: ClassifiedElement
     ) -> ScreenComponent {
         let isNav = element.role == .navigation
+        // Explorability requires BOTH the navigation role AND a chevron in the
+        // row. The role classifier alone over-fires on any single-line text
+        // that *looks* tappable, which would re-introduce the noisy taps the
+        // doc-comment above promises to avoid.
+        let isExplorableNav = isNav && element.hasChevronContext
         let fallbackDef = ComponentDefinition(
             name: "unclassified",
             platform: "ios",
@@ -367,8 +372,8 @@ enum ComponentDetector {
                 labelRule: .tapTarget
             ),
             exploration: ComponentExploration(
-                explorable: isNav,
-                role: isNav ? .depthNavigation : .info,
+                explorable: isExplorableNav,
+                role: isExplorableNav ? .depthNavigation : .info,
                 priority: .normal
             ),
             grouping: ComponentGrouping(
@@ -383,7 +388,7 @@ enum ComponentDetector {
             kind: "unclassified",
             definition: fallbackDef,
             elements: [element],
-            tapTarget: isNav ? element.point : nil,
+            tapTarget: isExplorableNav ? element.point : nil,
             hasChevron: element.hasChevronContext,
             topY: element.point.pageY,
             bottomY: element.point.pageY

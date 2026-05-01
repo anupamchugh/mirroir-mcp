@@ -270,10 +270,13 @@ final class ComponentDetectorTests: XCTestCase {
             "Unclassified nav+chevron fallback should be explorable")
     }
 
-    func testUnmatchedNavigationWithoutChevronStillExplorable() {
-        // Navigation element WITHOUT chevron context is still explorable in fallback.
-        // Chevron context is not required for fallback explorable — it was too aggressive
-        // and filtered out legitimate nav items like health metrics with bullet prefixes.
+    func testUnmatchedNavigationWithoutChevronIsNotExplorable() {
+        // Navigation role WITHOUT a chevron in the row is non-explorable in
+        // fallback: without the chevron we have no positive signal that the
+        // element is a navigation target, and explorers would burn taps on
+        // article fragments, CTAs, and app recommendations otherwise. The
+        // element is still classified (kind=unclassified, role-based
+        // clickability preserved) but the explorer skips it.
         let classified = [
             classifiedNav("Commencer", x: 200, y: 400, hasChevron: false),
         ]
@@ -285,10 +288,10 @@ final class ComponentDetectorTests: XCTestCase {
         )
 
         XCTAssertEqual(components[0].kind, "unclassified")
-        XCTAssertNotNil(components[0].tapTarget,
-            "Unclassified nav fallback should be tappable")
-        XCTAssertTrue(components[0].definition.exploration.explorable,
-            "Unclassified nav fallback should be explorable")
+        XCTAssertNil(components[0].tapTarget,
+            "Nav-without-chevron fallback should not expose a tap target to the explorer")
+        XCTAssertFalse(components[0].definition.exploration.explorable,
+            "Nav-without-chevron fallback should not be explorable")
     }
 
     func testUnmatchedInfoElementNotClickable() {
