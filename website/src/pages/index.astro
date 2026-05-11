@@ -19,6 +19,27 @@ const permissionsCode = `{
   "blockedApps": ["Wallet", "Banking"]
 }`;
 
+const appMdExample = `---
+app: Santé
+archetype: dashboard
+obstacle_mode: auto
+---
+
+## Structure
+Dashboard with 4 tabs: Résumé, Partage, Parcourir, Profil.
+
+## Résumé Tab
+- Summary cards for health metrics that drill down to charts
+- Cards often show "Aucune donnée" on test devices
+
+## Obstacles
+- Health Access permission → tap "Autoriser"
+- Notification permission → tap "Ne pas autoriser"
+
+## Skip
+- Supprimer les données de Santé
+- Réinitialiser`;
+
 const skillExpo = `---
 version: 1
 name: Expo Go Signup + Onboarding
@@ -359,6 +380,42 @@ if (!skillsAvailable) {
     </div>
   </section>
 
+  <!-- Describe your app -->
+  <section>
+    <h2>Describe your app with APP.md</h2>
+    <p>
+      mirroir can explore any iOS app blindly &mdash; but it works best when you tell it what to expect. Drop an <code>APP.md</code> file in <code>~/.mirroir-mcp/skills/</code> (or the community <a href="https://github.com/jfarcand/mirroir-skills/tree/main/patterns/apps" rel="noopener noreferrer">patterns/apps</a> folder) and mirroir gets a map before it starts.
+    </p>
+
+    <div class="appmd-grid">
+      <div class="appmd-code">
+        <Code code={appMdExample} lang="markdown" theme="github-dark" />
+      </div>
+      <div class="appmd-features">
+        <div class="appmd-feature">
+          <h3>Archetype</h3>
+          <p><code>dashboard</code>, <code>social-feed</code>, <code>settings-list</code>, and more &mdash; tells mirroir how the app navigates so exploration uses the right strategy.</p>
+        </div>
+        <div class="appmd-feature">
+          <h3>Structure &amp; tabs</h3>
+          <p>Tab names become priority targets when component detection misses non-standard UIs. Section descriptions flow into AI context for generated skills.</p>
+        </div>
+        <div class="appmd-feature">
+          <h3>Obstacles</h3>
+          <p>Permission prompts, onboarding sheets, rating dialogs &mdash; declared once, dismissed automatically every time they appear.</p>
+        </div>
+        <div class="appmd-feature">
+          <h3>Skip list</h3>
+          <p>Destructive actions like &ldquo;Delete account&rdquo; or &ldquo;Reset&rdquo; are never tapped during autonomous exploration.</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="appmd-hint">
+      Three levels of patterns work together &mdash; <strong>elements</strong> (what rows look like), <strong>screens</strong> (what the page layout means), and <strong>apps</strong> (what the developer knows). 30 seconds of writing saves minutes of blind exploration.
+    </p>
+  </section>
+
   <!-- Install -->
   <section id="install">
     <h2>Install mirroir-mcp <span class="version-badge">v{version}</span></h2>
@@ -411,7 +468,7 @@ if (!skillsAvailable) {
   <section>
     <h2>From exploration to CI</h2>
     <p>
-      When you need deterministic, repeatable testing, mirroir provides a full pipeline. Point it at any app &mdash; it autonomously discovers every reachable screen using BFS graph traversal (screens are nodes, taps are edges), then outputs a bundle of ready-to-run SKILL.md files. Edit them, test them from the CLI, diagnose failures with <code>--agent</code>.
+      When you need deterministic, repeatable testing, mirroir provides a full pipeline. Point it at any app &mdash; it autonomously discovers every reachable screen using BFS graph traversal (screens are nodes, taps are edges), then outputs a bundle of ready-to-run SKILL.md files. Pair it with an <code>APP.md</code> map for guided exploration. Edit the skills, test them from the CLI, diagnose failures with <code>--agent</code>.
     </p>
 
     <div class="pipeline-grid">

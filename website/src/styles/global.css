@@ -744,6 +744,70 @@ section > p {
   }
 }
 
+/* APP.md showcase: side-by-side code + features */
+.appmd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+  align-items: start;
+}
+
+.appmd-code {
+  min-width: 0;
+}
+
+.appmd-code :global(pre) {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.appmd-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.appmd-feature {
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.85rem 0.95rem;
+}
+
+.appmd-feature h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  color: var(--color-text);
+}
+
+.appmd-feature p {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.appmd-hint {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  margin-top: 1rem;
+}
+
+@media (max-width: 900px) {
+  .appmd-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 500px) {
+  .appmd-features {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Pipeline grid (record → compile → test → diagnose) */
 .pipeline-grid {
   display: grid;
