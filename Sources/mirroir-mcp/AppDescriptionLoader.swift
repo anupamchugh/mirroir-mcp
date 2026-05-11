@@ -122,7 +122,8 @@ enum AppDescriptionLoader {
             credentials: resolved,
             hints: description.hints,
             tabs: description.tabs,
-            tabLayout: description.tabLayout
+            tabLayout: description.tabLayout,
+            simulator: description.simulator
         )
     }
 

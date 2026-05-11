@@ -51,6 +51,10 @@ struct AppDescription: Sendable {
     /// axis and findTabTargets falls back to position-ordinal mapping along
     /// that axis when text matching fails.
     let tabLayout: TabLayout?
+    /// Optional declarative scene graph extracted from `## Simulator …` sections.
+    /// Present once the app has been ported to the FakeMirroring simulator;
+    /// nil for guidance-only APP.md files that haven't been ported yet.
+    let simulator: SimulatorSpec?
 }
 
 /// Geometric hint for the tab bar layout. Defaults to `.horizontal` bottom-edge
@@ -99,7 +103,9 @@ enum AppDescriptionParser {
     /// Parse an APP.md file's content into an AppDescription.
     /// Returns nil if required fields (app name, at least one section) are missing.
     static func parse(content: String) -> AppDescription? {
-        let (frontMatter, sections) = extractFrontMatterAndSections(content: content)
+        let result = AppMdSectioning.extract(content: content)
+        let frontMatter = result.frontMatter
+        let sections = result.sections
 
         guard let appName = frontMatter["app"] else { return nil }
         let locale = frontMatter["locale"]
@@ -142,6 +148,8 @@ enum AppDescriptionParser {
         let hints = parseList(sections["Tips"] ?? "")
         let tabs = parseTabs(structure: sections["Structure"] ?? "", sections: sections)
         let tabLayout = parseTabLayout(sections["Tab Layout"] ?? "")
+        let simulator = SimulatorSpecParser.parse(
+            sections: sections, frontMatter: frontMatter, appName: appName)
 
         return AppDescription(
             appName: appName,
@@ -156,7 +164,8 @@ enum AppDescriptionParser {
             credentials: credentials,
             hints: hints,
             tabs: tabs,
-            tabLayout: tabLayout
+            tabLayout: tabLayout,
+            simulator: simulator
         )
     }
 
@@ -321,60 +330,4 @@ enum AppDescriptionParser {
         return tabs
     }
 
-    // MARK: - Front Matter & Section Extraction
-
-    /// Extract YAML front matter and markdown sections from APP.md content.
-    private static func extractFrontMatterAndSections(
-        content: String
-    ) -> ([String: String], [String: String]) {
-        var frontMatter: [String: String] = [:]
-        var sections: [String: String] = [:]
-        var currentSection: String?
-        var currentBody: [String] = []
-        var inFrontMatter = false
-        var frontMatterDone = false
-
-        for line in content.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            if trimmed == "---" {
-                if !frontMatterDone && !inFrontMatter {
-                    inFrontMatter = true
-                    continue
-                } else if inFrontMatter {
-                    inFrontMatter = false
-                    frontMatterDone = true
-                    continue
-                }
-            }
-
-            if inFrontMatter {
-                let parts = trimmed.split(separator: ":", maxSplits: 1)
-                if parts.count == 2 {
-                    let key = parts[0].trimmingCharacters(in: .whitespaces)
-                    let value = parts[1].trimmingCharacters(in: .whitespaces)
-                    frontMatter[key] = value
-                }
-                continue
-            }
-
-            if trimmed.hasPrefix("## ") {
-                if let section = currentSection {
-                    sections[section] = currentBody.joined(separator: "\n")
-                }
-                currentSection = String(trimmed.dropFirst(3))
-                currentBody = []
-            } else if trimmed.hasPrefix("# ") {
-                // H1 title — skip
-            } else {
-                currentBody.append(line)
-            }
-        }
-
-        if let section = currentSection {
-            sections[section] = currentBody.joined(separator: "\n")
-        }
-
-        return (frontMatter, sections)
-    }
 }
