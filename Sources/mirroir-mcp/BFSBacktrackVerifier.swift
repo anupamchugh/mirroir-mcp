@@ -213,21 +213,32 @@ extension BFSExplorer {
             // can continue from root. But if we landed on a non-root screen that isn't
             // the expected parent, continuing would tap elements on the wrong screen.
             if actualFP != graph.rootFingerprint && actualFP != expectedFP {
-                // Landed on a different known screen — relaunch to recover
-                DebugLog.log("bfs", "backtrack corrected to non-root screen — relaunching \(appName)")
-                _ = input.launchApp(name: appName)
-                usleep(EnvConfig.toolSettlingDelayUs)
+                // Landed on a different known screen — try in-app tap-back to root,
+                // falling back to Spotlight only if that can't reach root.
+                DebugLog.log("bfs", "backtrack corrected to non-root screen — returning to root for \(appName)")
+                _ = AppRootNavigator.resetToRoot(
+                    appName: appName,
+                    rootElements: graph.node(for: graph.rootFingerprint)?.elements,
+                    input: input, describer: describer, backtracker: backtracker,
+                    windowSize: windowSize,
+                    backButtonFallback: currentLayoutZones.backButtonFallback
+                )
                 graph.setCurrentFingerprint(graph.rootFingerprint)
                 frontierManager.phase = .atRoot
-                return .continue(description: "Backtrack landed on wrong screen — relaunched app")
+                return .continue(description: "Backtrack landed on wrong screen — returned to root")
             }
             return nil
 
         case .lost:
-            // Force relaunch the app to recover from stuck/modal state.
-            DebugLog.log("bfs", "LOST — relaunching \(appName) to recover")
-            _ = input.launchApp(name: appName)
-            usleep(EnvConfig.toolSettlingDelayUs)
+            // Stuck/modal state — try in-app tap-back recovery before Spotlight.
+            DebugLog.log("bfs", "LOST — returning to root for \(appName) to recover")
+            _ = AppRootNavigator.resetToRoot(
+                appName: appName,
+                rootElements: graph.node(for: graph.rootFingerprint)?.elements,
+                input: input, describer: describer, backtracker: backtracker,
+                windowSize: windowSize,
+                backButtonFallback: currentLayoutZones.backButtonFallback
+            )
             graph.setCurrentFingerprint(graph.rootFingerprint)
             // If we were exploring root, stay in exploring phase to continue the plan.
             // Don't switch to .atRoot which would dequeue frontier children.

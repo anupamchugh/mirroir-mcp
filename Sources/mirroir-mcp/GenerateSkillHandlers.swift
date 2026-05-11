@@ -30,13 +30,24 @@ extension MirroirMCP {
         let (ctx, err) = registry.resolveForTool(args)
         guard let ctx else { return err! }
 
-        // Launch the app
-        if let launchError = ctx.input.launchApp(name: appName) {
-            return .error("Failed to launch '\(appName)': \(launchError)")
+        // Skip Spotlight launch if iPhone is already showing the target app
+        // (matched via persisted graph root fingerprint). Saves ~3s per call
+        // and avoids stealing focus while a user is mid-flow inside the app.
+        let result: ScreenDescriber.DescribeResult
+        if let preLaunch = ctx.describer.describe(),
+           case .alreadyForeground(let similarity) = AppForegroundDetector.detect(
+               elements: preLaunch.elements, appName: appName) {
+            DebugLog.log("start", "already in '\(appName)' " +
+                "(root similarity \(String(format: "%.2f", similarity))) — skipping Spotlight launch")
+            result = preLaunch
+        } else {
+            switch launchAndWait(appName: appName, ctx: ctx) {
+            case .success(let launched):
+                result = launched
+            case .failure(let failure):
+                return .error(failure.message)
+            }
         }
-
-        // Wait for app to settle
-        usleep(EnvConfig.stepSettlingDelayMs * 1000)
 
         // Parse goal(s) and start session
         let goal = args["goal"]?.asString() ?? ""
@@ -51,13 +62,6 @@ extension MirroirMCP {
             explicitStrategy: explicitStrategy
         )
         session.setStrategy(strategyChoice.rawValue)
-
-        // OCR first screen
-        guard let result = ctx.describer.describe() else {
-            return .error(
-                "Failed to capture/analyze screen after launching '\(appName)'. " +
-                "Is the target window visible?")
-        }
 
         // Capture first screen (no action since this is the initial screen)
         session.capture(
@@ -262,7 +266,8 @@ extension MirroirMCP {
         // Ensures a clean start for apps with overlays or stateful UI
         // (TikTok, Instagram). Delegates to the target's lifecycle so all
         // dismissal paths share the OCR-based App Switcher card locator.
-        if appDesc?.resetBeforeExplore == true {
+        let mustReset = appDesc?.resetBeforeExplore == true
+        if mustReset {
             DebugLog.log("explore", "reset_before_explore: force-quitting '\(appName)' before launch")
             if let resetError = ctx.lifecycle.forceQuitBeforeExplore(
                 appName: appName,
@@ -275,16 +280,24 @@ extension MirroirMCP {
             }
         }
 
-        // Launch the app
-        if let launchError = ctx.input.launchApp(name: appName) {
-            return .error("Failed to launch '\(appName)': \(launchError)")
-        }
-
-        // Wait for Spotlight to dismiss and the app to become visible.
-        guard let firstResult = SpotlightDetector.waitForDismissal(describer: ctx.describer) else {
-            return .error(
-                "'\(appName)' did not appear after launch — " +
-                "Spotlight search may still be visible. Try launching the app manually first.")
+        // Skip Spotlight launch if iPhone is already showing the target app.
+        // reset_before_explore always relaunches; otherwise we OCR-fingerprint
+        // the current screen against the persisted graph root and skip on match.
+        let firstResult: ScreenDescriber.DescribeResult
+        if !mustReset,
+           let preLaunch = ctx.describer.describe(),
+           case .alreadyForeground(let similarity) = AppForegroundDetector.detect(
+               elements: preLaunch.elements, appName: appName) {
+            DebugLog.log("explore", "already in '\(appName)' " +
+                "(root similarity \(String(format: "%.2f", similarity))) — skipping Spotlight launch")
+            firstResult = preLaunch
+        } else {
+            switch launchAndWait(appName: appName, ctx: ctx) {
+            case .success(let result):
+                firstResult = result
+            case .failure(let failure):
+                return .error(failure.message)
+            }
         }
 
         // Budget + skip-list merge. Built-ins, the global permissions.json list,
@@ -467,4 +480,5 @@ extension MirroirMCP {
         }
         return merged
     }
+
 }

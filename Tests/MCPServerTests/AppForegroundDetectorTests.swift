@@ -1,0 +1,204 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
+// ABOUTME: Tests for AppForegroundDetector: foreground detection via persisted graph root similarity.
+// ABOUTME: Covers spotlight pre-empt, missing-graph fallback, match/unmatch verdicts, and Jaccard math.
+
+import XCTest
+@testable import mirroir_mcp
+@testable import HelperLib
+
+final class AppForegroundDetectorTests: XCTestCase {
+
+    // Use a unique app name per test so the persisted graph file doesn't
+    // collide with other tests or with real exploration data on the dev box.
+    private var appName: String!
+
+    override func setUp() {
+        super.setUp()
+        appName = "ForegroundTest-\(UUID().uuidString)"
+    }
+
+    override func tearDown() {
+        if let appName { _ = GraphPersistence.delete(bundleID: appName) }
+        super.tearDown()
+    }
+
+    // MARK: - Spotlight precedence
+
+    func testSpotlightVisibleShortCircuitsBeforeGraphCheck() {
+        // Even with a matching graph on disk, an active Spotlight overlay
+        // means we're not in the app yet — caller must launch.
+        persistRoot([
+            tap("Bon après-midi, Cheffamille"),
+            tap("Discuter avec Claude"),
+        ])
+        let elements = [
+            tap("Top Hit"),
+            tap("Bon après-midi, Cheffamille"),
+        ]
+        XCTAssertEqual(
+            AppForegroundDetector.detect(elements: elements, appName: appName),
+            .spotlightVisible
+        )
+    }
+
+    // MARK: - Graph fallback
+
+    func testNoGraphReturnsNoPersistedGraph() {
+        let elements = [tap("Some App Title")]
+        XCTAssertEqual(
+            AppForegroundDetector.detect(elements: elements, appName: appName),
+            .noPersistedGraph
+        )
+    }
+
+    // MARK: - Match / unmatch
+
+    func testHighSimilarityReturnsAlreadyForeground() {
+        persistRoot([
+            tap("Bon après-midi, Cheffamille"),
+            tap("Discuter avec Claude"),
+            tap("Opus 4.7"),
+            tap("+"),
+        ])
+        // 3 of 4 root labels visible — easily above the 0.5 threshold.
+        let elements = [
+            tap("Bon après-midi, Cheffamille"),
+            tap("Discuter avec Claude"),
+            tap("Opus 4.7"),
+            tap("icon"),
+        ]
+        let verdict = AppForegroundDetector.detect(elements: elements, appName: appName)
+        guard case .alreadyForeground(let similarity) = verdict else {
+            return XCTFail("expected alreadyForeground, got \(verdict)")
+        }
+        XCTAssertGreaterThanOrEqual(similarity, AppForegroundDetector.matchThreshold)
+    }
+
+    func testMatchesAnyNodeNotJustRoot() {
+        // Exploration may end on a sub-screen. If the current screen matches
+        // ANY persisted node, we're still inside the target app.
+        persistGraph(
+            rootFingerprint: "root",
+            nodes: [
+                ("root", 0, [tap("Bon après-midi"), tap("Discuter avec Claude")]),
+                ("sub", 1, [tap("Conversations"), tap("Rechercher"), tap("Récupération après trail")]),
+            ]
+        )
+        // Current screen mirrors the depth-1 sub-screen, not the root.
+        let elements = [
+            tap("Conversations"),
+            tap("Rechercher"),
+            tap("Récupération après trail"),
+        ]
+        let verdict = AppForegroundDetector.detect(elements: elements, appName: appName)
+        guard case .alreadyForeground(let similarity) = verdict else {
+            return XCTFail("expected alreadyForeground for sub-screen match, got \(verdict)")
+        }
+        XCTAssertGreaterThanOrEqual(similarity, AppForegroundDetector.matchThreshold)
+    }
+
+    func testLowSimilarityReturnsUnmatched() {
+        persistRoot([
+            tap("Bon après-midi, Cheffamille"),
+            tap("Discuter avec Claude"),
+            tap("Opus 4.7"),
+            tap("+"),
+        ])
+        // Different screen entirely (Settings) — no overlap with Claude root.
+        let elements = [
+            tap("Réglages"),
+            tap("Wi-Fi"),
+            tap("Bluetooth"),
+            tap("Batterie"),
+        ]
+        let verdict = AppForegroundDetector.detect(elements: elements, appName: appName)
+        guard case .unmatched(let similarity) = verdict else {
+            return XCTFail("expected unmatched, got \(verdict)")
+        }
+        XCTAssertLessThan(similarity, AppForegroundDetector.matchThreshold)
+    }
+
+    // MARK: - Jaccard math directly
+
+    func testJaccardIgnoresIconPlaceholdersAndEmpty() {
+        let a = [tap("Foo"), tap("icon"), tap(""), tap("Bar")]
+        let b = [tap("foo"), tap("bar"), tap("ICON")]
+        // Normalized text sets are {foo, bar} on both sides.
+        XCTAssertEqual(
+            AppForegroundDetector.jaccardSimilarity(current: a, root: b),
+            1.0,
+            accuracy: 0.0001
+        )
+    }
+
+    func testJaccardZeroOnEmptyInput() {
+        XCTAssertEqual(
+            AppForegroundDetector.jaccardSimilarity(current: [], root: []),
+            0.0
+        )
+        XCTAssertEqual(
+            AppForegroundDetector.jaccardSimilarity(
+                current: [tap("icon")], root: [tap("icon")]
+            ),
+            0.0,
+            "icon-only sets normalize to empty and must not divide by zero"
+        )
+    }
+
+    func testJaccardHalfOverlap() {
+        let a = [tap("A"), tap("B")]
+        let b = [tap("B"), tap("C")]
+        // intersection = 1, union = 3 → 1/3.
+        XCTAssertEqual(
+            AppForegroundDetector.jaccardSimilarity(current: a, root: b),
+            1.0 / 3.0,
+            accuracy: 0.0001
+        )
+    }
+
+    // MARK: - Helpers
+
+    private func tap(_ text: String) -> TapPoint {
+        TapPoint(text: text, tapX: 100, tapY: 100, confidence: 0.9)
+    }
+
+    /// Persist a graph with a single root node carrying the given elements.
+    private func persistRoot(_ elements: [TapPoint]) {
+        persistGraph(
+            rootFingerprint: "test-root-fp",
+            nodes: [("test-root-fp", 0, elements)]
+        )
+    }
+
+    /// Persist a graph with arbitrary nodes. Each node tuple is (fingerprint, depth, elements).
+    private func persistGraph(rootFingerprint: String, nodes: [(String, Int, [TapPoint])]) {
+        var nodeMap: [String: ScreenNode] = [:]
+        for (fingerprint, depth, elements) in nodes {
+            nodeMap[fingerprint] = ScreenNode(
+                fingerprint: fingerprint,
+                elements: elements,
+                icons: [],
+                hints: [],
+                depth: depth,
+                screenType: .unknown,
+                screenshotBase64: "",
+                visitedElements: [],
+                navBarTitle: nil,
+                isInfiniteScroll: false,
+                scrollExhausted: false,
+                visualHash: nil
+            )
+        }
+        let snapshot = GraphSnapshot(
+            nodes: nodeMap,
+            edges: [],
+            adjacency: [:],
+            rootFingerprint: rootFingerprint,
+            deadEdges: [],
+            recoveryEvents: []
+        )
+        _ = GraphPersistence.save(snapshot: snapshot, bundleID: appName)
+    }
+}

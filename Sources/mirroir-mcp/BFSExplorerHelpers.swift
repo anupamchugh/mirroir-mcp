@@ -58,10 +58,15 @@ extension BFSExplorer {
                 screenFingerprint: graph.currentFingerprint,
                 description: "App escaped during BFS exploration: \(reason)"
             ))
-            // Force-quit and relaunch the app to recover from stuck state
-            DebugLog.log("bfs", "context escape failed — resetting app \(appName)")
-            _ = input.launchApp(name: appName)
-            usleep(EnvConfig.toolSettlingDelayUs)
+            // Stuck — try in-app tap-back recovery before falling back to Spotlight.
+            DebugLog.log("bfs", "context escape failed — returning to root for \(appName)")
+            _ = AppRootNavigator.resetToRoot(
+                appName: appName,
+                rootElements: graph.node(for: graph.rootFingerprint)?.elements,
+                input: input, describer: describer, backtracker: backtracker,
+                windowSize: windowSize,
+                backButtonFallback: currentLayoutZones.backButtonFallback
+            )
             graph.setCurrentFingerprint(graph.rootFingerprint)
             frontierManager.phase = .atRoot
             return .continue(description: "App stuck — reset and continuing from root")
