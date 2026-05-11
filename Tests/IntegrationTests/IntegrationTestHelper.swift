@@ -65,9 +65,12 @@ enum IntegrationTestHelper {
             throw IntegrationTestError.fakeMirroringNotFound
         }
 
-        // Launch the app
+        // Launch the app — float the window so CGEvent taps and screencapture
+        // always hit FakeMirroring even if another app momentarily grabs focus
+        // (terminal, IDE, etc.) during the test run.
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
+        config.environment = ["FAKEMIRRORING_FLOATING": "1"]
 
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var launchError: Error?
@@ -92,6 +95,22 @@ enum IntegrationTestHelper {
 
         throw IntegrationTestError.fakeMirroringLaunchFailed(
             "Process did not appear within 5 seconds after launch")
+    }
+
+    /// Reset FakeMirroring to a fresh cold-launch of the named scenario pack.
+    /// Routes through the Scenario menu, which the AppDelegate implements as
+    /// force-quit + launch — clears any persistent obstacle/screen state from
+    /// prior test interactions. Returns true if the menu action succeeded.
+    @discardableResult
+    static func resetScenario(
+        bridge: MirroringBridge,
+        to scenarioName: String = "Settings"
+    ) -> Bool {
+        let ok = bridge.triggerMenuAction(menu: "Scenario", item: scenarioName)
+        // Give the runloop a tick to render the freshly-launched scene before
+        // the test starts capturing/describing.
+        usleep(200_000)
+        return ok
     }
 
     /// Activate FakeMirroring and wait until its window is capturable (non-zero windowID).

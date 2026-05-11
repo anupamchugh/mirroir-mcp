@@ -34,6 +34,10 @@ final class GenerateSkillIntegrationTests: XCTestCase {
             return
         }
 
+        // Reset to clean Settings so a prior test class's lingering Spotlight
+        // overlay or non-root screen doesn't pollute OCR results.
+        IntegrationTestHelper.resetScenario(bridge: bridge, to: "Settings")
+
         describer = ScreenDescriber(bridge: bridge, capture: ScreenCapture(bridge: bridge))
     }
 

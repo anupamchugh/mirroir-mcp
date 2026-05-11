@@ -56,30 +56,39 @@ final class TapNavigationTests: XCTestCase {
         )
     }
 
-    /// Tap "About" row on Settings → should navigate to Detail (Back) screen with "<" chevron.
-    /// Verifies by checking for "Model Name" which exists only on Detail (Back), not Settings.
+    /// Drill Settings → General → About and verify the leaf screen with the
+    /// "Model Number" detail. Exercises the same multi-hop tap-and-verify
+    /// pipeline as the legacy "Settings → About → Detail (Back)" path, against
+    /// the realistic Settings hierarchy (About lives under General, not root).
     func testTapAboutNavigatesToDetailWithBack() throws {
         try tapAndVerifyNavigation(
+            tapLabel: "General",
+            expectedElement: "About",
+            description: "Settings → General"
+        )
+        try tapAndVerifyNavigation(
             tapLabel: "About",
-            expectedElement: "Model Name",
-            description: "Settings → About → Detail (Back)"
+            expectedElement: "Model Number",
+            description: "General → About"
         )
     }
 
     // MARK: - Back Chevron Navigation
 
-    /// Navigate to Detail (Back) then tap "<" → should return to Settings.
+    /// Drill into Settings → General (a screen with a back chevron) and tap
+    /// the "<" chevron to return to Settings. Verifies that OCR can locate
+    /// the chevron glyph and that a tap there triggers the parent navigation.
     func testBackChevronReturnsToSettings() throws {
-        // First navigate to Detail (Back)
-        _ = bridge.triggerMenuAction(menu: "Scenario", item: "Detail (Back)")
-        usleep(500_000)
+        // Navigate Settings → General through a row tap so we land on a
+        // screen with back: main (renders the back chevron).
+        try tapAndVerifyNavigation(
+            tapLabel: "General",
+            expectedElement: "About",
+            description: "Settings → General"
+        )
 
-        // Verify we're on the About screen
+        // Find and tap the "<" back chevron rendered by drawBackChevron().
         let beforeScreen = try describeOrFail()
-        let beforeTexts = beforeScreen.elements.map { $0.text.lowercased() }
-        XCTAssertTrue(beforeTexts.contains("about"), "Should be on Detail (Back) screen before back tap")
-
-        // Find and tap the "<" back chevron
         guard let chevron = beforeScreen.elements.first(where: {
             $0.text == "<" || $0.text == "‹" || $0.text == "〈" || $0.text == "く"
         }) else {
@@ -90,7 +99,7 @@ final class TapNavigationTests: XCTestCase {
         XCTAssertNil(tapError, "Tap on back chevron should succeed: \(tapError ?? "")")
         usleep(800_000)
 
-        // Verify we navigated back to Settings
+        // After the back tap we should be back on Settings root.
         let afterScreen = try describeOrFail()
         let afterTexts = afterScreen.elements.map { $0.text.lowercased() }
         XCTAssertTrue(afterTexts.contains("settings"),
@@ -114,16 +123,17 @@ final class TapNavigationTests: XCTestCase {
 
     // MARK: - Card Tap
 
-    /// On Health screen, tap "Steps" card → should navigate to Detail (Back).
-    /// Verifies by checking for "Model Name" which exists only on Detail (Back), not Health.
+    /// On the Health summary screen, tap the "Steps" row → should navigate
+    /// to the Steps detail screen. Verifies by checking for "Daily Average"
+    /// which exists only on the detail screen, not the summary.
     func testTapHealthCardNavigatesToDetail() throws {
         _ = bridge.triggerMenuAction(menu: "Scenario", item: "Health")
         usleep(500_000)
 
         try tapAndVerifyNavigation(
             tapLabel: "Steps",
-            expectedElement: "Model Name",
-            description: "Health → Steps → Detail (Back)"
+            expectedElement: "Daily Average",
+            description: "Health → Steps → Detail"
         )
     }
 

@@ -32,6 +32,10 @@ final class FakeMirroringIntegrationTests: XCTestCase {
             XCTFail("FakeMirroring window not capturable after retries")
             return
         }
+
+        // Reset to a clean Settings cold launch so OCR/AX assertions don't
+        // see leftover obstacle dialogs or non-root screens from prior tests.
+        IntegrationTestHelper.resetScenario(bridge: bridge, to: "Settings")
     }
 
     // MARK: - MirroringBridge Tests
@@ -115,6 +119,9 @@ final class FakeMirroringIntegrationTests: XCTestCase {
     }
 
     func testIconDetectionSkipsLabeledTabBar() {
+        // Switch to a scenario whose root screen has a tab bar (Settings root
+        // doesn't). The Feed fixture renders `hasTabBar: true`.
+        IntegrationTestHelper.resetScenario(bridge: bridge, to: "Feed")
         let describer = ScreenDescriber(bridge: bridge, capture: ScreenCapture(bridge: bridge))
         guard let result = describer.describe() else {
             XCTFail("describe() returned nil")
@@ -139,6 +146,8 @@ final class FakeMirroringIntegrationTests: XCTestCase {
     }
 
     func testTabBarLabelsGetTapOffset() {
+        // Switch to a scenario with a tab bar — Settings root has none.
+        IntegrationTestHelper.resetScenario(bridge: bridge, to: "Feed")
         let describer = ScreenDescriber(bridge: bridge, capture: ScreenCapture(bridge: bridge))
         guard let result = describer.describe() else {
             XCTFail("describe() returned nil")
