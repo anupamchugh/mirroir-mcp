@@ -4,16 +4,29 @@
 // ABOUTME: Renders switchable scenario screens with header, rows, cards, and tab bar for OCR testing.
 
 import AppKit
+import HelperLib
 
 /// View that renders an iOS-style screen for OCR testing.
 /// Draws a large title, category rows, summary cards, and optionally a tab bar with icons.
-/// The `scenario` property controls which content is displayed.
+/// The `appPack` (or active overlay) controls what content is displayed.
 /// Handles all input types: tap, scroll, type, long press, drag, double tap.
 final class FakeScreenView: NSView {
 
-    /// The active scenario controlling what content is rendered.
-    var scenario: FakeScenario = .settings {
+    /// When non-nil, scenes are driven by this pack's current screen / obstacle.
+    /// When nil (and no overlay is active), the view renders an empty home frame.
+    /// Set via AppRegistry on Spotlight launch or App Switcher dismissal.
+    var appPack: AppPack? {
         didSet { resetInputState(); needsDisplay = true }
+    }
+
+    /// When non-nil, the Spotlight search overlay is active and intercepts all input.
+    var spotlightOverlay: SpotlightOverlay? {
+        didSet { needsDisplay = true }
+    }
+
+    /// When non-nil, the App Switcher overlay is active and intercepts all input.
+    var appSwitcherOverlay: AppSwitcherOverlay? {
+        didSet { needsDisplay = true }
     }
 
     /// Status bar time display.
@@ -92,7 +105,7 @@ final class FakeScreenView: NSView {
         NSColor(red: 0.1, green: 0.1, blue: 0.15, alpha: 1.0).setFill()
         dirtyRect.fill()
 
-        let content = ScenarioContent.data(for: scenario)
+        let content = currentSceneData()
 
         // Status bar and tab bar are fixed (not scrolled)
         drawStatusBar()
@@ -140,7 +153,7 @@ final class FakeScreenView: NSView {
 
         // Snap slider to click position on mouseDown (immediate feedback for
         // both direct taps on the slider and drag start positions).
-        let content = ScenarioContent.data(for: scenario)
+        let content = currentSceneData()
         if let slider = content.sliderTrack,
            slider.rect.insetBy(dx: -10, dy: -20).contains(mouseDownPoint) {
             let fraction = (mouseDownPoint.x - slider.rect.minX) / slider.rect.width
@@ -153,7 +166,7 @@ final class FakeScreenView: NSView {
     override func mouseDragged(with event: NSEvent) {
         isDragging = true
         let current = convert(event.locationInWindow, from: nil)
-        let content = ScenarioContent.data(for: scenario)
+        let content = currentSceneData()
 
         // Handle slider drag on Profile scenario
         if let slider = content.sliderTrack {
@@ -185,7 +198,7 @@ final class FakeScreenView: NSView {
         // unreliable for CGEvent-posted events, causing false positive drag detection.
         if isDragging {
             isDragging = false
-            let content = ScenarioContent.data(for: scenario)
+            let content = currentSceneData()
             if let slider = content.sliderTrack, slider.rect.insetBy(dx: -10, dy: -20).contains(clickPoint) {
                 let fraction = (clickPoint.x - slider.rect.minX) / slider.rect.width
                 sliderFraction = min(1.0, max(0.0, fraction))
@@ -217,10 +230,35 @@ final class FakeScreenView: NSView {
         // Adjust click point for scroll offset (content coordinates)
         let contentPoint = CGPoint(x: clickPoint.x, y: clickPoint.y + scrollOffset)
 
+        // App Switcher overlay: a tap on a card with an upward delta force-quits
+        // the underlying pack; tap without delta is a no-op (could highlight in future).
+        if let switcher = appSwitcherOverlay {
+            let upwardDelta = mouseDownPoint.y - clickPoint.y
+            if upwardDelta > 50, switcher.handleSwipeUp(at: mouseDownPoint) {
+                needsDisplay = true
+                return
+            }
+            // Tapping outside any card closes the overlay
+            switcher.close()
+            return
+        }
+
+        // AppPack-driven path: resolve the tapped element via the active screen
+        // (or active obstacle) and let the pack update its state. This fully
+        // replaces the legacy ScenarioContent/NavigationMap flow when a pack
+        // is foreground.
+        if let pack = appPack {
+            if handleAppPackTap(pack: pack, at: contentPoint, screenPoint: clickPoint) {
+                return
+            }
+        }
+
         // Slider snap: check in mouseUp using reliable clickPoint coordinates.
         // The mouseDown slider check may fail in CI where convert(event.locationInWindow)
         // returns unreliable coordinates for CGEvent-posted mouseDown events.
-        let content = ScenarioContent.data(for: scenario)
+        // currentSceneData() resolves either AppPack-driven or legacy scenario-driven
+        // rendering, so slider/textField hit testing works in both modes.
+        let content = currentSceneData()
         if let slider = content.sliderTrack,
            slider.rect.insetBy(dx: -10, dy: -20).contains(contentPoint) {
             let fraction = (contentPoint.x - slider.rect.minX) / slider.rect.width
@@ -239,26 +277,13 @@ final class FakeScreenView: NSView {
             }
         }
 
-        // Standard hit regions use content coordinates
-        let regions = ScenarioContent.hitRegions(for: scenario)
-        for (label, rect) in regions {
-            let adjustedRect = CGRect(x: rect.minX, y: rect.minY - scrollOffset,
-                                       width: rect.width, height: rect.height)
-            if adjustedRect.contains(clickPoint) {
-                if let target = NavigationMap.destination(from: scenario, tapping: label) {
-                    scenario = target
-                }
-                return
-            }
-        }
-
         // Tap outside text fields deactivates the active field
         activeFieldIndex = -1
         needsDisplay = true
     }
 
     override func scrollWheel(with event: NSEvent) {
-        let content = ScenarioContent.data(for: scenario)
+        let content = currentSceneData()
         // Scroll wheel deltaY: positive = scroll content up (show content below)
         // NSEvent.scrollingDeltaY: positive = user scrolled down (trackpad finger moved down)
         // In a flipped view scrolling down should reveal content below, so we subtract
@@ -271,6 +296,28 @@ final class FakeScreenView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Spotlight overlay swallows all keystrokes — type into the search,
+        // press Return to commit, Esc to dismiss.
+        if let spotlight = spotlightOverlay, let chars = event.characters {
+            for char in chars {
+                if char == "\u{7F}" {
+                    if !spotlight.query.isEmpty {
+                        spotlight.setQuery(String(spotlight.query.dropLast()))
+                    }
+                } else if char == "\r" || char == "\n" {
+                    spotlight.commit()
+                    return
+                } else if char == "\u{1B}" {
+                    spotlight.cancel()
+                    return
+                } else if !char.isNewline {
+                    spotlight.setQuery(spotlight.query + String(char))
+                }
+            }
+            needsDisplay = true
+            return
+        }
+
         guard activeFieldIndex >= 0, let chars = event.characters else {
             super.keyDown(with: event)
             return
@@ -308,22 +355,23 @@ final class FakeScreenView: NSView {
     }
 
     /// Handle long press: show "Context Menu" overlay at the press location.
+    /// Tries to label the menu with the row/button text under the press by
+    /// matching against the active scene's elements; falls back to a generic label.
     private func handleLongPress(at point: CGPoint) {
         let contentPoint = CGPoint(x: point.x, y: point.y + scrollOffset)
-        let regions = ScenarioContent.hitRegions(for: scenario)
-        for (label, rect) in regions {
-            if rect.contains(contentPoint) {
-                longPressLabel = "Context Menu: \(label)"
-                needsDisplay = true
-                // Clear after 2 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                    self?.longPressLabel = nil
-                    self?.needsDisplay = true
-                }
-                return
+        let data = currentSceneData()
+        var label: String?
+        for (rowText, origin) in data.rows {
+            let rect = CGRect(x: 0, y: origin.y - rowHeight / 2,
+                              width: bounds.width, height: rowHeight)
+            if rect.contains(contentPoint) { label = rowText; break }
+        }
+        if label == nil {
+            for (buttonText, rect) in data.buttons where rect.contains(contentPoint) {
+                label = buttonText; break
             }
         }
-        longPressLabel = "Context Menu"
+        longPressLabel = label.map { "Context Menu: \($0)" } ?? "Context Menu"
         needsDisplay = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             self?.longPressLabel = nil
@@ -357,99 +405,6 @@ final class AlwaysAcceptingWindow: NSWindow {
             makeKey()
         }
         super.sendEvent(event)
-    }
-}
-
-/// Application delegate that creates the main window.
-@MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        let windowWidth: CGFloat = 410
-        let windowHeight: CGFloat = 898
-
-        let window = AlwaysAcceptingWindow(
-            contentRect: NSRect(x: 200, y: 200, width: windowWidth, height: windowHeight),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "FakeMirroring"
-        window.contentView = FakeScreenView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
-        window.acceptsMouseMovedEvents = true
-        // Float above other windows during integration tests so CGEvent taps
-        // always hit FakeMirroring. Opt-in via env var to avoid annoying manual users.
-        if ProcessInfo.processInfo.environment["FAKEMIRRORING_FLOATING"] == "1" {
-            window.level = .floating
-        }
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-
-        buildMenuBar()
-    }
-
-    /// Build menus: View menu for AX traversal tests, Scenario menu for content switching.
-    private func buildMenuBar() {
-        let mainMenu = NSMenu()
-
-        let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "Quit FakeMirroring", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        appMenuItem.submenu = appMenu
-        mainMenu.addItem(appMenuItem)
-
-        let viewMenuItem = NSMenuItem()
-        let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(NSMenuItem(title: "Home Screen", action: #selector(noOp(_:)), keyEquivalent: ""))
-        viewMenu.addItem(NSMenuItem(title: "Spotlight", action: #selector(noOp(_:)), keyEquivalent: ""))
-        viewMenu.addItem(NSMenuItem(title: "App Switcher", action: #selector(noOp(_:)), keyEquivalent: ""))
-        viewMenuItem.submenu = viewMenu
-        mainMenu.addItem(viewMenuItem)
-
-        let scenarioMenuItem = NSMenuItem()
-        let scenarioMenu = NSMenu(title: "Scenario")
-        for scenario in FakeScenario.allCases {
-            let item = NSMenuItem(
-                title: scenario.rawValue,
-                action: #selector(switchScenario(_:)),
-                keyEquivalent: ""
-            )
-            item.representedObject = scenario.rawValue
-            scenarioMenu.addItem(item)
-        }
-        scenarioMenuItem.submenu = scenarioMenu
-        mainMenu.addItem(scenarioMenuItem)
-
-        let testMenuItem = NSMenuItem()
-        let testMenu = NSMenu(title: "Test")
-        testMenu.addItem(NSMenuItem(
-            title: "Slider 90%",
-            action: #selector(setSlider90(_:)),
-            keyEquivalent: ""
-        ))
-        testMenuItem.submenu = testMenu
-        mainMenu.addItem(testMenuItem)
-
-        NSApp.mainMenu = mainMenu
-    }
-
-    @objc func noOp(_ sender: Any?) {
-        // Menu items exist for AX traversal testing; no action needed.
-    }
-
-    @objc func setSlider90(_ sender: Any?) {
-        guard let view = window?.contentView as? FakeScreenView else { return }
-        view.sliderFraction = 0.9
-        view.needsDisplay = true
-    }
-
-    @objc func switchScenario(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let scenario = FakeScenario(rawValue: rawValue),
-              let view = window?.contentView as? FakeScreenView else { return }
-        view.scenario = scenario
     }
 }
 

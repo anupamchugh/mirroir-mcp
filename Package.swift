@@ -46,6 +46,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "FakeMirroring",
+            dependencies: ["HelperLib"],
             path: "Sources/FakeMirroring",
             linkerSettings: [
                 .linkedFramework("AppKit"),

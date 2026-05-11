@@ -1,0 +1,107 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
+// ABOUTME: AppPack-aware tap handling for FakeScreenView — dismisses obstacles, navigates via leadsTo.
+// ABOUTME: Lives in its own file to keep main.swift under the project's 500-line ceiling.
+
+import AppKit
+import HelperLib
+
+extension FakeScreenView {
+
+    /// Resolved scene data for the current frame.
+    /// Priority: Spotlight overlay > App Switcher overlay > active AppPack
+    /// (obstacle, then current screen) > empty home-screen-style scene.
+    func currentSceneData() -> ScenarioData {
+        if let spotlight = spotlightOverlay {
+            return spotlight.sceneData()
+        }
+        if let switcher = appSwitcherOverlay {
+            return switcher.sceneData()
+        }
+        if let pack = appPack {
+            if let obstacle = pack.activeObstacle {
+                return SceneRenderer.render(obstacle)
+            }
+            if let screen = pack.currentScreen {
+                return SceneRenderer.render(screen)
+            }
+        }
+        // No app foreground — render an empty home-screen-style frame so the
+        // window still has chrome (status bar) without any app content.
+        return ScenarioData(header: "", rows: [], hasTabBar: false)
+    }
+
+    /// Dispatch a tap to the active AppPack: dismiss its obstacle or navigate
+    /// to a destination screen. Returns true when the tap was consumed (the
+    /// view re-rendered); false to fall through to legacy hit testing.
+    func handleAppPackTap(pack: AppPack, at contentPoint: CGPoint, screenPoint: CGPoint) -> Bool {
+        let data = currentSceneData()
+
+        // Active obstacle: any button tap dismisses it.
+        if pack.activeObstacle != nil {
+            for (_, rect) in data.buttons {
+                let adjusted = CGRect(x: rect.minX, y: rect.minY - scrollOffset,
+                                      width: rect.width, height: rect.height)
+                if adjusted.contains(screenPoint) {
+                    pack.dismissActiveObstacle()
+                    needsDisplay = true
+                    return true
+                }
+            }
+            return false
+        }
+
+        // Back chevron tap zone: a generous top-left strip so OCR-driven taps
+        // land inside the hitbox even when the OCR bbox center drifts a bit
+        // from the rendered glyph position. The "<" is drawn at view-local
+        // y=80 (font ~22pt) and OCR typically reports tapY a bit lower; cover
+        // the whole top-left corner up to y=200 to absorb that drift.
+        if data.hasBackChevron, let screen = pack.currentScreen, let backTo = screen.backTo {
+            let backZone = CGRect(x: 0, y: 0, width: 80, height: 200)
+            if backZone.contains(screenPoint) {
+                pack.navigate(to: backTo)
+                needsDisplay = true
+                return true
+            }
+        }
+
+        // Row tap → navigate via SimulatorElement.leadsTo
+        for (label, origin) in data.rows {
+            let rowRect = CGRect(x: origin.x - 20, y: origin.y - rowHeight / 2,
+                                 width: bounds.width, height: rowHeight)
+            let adjusted = CGRect(x: rowRect.minX, y: rowRect.minY - scrollOffset,
+                                  width: rowRect.width, height: rowRect.height)
+            if adjusted.contains(screenPoint) {
+                if let dest = destinationFor(label: label, in: pack) {
+                    pack.navigate(to: dest)
+                    needsDisplay = true
+                }
+                return true
+            }
+        }
+
+        // Button tap on a regular screen — also navigate via leadsTo
+        for (label, rect) in data.buttons {
+            let adjusted = CGRect(x: rect.minX, y: rect.minY - scrollOffset,
+                                  width: rect.width, height: rect.height)
+            if adjusted.contains(screenPoint) {
+                if let dest = destinationFor(label: label, in: pack) {
+                    pack.navigate(to: dest)
+                    needsDisplay = true
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Find the leadsTo for an element with matching display text on the active screen.
+    fileprivate func destinationFor(label: String, in pack: AppPack) -> String? {
+        guard let screen = pack.currentScreen else { return nil }
+        for element in screen.elements where element.displayText == label {
+            return element.leadsTo
+        }
+        return nil
+    }
+}
