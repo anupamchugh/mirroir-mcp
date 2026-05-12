@@ -1,0 +1,27 @@
+# ABOUTME: Cargo manifest for the mirroir-run binary — cross-platform YAML replayer.
+# ABOUTME: Reads mirroir SkillStep YAML, drives web/process/http targets, judges via LLM oracle.
+
+[package]
+name = "mirroir-run"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Cross-platform replayer for mirroir SkillStep YAML scenarios — drives web (Chrome via CDP, Firefox/WebKit via WebDriver), generic process, and HTTP targets."
+repository = "https://github.com/jfarcand/mirroir-mcp"
+readme = "README.md"
+rust-version = "1.85"
+
+[[bin]]
+name = "mirroir-run"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
