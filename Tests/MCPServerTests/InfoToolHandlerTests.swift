@@ -124,6 +124,21 @@ final class InfoToolHandlerTests: XCTestCase {
         XCTAssertTrue(text.contains("[ok] Screen capture working"))
     }
 
+    func testCheckHealthReportsCaptureLatency() {
+        // scrcpy publishes a 35-70ms latency budget on its README. We surface
+        // the measured capture latency in check_health so users can spot
+        // regressions and judge their setup.
+        bridge.state = .connected
+        capture.captureResult = "base64data"
+        let response = callTool("check_health")
+        let text = extractText(response)!
+        let range = text.range(
+            of: #"\[ok\] Screen capture working \(\d+ ms\)"#,
+            options: .regularExpression
+        )
+        XCTAssertNotNil(range, "Expected capture-latency suffix in: \(text)")
+    }
+
     func testCheckHealthNotRunning() {
         bridge.processRunning = false
         bridge.state = .notRunning

@@ -1,7 +1,7 @@
 // Copyright 2026 jfarcand@apache.org
 // Licensed under the Apache License, Version 2.0
 //
-// ABOUTME: Registers navigation-related MCP tools: launch_app, open_url, press_home, press_app_switcher, spotlight.
+// ABOUTME: Registers navigation-related MCP tools: launch_app, open_url, press_home, press_app_switcher, press_back, spotlight.
 // ABOUTME: Each tool maps MCP JSON-RPC calls to the bridge and input subsystems for app navigation.
 
 import Foundation
@@ -143,6 +143,55 @@ extension MirroirMCP {
                 } else {
                     return .error("Failed to open App Switcher. Is '\(ctx.name)' running?")
                 }
+            }
+        ))
+
+        // press_back — tap the OCR-detected "<" back chevron, with profile fallback
+        server.registerTool(MCPToolDefinition(
+            name: "press_back",
+            description: """
+                Navigate back one screen on the mirrored iPhone by tapping the \
+                "<" back chevron in the top navigation bar. Uses OCR to locate \
+                the chevron and falls back to the canonical back-button position \
+                if OCR misses it. This is the only reliable back-navigation \
+                method for iPhone Mirroring — Mac keyboard shortcuts (Cmd+[) do \
+                NOT pass through to iOS apps.
+                """,
+            inputSchema: [
+                "type": .string("object"),
+                "properties": .object([:]),
+            ],
+            handler: { args in
+                let (ctx, err) = registry.resolveForTool(args)
+                guard let ctx else { return err! }
+                let bridge = ctx.bridge
+
+                guard bridge.findProcess() != nil else {
+                    return .error("Target '\(ctx.name)' is not running")
+                }
+                if bridge.getState() == .paused {
+                    if let menuBridge = bridge as? (any MenuActionCapable) {
+                        _ = menuBridge.pressResume()
+                        usleep(EnvConfig.resumeFromPausedUs)
+                    }
+                }
+
+                guard let result = ctx.describer.describe() else {
+                    return .error(
+                        "Failed to capture/analyze screen. Is the '\(ctx.name)' window visible?")
+                }
+                guard let info = bridge.getWindowInfo() else {
+                    return .error("Cannot determine window size for '\(ctx.name)'")
+                }
+
+                let zones = ctx.profile.layoutZones(bridge.getOrientation())
+                ExplorerUtilities.tapBackButton(
+                    elements: result.elements,
+                    input: ctx.input,
+                    windowSize: info.size,
+                    fallback: zones.backButtonFallback
+                )
+                return .text("Pressed back (OCR chevron or canonical fallback)")
             }
         ))
 

@@ -96,10 +96,14 @@ extension MirroirMCP {
                     allOk = false
                 }
 
-                // 3. Screen capture
+                // 3. Screen capture (with latency measurement)
+                let captureStart = DispatchTime.now()
                 let screenshot = capture.captureBase64()
+                let captureMs = Int(
+                    (DispatchTime.now().uptimeNanoseconds - captureStart.uptimeNanoseconds)
+                    / 1_000_000)
                 if screenshot != nil {
-                    checks.append("[ok] Screen capture working")
+                    checks.append("[ok] Screen capture working (\(captureMs) ms)")
                 } else {
                     checks.append(
                         "[FAIL] Screen capture failed — " +

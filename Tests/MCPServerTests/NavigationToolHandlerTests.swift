@@ -1,9 +1,10 @@
 // Copyright 2026 jfarcand@apache.org
 // Licensed under the Apache License, Version 2.0
 //
-// ABOUTME: Tests for navigation tool MCP handlers: launch_app, open_url, press_home, press_app_switcher, spotlight.
+// ABOUTME: Tests for navigation tool MCP handlers: launch_app, open_url, press_home, press_app_switcher, press_back, spotlight.
 // ABOUTME: Verifies parameter validation, permission policy enforcement, and success/failure paths.
 
+import CoreGraphics
 import XCTest
 import HelperLib
 @testable import mirroir_mcp
@@ -13,6 +14,7 @@ final class NavigationToolHandlerTests: XCTestCase {
     private var server: MCPServer!
     private var bridge: StubBridge!
     private var input: StubInput!
+    private var describer: StubDescriber!
 
     override func setUp() {
         super.setUp()
@@ -20,7 +22,10 @@ final class NavigationToolHandlerTests: XCTestCase {
         server = MCPServer(policy: policy)
         bridge = StubBridge()
         input = StubInput()
-        let registry = makeTestRegistry(bridge: bridge, input: input)
+        describer = StubDescriber()
+        let registry = makeTestRegistry(
+            bridge: bridge, input: input, describer: describer
+        )
         MirroirMCP.registerNavigationTools(
             server: server, registry: registry, policy: policy
         )
@@ -187,5 +192,53 @@ final class NavigationToolHandlerTests: XCTestCase {
         bridge.menuActionResult = false
         let response = callTool("spotlight")
         XCTAssertTrue(isError(response))
+    }
+
+    // MARK: - press_back
+
+    private func describeResult(with elements: [TapPoint]) -> ScreenDescriber.DescribeResult {
+        ScreenDescriber.DescribeResult(
+            elements: elements, screenshotBase64: "base64data"
+        )
+    }
+
+    func testPressBackTapsOCRChevron() {
+        // Chevron at the top of a 410x898 window — must fall inside top 15% zone (y <= 134).
+        let chevron = TapPoint(text: "<", tapX: 24, tapY: 60, confidence: 0.95)
+        describer.describeResult = describeResult(with: [chevron])
+
+        let response = callTool("press_back")
+        XCTAssertFalse(isError(response))
+        XCTAssertEqual(input.tapCalls.count, 1)
+        XCTAssertEqual(input.tapCalls.first?.x, 24)
+        XCTAssertEqual(input.tapCalls.first?.y, 60)
+    }
+
+    func testPressBackFallsBackToCanonicalPosition() {
+        // No chevron in OCR — handler should tap the iPhone Mirroring portrait
+        // fallback (xFraction=0.112, yFraction=0.135 for 410x898).
+        describer.describeResult = describeResult(with: [])
+
+        let response = callTool("press_back")
+        XCTAssertFalse(isError(response))
+        XCTAssertEqual(input.tapCalls.count, 1)
+        let call = input.tapCalls.first!
+        XCTAssertEqual(call.x, 410.0 * 0.112, accuracy: 0.001)
+        XCTAssertEqual(call.y, 898.0 * 0.135, accuracy: 0.001)
+    }
+
+    func testPressBackProcessNotRunning() {
+        bridge.processRunning = false
+        let response = callTool("press_back")
+        XCTAssertTrue(isError(response))
+        XCTAssertEqual(input.tapCalls.count, 0)
+    }
+
+    func testPressBackOCRFailure() {
+        describer.describeResult = nil
+        let response = callTool("press_back")
+        XCTAssertTrue(isError(response))
+        XCTAssertEqual(input.tapCalls.count, 0)
+        XCTAssertTrue(extractText(response)?.contains("Failed to capture") ?? false)
     }
 }
