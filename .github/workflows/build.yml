@@ -91,11 +91,11 @@ jobs:
           echo "=== CGWindowList via osascript ==="
           osascript -e 'tell application "System Events" to get every process whose visible is true' 2>&1 | head -10 || true
           echo ""
+          echo "=== FakeMirroring NSLog output (last 10 min, full) ==="
+          log show --last 10m --predicate 'process == "FakeMirroring"' --info --debug 2>&1 | grep -E "fakemirror-tap|FakeMirroring\]" | tail -200 || true
+          echo ""
           echo "=== WindowServer log (last 5 min) ==="
           log show --last 5m --predicate 'subsystem == "com.apple.WindowServer"' --info 2>&1 | tail -100 || true
-          echo ""
-          echo "=== System log lines mentioning FakeMirroring (last 5 min) ==="
-          log show --last 5m --predicate 'eventMessage CONTAINS "FakeMirroring"' --info 2>&1 | tail -50 || true
           echo ""
           echo "=== HIToolbox / event tap log (last 5 min) ==="
           log show --last 5m --predicate 'subsystem == "com.apple.HIToolbox" OR subsystem == "com.apple.coreservices"' --info 2>&1 | tail -50 || true

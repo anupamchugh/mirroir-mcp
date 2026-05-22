@@ -186,11 +186,24 @@ final class FakeScreenView: NSView {
             mouseDownHandled = false
             isDragging = false
             lastMouseUpTime = CFAbsoluteTimeGetCurrent()
+            NSLog("[fakemirror-tap] mouseUp swallowed by mouseDownHandled flag")
             return
         }
 
         let clickPoint = convert(event.locationInWindow, from: nil)
         let holdDuration = CFAbsoluteTimeGetCurrent() - mouseDownTime
+        NSLog(
+            "[fakemirror-tap] mouseUp locationInWindow=(%.1f,%.1f) " +
+            "clickPoint=(%.1f,%.1f) bounds=(%.0fx%.0f) holdDuration=%.3fs " +
+            "isKey=%@ activeScene=%@",
+            event.locationInWindow.x, event.locationInWindow.y,
+            clickPoint.x, clickPoint.y,
+            bounds.width, bounds.height,
+            holdDuration,
+            (window?.isKeyWindow ?? false) ? "yes" : "no",
+            appPack?.spec.appName ?? (spotlightOverlay != nil ? "spotlight" :
+                appSwitcherOverlay != nil ? "switcher" : "<home>")
+        )
 
         // If actual mouseDragged events were received, finalize slider and exit.
         // Only use isDragging (set by mouseDragged handler), NOT distance heuristics.

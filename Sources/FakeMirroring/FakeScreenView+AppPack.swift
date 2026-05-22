@@ -37,6 +37,17 @@ extension FakeScreenView {
     /// view re-rendered); false to fall through to legacy hit testing.
     func handleAppPackTap(pack: AppPack, at contentPoint: CGPoint, screenPoint: CGPoint) -> Bool {
         let data = currentSceneData()
+        NSLog(
+            "[fakemirror-tap] handleAppPackTap pack=%@ screen=%@ " +
+            "contentPoint=(%.1f,%.1f) screenPoint=(%.1f,%.1f) scrollOffset=%.0f " +
+            "rows=%d buttons=%d backChevron=%@ obstacle=%@",
+            pack.spec.appName, pack.currentScreen?.id ?? "<none>",
+            contentPoint.x, contentPoint.y, screenPoint.x, screenPoint.y,
+            scrollOffset,
+            data.rows.count, data.buttons.count,
+            data.hasBackChevron ? "yes" : "no",
+            pack.activeObstacle?.id ?? "none"
+        )
 
         // Active obstacle: any button tap dismisses it.
         if pack.activeObstacle != nil {
@@ -72,8 +83,16 @@ extension FakeScreenView {
                                  width: bounds.width, height: rowHeight)
             let adjusted = CGRect(x: rowRect.minX, y: rowRect.minY - scrollOffset,
                                   width: rowRect.width, height: rowRect.height)
-            if adjusted.contains(screenPoint) {
-                if let dest = destinationFor(label: label, in: pack) {
+            let hit = adjusted.contains(screenPoint)
+            NSLog(
+                "[fakemirror-tap] row '%@' rect=(%.0f,%.0f,%.0fx%.0f) hit=%@",
+                label, adjusted.minX, adjusted.minY, adjusted.width, adjusted.height,
+                hit ? "YES" : "no"
+            )
+            if hit {
+                let dest = destinationFor(label: label, in: pack)
+                NSLog("[fakemirror-tap] row '%@' destination=%@", label, dest ?? "<nil>")
+                if let dest {
                     pack.navigate(to: dest)
                     needsDisplay = true
                 }
@@ -91,14 +110,23 @@ extension FakeScreenView {
             let adjusted = CGRect(x: rect.minX, y: rect.minY - scrollOffset,
                                   width: rect.width, height: rect.height)
                 .insetBy(dx: buttonHitInset, dy: buttonHitInset)
-            if adjusted.contains(screenPoint) {
-                if let dest = destinationFor(label: label, in: pack) {
+            let hit = adjusted.contains(screenPoint)
+            NSLog(
+                "[fakemirror-tap] button '%@' rect=(%.0f,%.0f,%.0fx%.0f) hit=%@",
+                label, adjusted.minX, adjusted.minY, adjusted.width, adjusted.height,
+                hit ? "YES" : "no"
+            )
+            if hit {
+                let dest = destinationFor(label: label, in: pack)
+                NSLog("[fakemirror-tap] button '%@' destination=%@", label, dest ?? "<nil>")
+                if let dest {
                     pack.navigate(to: dest)
                     needsDisplay = true
                 }
                 return true
             }
         }
+        NSLog("[fakemirror-tap] no hit — falling through to legacy handlers")
         return false
     }
 
