@@ -48,6 +48,21 @@ jobs:
           swift build -c release --product FakeMirroring
           ./scripts/package-fake-app.sh
 
+      - name: Quit Setup Assistant (macos-15 runner intercepts taps)
+        run: |
+          # Some macos-15 runners boot with Setup Assistant in the foreground
+          # (Welcome / first-run dialog). It sits above other windows and
+          # intercepts mouse events posted via cghidEventTap, so FakeMirroring
+          # receives no mouseUp and integration taps silently no-op. Quit it
+          # before launching FakeMirroring. `|| true` keeps the step idempotent
+          # on runners where Setup Assistant isn't present.
+          osascript -e 'tell application "Setup Assistant" to quit' 2>/dev/null || true
+          pkill -f "Setup Assistant" 2>/dev/null || true
+          sleep 1
+          ps -ef | grep -i "setup assistant" | grep -v grep \
+            && echo "Setup Assistant still running" \
+            || echo "Setup Assistant absent or quit"
+
       - name: Launch FakeMirroring
         run: |
           open .build/release/FakeMirroring.app
