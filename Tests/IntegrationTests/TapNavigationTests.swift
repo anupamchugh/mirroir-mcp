@@ -87,12 +87,19 @@ final class TapNavigationTests: XCTestCase {
             description: "Settings → General"
         )
 
-        // Find and tap the "<" back chevron rendered by drawBackChevron().
+        // Find and tap the back chevron rendered by drawBackChevron().
+        // FakeMirroring renders "< Back" (iOS-realistic). Vision OCR may
+        // segment it as "<", "Back", "< Back", or just "Back" — accept any
+        // of those anchors. The handleAppPackTap back-zone covers the full
+        // top-left strip (0..80, 0..200) so any of these tap centers lands
+        // in the navigate-back hitbox.
         let beforeScreen = try describeOrFail()
-        guard let chevron = beforeScreen.elements.first(where: {
-            $0.text == "<" || $0.text == "‹" || $0.text == "〈" || $0.text == "く"
+        let chevronAnchors: Set<String> = ["<", "‹", "〈", "く"]
+        guard let chevron = beforeScreen.elements.first(where: { element in
+            chevronAnchors.contains(element.text)
+                || element.text.lowercased().contains("back")
         }) else {
-            throw IntegrationTestError.elementNotFound("< (back chevron)")
+            throw IntegrationTestError.elementNotFound("< Back (back chevron)")
         }
 
         let tapError = input.tap(x: chevron.tapX, y: chevron.tapY)

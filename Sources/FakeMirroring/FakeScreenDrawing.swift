@@ -21,11 +21,14 @@ extension FakeScreenView {
     }
 
     func drawBackChevron() {
+        // Render "< Back" (iOS-realistic) so OCR can anchor on the "Back"
+        // word. Vision OCR is unreliable on a lone "<" punctuation glyph,
+        // mirroring the production fallback documented in TargetProfile.swift.
         let font = NSFont.systemFont(ofSize: 22, weight: .medium)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font, .foregroundColor: NSColor.systemBlue,
         ]
-        ("<" as NSString).draw(at: NSPoint(x: 20, y: 80), withAttributes: attrs)
+        ("< Back" as NSString).draw(at: NSPoint(x: 20, y: 80), withAttributes: attrs)
     }
 
     func drawHeader(_ headerText: String) {
