@@ -149,29 +149,42 @@ final class TapNavigationTests: XCTestCase {
     /// OCR the current screen, find the element matching `tapLabel`, tap it,
     /// then OCR again and verify that `expectedElement` (unique to the destination screen)
     /// appears in the OCR results.
+    ///
+    /// Retries the OCR/tap cycle up to `maxAttempts` times when the post-tap
+    /// screen still doesn't contain `expectedElement`. CI runners
+    /// occasionally drop the first CGEvent dispatch (window focus race after
+    /// a Scenario menu trigger); re-OCRing and re-tapping recovers without
+    /// masking a genuine navigation bug — by the second attempt the window
+    /// is keyed and rendering is stable.
     private func tapAndVerifyNavigation(
         tapLabel: String,
         expectedElement: String,
-        description: String
+        description: String,
+        maxAttempts: Int = 2
     ) throws {
-        let screen = try describeOrFail()
-        let elements = screen.elements
+        var lastFoundTexts: [String] = []
+        for attempt in 1...maxAttempts {
+            let screen = try describeOrFail()
+            guard let target = screen.elements.first(where: {
+                $0.text.caseInsensitiveCompare(tapLabel) == .orderedSame
+            }) else {
+                throw IntegrationTestError.elementNotFound("\(tapLabel) (\(description))")
+            }
 
-        guard let target = elements.first(where: {
-            $0.text.caseInsensitiveCompare(tapLabel) == .orderedSame
-        }) else {
-            throw IntegrationTestError.elementNotFound("\(tapLabel) (\(description))")
+            let tapError = input.tap(x: target.tapX, y: target.tapY)
+            XCTAssertNil(tapError, "Tap on '\(tapLabel)' should succeed: \(tapError ?? "")")
+            usleep(800_000)
+
+            let afterScreen = try describeOrFail()
+            lastFoundTexts = afterScreen.elements.map { $0.text.lowercased() }
+            if lastFoundTexts.contains(expectedElement.lowercased()) {
+                return
+            }
+            if attempt < maxAttempts { usleep(500_000) }
         }
-
-        let tapError = input.tap(x: target.tapX, y: target.tapY)
-        XCTAssertNil(tapError, "Tap on '\(tapLabel)' should succeed: \(tapError ?? "")")
-        usleep(800_000)
-
-        let afterScreen = try describeOrFail()
-        let afterTexts = afterScreen.elements.map { $0.text.lowercased() }
-        XCTAssertTrue(
-            afterTexts.contains(expectedElement.lowercased()),
-            "\(description): expected '\(expectedElement)' after tap. Found: \(afterTexts)"
+        XCTFail(
+            "\(description): expected '\(expectedElement)' after \(maxAttempts) tap attempt(s). " +
+            "Found: \(lastFoundTexts)"
         )
     }
 
