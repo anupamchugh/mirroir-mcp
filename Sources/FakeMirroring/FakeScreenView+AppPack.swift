@@ -81,10 +81,16 @@ extension FakeScreenView {
             }
         }
 
-        // Button tap on a regular screen — also navigate via leadsTo
+        // Button tap on a regular screen — also navigate via leadsTo.
+        // Inflate the hit rect by `buttonHitInset` so OCR tap-center drift
+        // (a few points either way on CI runners) still lands inside.
+        // Rows already get a row-wide hit zone; this gives buttons the same
+        // tolerance, matching the generous back-chevron zone above.
+        let buttonHitInset: CGFloat = -16
         for (label, rect) in data.buttons {
             let adjusted = CGRect(x: rect.minX, y: rect.minY - scrollOffset,
                                   width: rect.width, height: rect.height)
+                .insetBy(dx: buttonHitInset, dy: buttonHitInset)
             if adjusted.contains(screenPoint) {
                 if let dest = destinationFor(label: label, in: pack) {
                     pack.navigate(to: dest)
