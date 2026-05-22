@@ -27,6 +27,12 @@ jobs:
           sudo mkdir -p /usr/local/lib
           sudo ln -sf "$(brew --prefix embacle-ffi)/lib/libembacle.a" /usr/local/lib/
 
+      - name: Clone skills repo
+        run: |
+          git clone https://github.com/jfarcand/mirroir-skills.git ../mirroir-skills
+          mkdir -p .mirroir-mcp
+          ln -s "$(cd ../mirroir-skills && pwd)" .mirroir-mcp/skills
+
       - name: Run mirroir.sh
         run: ./mirroir.sh
 
@@ -95,6 +101,12 @@ jobs:
           brew install embacle-ffi
           sudo mkdir -p /usr/local/lib
           sudo ln -sf "$(brew --prefix embacle-ffi)/lib/libembacle.a" /usr/local/lib/
+
+      - name: Clone skills repo
+        run: |
+          git clone https://github.com/jfarcand/mirroir-skills.git ../mirroir-skills
+          mkdir -p .mirroir-mcp
+          ln -s "$(cd ../mirroir-skills && pwd)" .mirroir-mcp/skills
 
       - name: Create source tarball
         run: |
@@ -209,6 +221,12 @@ jobs:
           brew install embacle-ffi
           sudo mkdir -p /usr/local/lib
           sudo ln -sf "$(brew --prefix embacle-ffi)/lib/libembacle.a" /usr/local/lib/
+
+      - name: Clone skills repo
+        run: |
+          git clone https://github.com/jfarcand/mirroir-skills.git ../mirroir-skills
+          mkdir -p .mirroir-mcp
+          ln -s "$(cd ../mirroir-skills && pwd)" .mirroir-mcp/skills
 
       - name: Build release binaries
         run: swift build -c release
