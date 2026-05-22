@@ -53,11 +53,52 @@ jobs:
           open .build/release/FakeMirroring.app
           sleep 3
 
+      - name: Pre-test runner diagnostics
+        run: |
+          echo "=== sw_vers ==="
+          sw_vers
+          echo ""
+          echo "=== uname ==="
+          uname -a
+          echo ""
+          echo "=== ioreg display ==="
+          ioreg -l -w 0 -d 0 -p IODisplayWrangler 2>/dev/null | head -40 || true
+          echo ""
+          echo "=== displayplacer / displays ==="
+          system_profiler SPDisplaysDataType 2>/dev/null | head -40 || true
+          echo ""
+          echo "=== ps for FakeMirroring ==="
+          ps -ef | grep -i FakeMirroring | grep -v grep || echo "FakeMirroring not yet running"
+          echo ""
+          echo "=== pmset -g ==="
+          pmset -g 2>/dev/null | head -20 || true
+          echo ""
+          echo "=== AX/Input Monitoring TCC (read-only check) ==="
+          ls -l /Library/Application\ Support/com.apple.TCC/TCC.db 2>/dev/null || echo "no system TCC.db readable"
+
       - name: Integration tests (FakeMirroring)
         env:
           MIRROIR_BUNDLE_ID: com.jfarcand.FakeMirroring
           MIRROIR_PROCESS_NAME: FakeMirroring
         run: swift test --filter IntegrationTests
+
+      - name: Post-test runner diagnostics (on failure)
+        if: failure()
+        run: |
+          echo "=== ps for FakeMirroring after tests ==="
+          ps -ef | grep -i FakeMirroring | grep -v grep || echo "FakeMirroring not running"
+          echo ""
+          echo "=== CGWindowList via osascript ==="
+          osascript -e 'tell application "System Events" to get every process whose visible is true' 2>&1 | head -10 || true
+          echo ""
+          echo "=== WindowServer log (last 5 min) ==="
+          log show --last 5m --predicate 'subsystem == "com.apple.WindowServer"' --info 2>&1 | tail -100 || true
+          echo ""
+          echo "=== System log lines mentioning FakeMirroring (last 5 min) ==="
+          log show --last 5m --predicate 'eventMessage CONTAINS "FakeMirroring"' --info 2>&1 | tail -50 || true
+          echo ""
+          echo "=== HIToolbox / event tap log (last 5 min) ==="
+          log show --last 5m --predicate 'subsystem == "com.apple.HIToolbox" OR subsystem == "com.apple.coreservices"' --info 2>&1 | tail -50 || true
 
       - name: Test runner (FakeMirroring)
         env:

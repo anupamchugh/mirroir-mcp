@@ -163,6 +163,7 @@ final class TapNavigationTests: XCTestCase {
         maxAttempts: Int = 2
     ) throws {
         var lastFoundTexts: [String] = []
+        var diagnosticTrail: [String] = []
         for attempt in 1...maxAttempts {
             let screen = try describeOrFail()
             guard let target = screen.elements.first(where: {
@@ -171,12 +172,25 @@ final class TapNavigationTests: XCTestCase {
                 throw IntegrationTestError.elementNotFound("\(tapLabel) (\(description))")
             }
 
+            let windowInfo = bridge.getWindowInfo()
+            let windowDesc = windowInfo.map {
+                "window=(\(Int($0.position.x)),\(Int($0.position.y))) " +
+                "size=\(Int($0.size.width))x\(Int($0.size.height))"
+            } ?? "windowInfo=nil"
+
             let tapError = input.tap(x: target.tapX, y: target.tapY)
             XCTAssertNil(tapError, "Tap on '\(tapLabel)' should succeed: \(tapError ?? "")")
             usleep(800_000)
 
             let afterScreen = try describeOrFail()
             lastFoundTexts = afterScreen.elements.map { $0.text.lowercased() }
+            diagnosticTrail.append(
+                "attempt=\(attempt) target='\(tapLabel)' " +
+                "ocr=(\(String(format: "%.1f", target.tapX)),\(String(format: "%.1f", target.tapY))) " +
+                "confidence=\(String(format: "%.2f", target.confidence)) " +
+                "\(windowDesc) tapError=\(tapError ?? "nil") " +
+                "after=\(lastFoundTexts.count) elements"
+            )
             if lastFoundTexts.contains(expectedElement.lowercased()) {
                 return
             }
@@ -184,7 +198,8 @@ final class TapNavigationTests: XCTestCase {
         }
         XCTFail(
             "\(description): expected '\(expectedElement)' after \(maxAttempts) tap attempt(s). " +
-            "Found: \(lastFoundTexts)"
+            "Found: \(lastFoundTexts)\n" +
+            "Diagnostics:\n  " + diagnosticTrail.joined(separator: "\n  ")
         )
     }
 
