@@ -59,6 +59,15 @@ extension BFSExplorer {
             graph.clearScreenPlan(for: currentFP)
             return .continue(description: "Scrolled, found \(novelCount) new elements")
         }
+        // skipCalibration uses per-viewport exploration: calibration already merged
+        // the full-page element set into the graph node, so a runtime scroll between
+        // viewports legitimately reports novelCount=0. Still surface the scroll as a
+        // step result so the caller advances the viewport instead of declaring the
+        // screen finished prematurely.
+        if skipCalibration {
+            graph.clearScreenPlan(for: currentFP)
+            return .continue(description: "Scrolled to next viewport (no novel elements)")
+        }
         return nil
     }
 
