@@ -64,6 +64,42 @@ enum WindowListHelper {
         return nil
     }
 
+    /// Return the live CGWindowList bounds + ID for the largest matching window
+    /// owned by `pid` whose size approximately matches the AX-reported size. AX
+    /// position can lag the WindowServer; CGWindowList reflects the compositor's
+    /// authoritative position. When multiple windows match the size, pick the
+    /// one with the largest area (the main content window, not menubar slivers).
+    /// Returns nil if no PID-owned window with a matching size is found.
+    static func liveBoundsForPID(
+        _ pid: pid_t,
+        axPosition: CGPoint,
+        axSize: CGSize,
+        in windowList: WindowSnapshot
+    ) -> (position: CGPoint, size: CGSize, windowID: CGWindowID)? {
+        var best: (position: CGPoint, size: CGSize, windowID: CGWindowID, area: CGFloat)?
+        for entry in windowList {
+            guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID == pid,
+                  let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+                  let windowID = entry[kCGWindowNumber as String] as? CGWindowID
+            else { continue }
+
+            let rect = parseBounds(bounds)
+            // Filter to windows whose size approximately matches the AX size —
+            // rejects tiny accessory windows (menu extras, status indicators).
+            guard abs(rect.width - axSize.width) < 4,
+                  abs(rect.height - axSize.height) < 4 else { continue }
+
+            let area = rect.width * rect.height
+            if best == nil || area > best!.area {
+                best = (position: rect.origin, size: rect.size, windowID: windowID, area: area)
+            }
+        }
+        _ = axPosition
+        guard let chosen = best else { return nil }
+        return (chosen.position, chosen.size, chosen.windowID)
+    }
+
     /// Extract position and size from an AXUIElement window reference.
     static func geometryFromAXElement(_ window: AXUIElement) -> (position: CGPoint, size: CGSize)? {
         var posValue: CFTypeRef?

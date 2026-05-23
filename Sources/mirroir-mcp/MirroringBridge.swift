@@ -73,20 +73,28 @@ final class MirroringBridge: Sendable {
     }
 
     /// Get the window info including CGWindowID for screenshots.
+    ///
+    /// Prefers CGWindowList bounds over AX position because AX can lag the
+    /// WindowServer's actual window position after scenario / focus switches
+    /// (observed empirically on macos-15 CI runners — AX returned a stale
+    /// position while CGEvent posting landed at the window's true location).
+    /// CGWindowList reflects the compositor's authoritative bounds.
     func getWindowInfo() -> WindowInfo? {
         guard let (window, pid) = getMainWindow() else { return nil }
 
         guard let geom = WindowListHelper.geometryFromAXElement(window) else { return nil }
 
         let windowList = WindowListHelper.captureWindowList()
-        let windowID = WindowListHelper.findWindowID(
-            pid: pid, position: geom.position, size: geom.size, in: windowList
+        let liveBounds = WindowListHelper.liveBoundsForPID(
+            pid, axPosition: geom.position, axSize: geom.size, in: windowList
         )
 
+        let resolved = liveBounds ?? (position: geom.position, size: geom.size, windowID: 0 as CGWindowID)
+
         return WindowInfo(
-            windowID: windowID ?? 0,
-            position: geom.position,
-            size: geom.size,
+            windowID: resolved.windowID,
+            position: resolved.position,
+            size: resolved.size,
             pid: pid
         )
     }
