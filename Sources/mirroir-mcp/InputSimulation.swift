@@ -108,12 +108,18 @@ final class InputSimulation: Sendable {
     /// Validates that the target is connected, the window exists, and coordinates are in bounds.
     /// All pointing operations use CGEvent — no external dependencies.
     /// Returns `(info, focusChanged, nil)` on success, or `(nil, false, errorMessage)` on failure.
+    ///
+    /// When `ensureTargetFrontmost` triggers an activation, the window can be
+    /// repositioned by the WindowServer (Space switch, headless-runner reflow,
+    /// stage-manager move). Stale `info.position` then sends CGEvent clicks to
+    /// the old location, missing the actual window. The post-activate re-query
+    /// ensures every pointing operation uses the window's *current* coordinates.
     private func preparePointingInput(tag: String, x: Double, y: Double) -> (info: WindowInfo?, focusChanged: Bool, error: String?) {
         if let stateError = checkMirroringConnected(tag: tag) {
             return (nil, false, stateError)
         }
 
-        guard let info = bridge.getWindowInfo() else {
+        guard var info = bridge.getWindowInfo() else {
             DebugLog.log(tag, "ERROR: window not found")
             return (nil, false, "Target '\(bridge.targetName)' window not found")
         }
@@ -124,6 +130,17 @@ final class InputSimulation: Sendable {
 
         logWindowState(tag, info)
         let changed = ensureTargetFrontmost()
+        if changed {
+            usleep(EnvConfig.spaceSwitchSettleUs)
+            if let freshInfo = bridge.getWindowInfo() {
+                if freshInfo.position != info.position || freshInfo.size != info.size {
+                    DebugLog.log(tag,
+                        "post-activate re-query: was=(\(Int(info.position.x)),\(Int(info.position.y))) " +
+                        "now=(\(Int(freshInfo.position.x)),\(Int(freshInfo.position.y)))")
+                }
+                info = freshInfo
+            }
+        }
         return (info, changed, nil)
     }
 
