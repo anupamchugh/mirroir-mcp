@@ -1,3 +1,5 @@
+# Triggered on changes to Sources/mirroir-mcp, Sources/HelperLib, MCPServerTests,
+# MCPProtocolTests, ensure-mcp-compliance.sh, or this file. Manual via workflow_dispatch.
 name: MCP Compliance
 
 on:
