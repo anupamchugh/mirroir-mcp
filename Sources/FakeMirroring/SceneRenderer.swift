@@ -18,7 +18,11 @@ enum SceneRenderer {
     private static let textPadding: CGFloat = 20
     private static let textStartY: CGFloat = 250
     private static let textSpacing: CGFloat = 36
-    private static let buttonY: CGFloat = 700
+    // 500pt keeps buttons inside the visible region on small CI displays
+    // (macos-15 headless runners clip the lower window — clicks past screen
+    // y~600 land at wrong positions). Login and obstacle dialogs both rely
+    // on this constant, so a single low value covers both.
+    private static let buttonY: CGFloat = 500
     private static let buttonWidth: CGFloat = 160
     private static let buttonHeight: CGFloat = 36
     private static let buttonGap: CGFloat = 20
