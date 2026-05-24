@@ -11,5 +11,4 @@ steps:
   - assert_visible: "Accessibility"
   - assert_not_visible: "NonExistent"
   - assert_not_visible: "Instagram"
-  - home
   - screenshot: "smoke_test"
