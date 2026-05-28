@@ -149,16 +149,19 @@ enum CGEventInput {
         let steps = max(5, durationMs / 16) // ~60fps step rate
         let stepDelay = UInt32(durationMs) * 1000 / UInt32(steps)
 
-        // Scroll wheel: positive wheel1 = scroll up (content moves down),
-        // negative wheel1 = scroll down (content moves up).
-        // A swipe from top to bottom (positive deltaY) means the user
-        // dragged downward, which in scroll-wheel terms is scroll-up (positive).
+        // Both axes use direct-manipulation sign: the content follows the
+        // finger, matching real iOS touch and keeping horizontal and vertical
+        // consistent. A swipe whose finger moves down (positive deltaY) drags
+        // content down; a swipe whose finger moves left (negative deltaX) drags
+        // content left, revealing content further right. iPhone Mirroring maps
+        // positive wheel1 to content-down and positive wheel2 to content-right,
+        // so each wheel delta carries the same sign as its pixel delta.
         // Scale factor: continuous trackpad gestures with phase flags have
         // smaller per-pixel displacement than legacy scroll wheel events.
         // Amplify to match physical trackpad scroll distance.
         let scrollAmplification = 3.0
         let totalWheel1 = Int32(deltaY * scrollAmplification)
-        let totalWheel2 = Int32(-deltaX * scrollAmplification)
+        let totalWheel2 = Int32(deltaX * scrollAmplification)
 
         // Trackpad-style continuous scroll requires gesture phase flags and
         // precise point-delta fields. iPhone Mirroring ignores bare scroll
