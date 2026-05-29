@@ -8,7 +8,7 @@ Pass `--debug` to enable verbose logging:
 npx -y mirroir-mcp --debug
 ```
 
-Logs are written to both stderr and `~/.mirroir-mcp/debug.log` (truncated on each startup). Logged events include permission checks, tap coordinates, focus state, and window geometry.
+Logs are written to both stderr and `~/.mirroir-mcp/debug.log`. Logged events include permission checks, tap coordinates, focus state, and window geometry. With `--debug` active, the existing log is preserved across restarts (a `--- restart <time> ---` separator is appended) so prior-session diagnostics survive. Without `--debug`, the log is truncated in place on each startup.
 
 Even without `--debug`, the server always writes startup information to `~/.mirroir-mcp/debug.log` — permission mode, denied tools, and hidden tools. Check this file first when debugging permission issues.
 
@@ -23,6 +23,8 @@ Combine with permission bypass for full-access debugging:
 ```bash
 npx -y mirroir-mcp --debug --yolo
 ```
+
+`--yolo` is an alias for `--dangerously-skip-permissions`; either flag bypasses the permission policy.
 
 ## Modifier State Corruption (Alternating Caps)
 
@@ -62,11 +64,11 @@ The script uses `fswatch` to monitor `Sources/` for `.swift` file changes, rebui
 
 **YOLO model not loading** — Check `~/.mirroir-mcp/debug.log` for startup messages. The server logs whether it found a model (`OCR: auto-detected YOLO model, using Vision + YOLO`) or not (`OCR: no YOLO model found`). Verify the `.mlmodelc` directory exists in `~/.mirroir-mcp/models/` and is a valid compiled CoreML model. You can also set `yoloModelPath` in `settings.json` to point to a specific path.
 
-**AI vision mode not activating** — Check `~/.mirroir-mcp/debug.log` for `EmbacleFFI: available` at startup. If it says `EmbacleFFI: not linked`, verify that `embacle-ffi` is installed (`brew list embacle-ffi`) and rebuild from source (`swift build -c release`). The FFI library must be linked at compile time. If linked but vision requests fail, check that your CLI agent (GitHub Copilot or Claude Code) is authenticated. Set `"screenDescriberMode": "ocr"` in `settings.json` to force local OCR as a fallback.
+**AI vision mode not activating** — Check `~/.mirroir-mcp/debug.log` for the agent-transport startup line. `Agent transport: embedded (Rust FFI)` means the embedded embacle runtime is linked and active; `Agent transport: HTTP` means the embacle FFI is not linked into this binary. If it falls back to HTTP, verify that `embacle-ffi` is installed (`brew list embacle-ffi`) and rebuild from source (`swift build -c release`) — the FFI library (`libembacle.a`) must be linked at compile time. If linked but vision requests fail, check that your CLI agent (GitHub Copilot or Claude Code) is authenticated. Set `"screenDescriberMode": "ocr"` in `settings.json` to force local OCR as a fallback. (`agentTransport: "http"` in `settings.json` also forces HTTP even when the FFI is linked.)
 
 **Compiled skill fails but you don't know why** — Use `--agent` to diagnose failures. Deterministic OCR analysis runs first (free, no API key), then optionally sends context to an AI for richer root-cause analysis:
 ```bash
 mirroir test --agent skill.yaml                    # deterministic OCR diagnosis (YAML or SKILL.md)
 mirroir test --agent claude-sonnet-4-6 skill.yaml  # deterministic + AI diagnosis
 ```
-See the [Agent Diagnosis](../README.md#agent-diagnosis) section for all supported providers and custom agent configuration.
+See the [AI-Assisted Diagnosis](../README.md#ai-assisted-diagnosis) section for all supported providers and custom agent configuration.

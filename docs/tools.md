@@ -1,6 +1,6 @@
 # Tools Reference
 
-All 32 tools exposed by the MCP server. Mutating tools require [permission](permissions.md) to appear in `tools/list`.
+All 33 tools exposed by the MCP server. Mutating tools require [permission](permissions.md) to appear in `tools/list`.
 
 ## Tool List
 
@@ -22,6 +22,7 @@ All 32 tools exposed by the MCP server. Mutating tools require [permission](perm
 | `open_url` | `url` | Open URL in Safari |
 | `press_home` | — | Go to home screen |
 | `press_app_switcher` | — | Open app switcher |
+| `press_back` | — | Navigate back by OCR-tapping the `<` back chevron, with a canonical-position fallback |
 | `spotlight` | — | Open Spotlight search |
 | `scroll_to` | `label`, `direction`?, `max_scrolls`? | Scroll until a text element becomes visible via OCR |
 | `reset_app` | `name` | Force-quit an app via the App Switcher |
@@ -32,7 +33,7 @@ All 32 tools exposed by the MCP server. Mutating tools require [permission](perm
 | `check_health` | — | Comprehensive setup diagnostic: mirroring, accessibility, screen capture |
 | `list_skills` | — | List available skills (SKILL.md and YAML) from project-local and global config dirs |
 | `get_skill` | `name` | Read a skill file (SKILL.md or YAML) with ${VAR} env substitution. Appends compilation status. |
-| `generate_skill` | `action`, `app_name`?, `goal`?, `goals`?, `arrived_via`?, `action_type`?, `max_depth`?, `max_screens`?, `max_time`?, `strategy`?, `skip_calibration`? | Generate a SKILL.md by exploring an app. Session-based: start → capture → finish. `action: "explore"` runs autonomous BFS exploration. |
+| `generate_skill` | `action`, `app_name`?, `goal`?, `goals`?, `arrived_via`?, `action_type`?, `max_depth`?, `max_screens`?, `max_time`?, `strategy`?, `fresh`?, `seed`?, `skip_calibration`?, `explorer`? | Generate a SKILL.md by exploring an app. Session-based: start → capture → finish. `action: "explore"` runs autonomous exploration — `explorer: "bfs"` (default) or `"dfs"`. `fresh: false` resumes a persisted navigation graph; `seed` makes exploration ordering deterministic. |
 | `list_targets` | — | List all configured automation targets with status and window size |
 | `switch_target` | `target` | Switch active target for subsequent tool calls |
 | `calibrate_component` | `component_path`, `target`?, `scroll`? | Test a component definition (.md) against the current screen and return a diagnostic report |

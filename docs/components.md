@@ -54,13 +54,20 @@ A standard iOS table row with a right chevron indicating drill-down navigation.
 ## Interaction
 - clickable: true
 - click_target: first_navigation_element
-- click_result: navigates
+- click_result: pushes_screen
 - back_after_click: true
+- label_rule: first_text
+
+## Exploration
+- explorable: true
+- role: depth_navigation
+- priority: normal
 
 ## Grouping
 - absorbs_same_row: true
 - absorbs_below_within_pt: 0
 - absorb_condition: any
+- split_mode: none
 ```
 
 ### Match Rules
@@ -72,10 +79,11 @@ Match rules determine whether a row of OCR elements belongs to this component. H
 | `zone` | hard | Screen region: `nav_bar` (top 12%), `content` (middle 76%), `tab_bar` (bottom 12%) |
 | `min_elements` / `max_elements` | hard | OCR element count range for the row |
 | `max_row_height_pt` | hard | Maximum vertical span in points |
-| `row_has_chevron` | hard+soft | Require or forbid chevron characters (>, ›, ❯). `true` = +3.0 score, `false` = +1.0 |
+| `row_has_chevron` | hard+soft | Legacy chevron constraint. Require or forbid chevron characters (>, ›, ❯). `true` = +3.0 score, `false` = +1.0. Prefer `chevron_mode` for new definitions |
+| `chevron_mode` | hard+soft | Chevron constraint mode, takes precedence over `row_has_chevron`. `required` (hard, +3.0), `forbidden` (hard, +1.0), or `preferred` (soft — chevron present = +3.0, absent = no penalty) |
 | `has_numeric_value` | hard+soft | Require or forbid numeric values |
-| `has_long_text` | hard+soft | Require or forbid long text (>40 characters) |
-| `has_dismiss_button` | hard+soft | Require or forbid dismiss-style buttons (Done, Cancel, Close) |
+| `has_long_text` | hard+soft | Require or forbid long text (>50 characters) |
+| `has_dismiss_button` | hard+soft | Require or forbid dismiss-style close glyphs (`x`, `X`, `✕`, `×`, `✖`, `xmark`) |
 | `min_confidence` | hard | Minimum average OCR confidence for the row (0.0-1.0). Rejects ghost text from OCR artifacts |
 | `exclude_numeric_only` | modifier | When `true`, bare digit elements (e.g., "23") are excluded from the element count |
 | `text_pattern` | hard | Regex that at least one element's text must match |
@@ -85,9 +93,20 @@ Match rules determine whether a row of OCR elements belongs to this component. H
 | Field | Values | Description |
 |-------|--------|-------------|
 | `clickable` | `true` / `false` | Whether the explorer should tap this component |
-| `click_target` | `first_navigation_element`, `first_dismiss_button`, `centered_element`, `none` | Which element in the group to tap |
-| `click_result` | `navigates`, `toggles`, `dismisses`, `none` | What happens after tapping |
+| `click_target` | `first_navigation_element`, `first_text`, `first_dismiss_button`, `centered_element`, `none` | Which element in the group to tap |
+| `click_result` | `pushes_screen`, `switches_context`, `opens_modal`, `mutates_in_place`, `dismisses`, `none` | What happens after tapping. `pushes_screen`/`opens_modal` require a backtrack; `switches_context` (tab/sidebar) does not. Legacy `navigates`/`toggles` are accepted and mapped to `pushes_screen`/`mutates_in_place` |
 | `back_after_click` | `true` / `false` | Whether to tap the back button after visiting the new screen |
+| `label_rule` | `tap_target`, `first_text`, `longest_text` | How the human-readable step label is derived from the component's elements — prevents OCR artifacts ("icon", ">") leaking into skill steps |
+
+### Exploration
+
+The optional `## Exploration` section controls how the BFS explorer treats a matched component. It is kept separate from `## Interaction` to avoid conflating UI truth ("is this tappable?") with exploration policy ("should the explorer visit it?"). When the section is absent, `explorable` defaults to the interaction's `clickable`, `role` defaults to `depth_navigation`, and `priority` defaults to `normal`.
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `explorable` | `true` / `false` | Whether the explorer should visit this component |
+| `role` | `breadth_navigation`, `depth_navigation`, `action`, `info` | Frontier ordering: breadth (tabs, sidebar) before depth (rows, cards) before action (search, buttons); `info` is never explored |
+| `priority` | `high`, `normal`, `low` | Priority within the role category |
 
 ### Grouping (Multi-Row Components)
 
@@ -97,7 +116,8 @@ Some UI elements span multiple OCR rows — a Health app summary card might have
 |-------|-------------|
 | `absorbs_same_row` | Merge all elements in the same Y-band into one component |
 | `absorbs_below_within_pt` | Absorb rows within this many points below. Set to 0 for single-row components |
-| `absorb_condition` | `any` absorbs all rows; `info_or_decoration_only` only absorbs rows whose elements are all info or decoration role |
+| `absorb_condition` | `any` absorbs all rows; `info_or_decoration_only` only absorbs rows whose elements are all info or decoration role; `no_chevron_rows_only` absorbs only rows without a chevron (keeps adjacent navigable rows separate) |
+| `split_mode` | `none` (default) emits one component per matched row; `per_item` emits one component per non-decoration element — used for multi-target containers like tab bars |
 
 ### File Locations
 
@@ -147,17 +167,19 @@ Before component matching, each OCR element gets a role:
 
 | Role | Examples |
 |------|----------|
-| `decoration` | Status bar text, chevrons (>), short fragments (<3 chars) |
-| `info` | "On"/"Off", numeric values, secondary labels |
+| `decoration` | Chevrons (>, <), punctuation-only, or very short text |
+| `info` | "On"/"Off", numeric values, value/state indicators ("3.2 GB", "Connected") |
 | `navigation` | Elements in rows with chevrons, tappable labels |
 | `stateChange` | Elements in rows with toggles |
+| `destructive` | Elements matching destructive/dangerous skip patterns (delete, sign out) |
 
 ### Scoring
 
 Definitions compete for each row. Hard constraints eliminate mismatches; soft signals accumulate specificity:
 
-- Chevron required (`true`): +3.0
-- Chevron forbidden (`false`): +1.0
+- Chevron required (`true` / `chevron_mode: required`): +3.0
+- Chevron forbidden (`false` / `chevron_mode: forbidden`): +1.0
+- Chevron preferred (`chevron_mode: preferred`): +3.0 when present, no penalty when absent
 - Numeric/long text/dismiss signals: +2.0 to +3.0 each
 - Tight element range (max-min < 3): +1.0
 - NavBar or TabBar zone: +2.0
@@ -209,7 +231,7 @@ Two match rules are typically set through calibration rather than written by han
 
 ### Built-in Element Patterns
 
-The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 34 iOS element patterns in `patterns/elements/`, covering Apple's Human Interface Guidelines:
+The [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo includes 33 iOS element patterns in `patterns/elements/`, covering Apple's Human Interface Guidelines (the `patterns/elements/` directory also holds two non-pattern data files, `text-cleanup.md` and `vision-indicators.md`, which the loader skips):
 
 **Navigation & Structure**
 
@@ -438,6 +460,14 @@ A `text-cleanup.md` file in the element patterns directory defines OCR noise to 
 - **`## Exclude Labels`** — exact text values excluded from landmarks and step labels (`icon`, etc.)
 
 This is data-driven — add entries to the file rather than hardcoding in Swift.
+
+## Vision Indicators
+
+When `screenDescriberMode: "vision"` is active, the vision model describes icons in words ("Entraînements chevron") instead of emitting glyphs. A `vision-indicators.md` file in the element patterns directory maps those indicator suffixes back to OCR-compatible characters so the same component detection pipeline works on vision output:
+
+- **`## Indicators`** — `suffix: character` lines. When a vision element's text ends with a known suffix, the suffix is stripped and a separate element with the mapped character is appended (e.g. `Entraînements chevron` → `Entraînements` + `>`).
+
+Default mappings cover `chevron`/`disclosure`/`arrow_right` → `>`, `dismiss`/`close_button`/`xmark` → `×`, and `back` → `<`. Like text cleanup, this is data-driven — the loader skips this file when matching components and only reads its `## Indicators` table.
 
 ## Writing Custom Patterns
 

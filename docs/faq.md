@@ -6,7 +6,7 @@ This tool gives an AI agent full control of your iPhone screen — it can tap an
 
 To limit exposure:
 
-- **Fail-closed permissions**: Without a config file, only read-only tools (screenshot, describe_screen, status) are exposed. Mutating tools are hidden entirely.
+- **Fail-closed permissions**: Without a config file, only the 11 read-only tools (such as `screenshot`, `describe_screen`, `status`) are exposed. Mutating tools are hidden entirely.
 - **`blockedApps`**: Add sensitive apps to the deny list in `~/.mirroir-mcp/permissions.json`:
   ```json
   { "allow": ["tap", "swipe", "type_text"], "blockedApps": ["Wallet", "Banking"] }
@@ -41,7 +41,7 @@ Text is typed character-by-character through CGEvent key events instead.
 
 ## How does input reach the iPhone?
 
-All input (touch and keyboard) is delivered via the macOS CGEvent API. CGEvent posts go through the system HID path, which iPhone Mirroring's Continuity compositor picks up and forwards to the physical iPhone over AirPlay + Bluetooth LE. No kernel extensions, no root privileges, no helper daemons.
+All input (touch and keyboard) is delivered via the macOS CGEvent API. CGEvent posts go through the system HID path, which the iPhone Mirroring app (`com.apple.ScreenContinuity`) picks up and relays to the connected iPhone. No kernel extensions, no root privileges, no helper daemons.
 
 ## Does it work with non-US keyboard layouts?
 
@@ -113,11 +113,11 @@ Use local OCR when speed matters and text is sufficient. Use AI vision when the 
 
 ## How do I kill (force-quit) an app?
 
-Use the `reset_app` tool with the app name. It launches the app via Spotlight (so the just-launched app sits centered in the App Switcher), opens the App Switcher, drags the centered card upward to dismiss it, and returns to the home screen.
+Use the `reset_app` tool with the app name. It launches the app via Spotlight, captures the foreground screen as an OCR fingerprint, opens the App Switcher, locates the matching card by intersecting that fingerprint with the App Switcher's OCR text, drags that card upward to dismiss it, and returns to the home screen. The flow fails **closed**: if launch fails, OCR is empty, or the card cannot be located, it returns an error instead of dragging at a hard-coded position.
 
 If you want to do it manually with the lower-level tools, the gesture must be **`drag`**, not **`swipe`**:
 
 - `swipe` posts a CGEvent **scroll wheel** event — iOS reads that as scrolling, not as a touch swipe.
-- `drag` posts a CGEvent **mouse-down → move → up** sequence — iPhone Mirroring relays it as a touch gesture, which `UIScreenEdgePanGestureRecognizer` (the App Switcher card-dismiss recognizer) accepts.
+- `drag` posts a CGEvent **mouse-down → move → up** sequence — iPhone Mirroring relays it as a touch gesture, which the App Switcher's card-dismiss interaction accepts. (Note: the one gesture iPhone Mirroring cannot relay is the iOS edge-swipe-back — neither `swipe` nor `drag` triggers `UIScreenEdgePanGestureRecognizer`, which is why back navigation relies on OCR-tapping the `<` chevron instead.)
 
 Manual sequence: `press_app_switcher` → wait briefly → `drag(fromX: <half_width>, fromY: <half_height>, toX: <half_width>, toY: 0, durationMs: 200)` → `press_home`.

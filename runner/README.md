@@ -40,9 +40,14 @@ cargo build --release --target=x86_64-unknown-linux-musl
 
 ```bash
 mirroir-run --sample atmosphere/samples/spring-boot-ai-chat \
-            --scenarios must_pass \
+            --scenarios must-pass \
             --report /tmp/run.json
 ```
+
+`--scenarios` accepts `must-pass` (default), `nice-to-pass`, or `all`. The
+`--report` path defaults to `mirroir-run-report.json`. An optional `--skills`
+flag (env `MIRROIR_SKILLS`) points at the mirroir-skills checkout used for
+scenarios, oracles, and drift defaults.
 
 The CLI surface above parses and validates today. The actual replay path lands
 in subsequent commits: parser → process target → http target → first runnable

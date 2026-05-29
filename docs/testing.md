@@ -18,10 +18,18 @@ CI runners have no iPhones. Testing the install-and-run path without hardware re
 | `AXUIElement` main window | 410×898pt mirrored display | 410×898pt NSWindow |
 | `CGWindowListCopyWindowInfo` (window ID) | Continuity compositor window | Standard NSWindow |
 | `screencapture -l <windowID>` | iPhone screen pixels | Dark background with text labels |
-| Vision OCR (`VNRecognizeTextRequest`) | Real iOS UI text | Rendered labels: "Settings", "Safari", "9:41", etc. |
+| Vision OCR (`VNRecognizeTextRequest`) | Real iOS UI text | Rendered labels from the loaded `## Simulator` scene, e.g. "Settings", "General", "9:41" |
 | AX menu bar traversal | View > Home Screen, Spotlight, App Switcher | View > Home Screen, Spotlight, App Switcher |
 
 FakeMirroring is **not a mock** — it is a real macOS app exercising real macOS APIs. The MCP server calls the same `AXUIElement`, `CGWindowList`, `screencapture`, and Vision APIs it would use against iPhone Mirroring. The only difference is which process those APIs target.
+
+### APP.md-Driven Multi-App Simulator
+
+FakeMirroring is not a static screen renderer. At startup it scans the configured skills directory for `APP.md` files and loads every one that declares a `## Simulator` block into an `AppPack`. The `AppRegistry` holds all loaded packs, tracks which is foreground, and brokers Spotlight launches and force-quits — so the same binary can simulate Settings, Safari, or any other app whose APP.md ships a simulator spec. App Switcher renders launched-but-not-quit packs as cards.
+
+A `## Simulator` block in APP.md is parsed by `SimulatorSpecParser` into a typed `SimulatorSpec` — a declarative scene graph of every screen, element, and obstacle the simulator reproduces. Tapping an element follows the scene's navigation edges, so DFS/BFS exploration tests drive a realistic multi-screen app, not a fixed home grid. There is no legacy hardcoded scenario layer (no `Scenarios.swift`, `FakeScenario` enum, or `NavigationMap`); behaviour comes entirely from APP.md.
+
+**Ref:** `Sources/FakeMirroring/AppRegistry.swift`, `Sources/FakeMirroring/AppPack.swift`, `Sources/HelperLib/SimulatorSpec.swift`, `Sources/HelperLib/SimulatorSpecParser.swift`
 
 ### How Targeting Works
 
@@ -38,20 +46,19 @@ When unset, they default to `com.apple.ScreenContinuity` and `iPhone Mirroring` 
 
 ### What FakeMirroring Renders
 
+What appears on screen depends on which `## Simulator` scene is foreground. The integration tests reset to the Settings app's cold-launch scene (see `IntegrationTestHelper.resetScenario(..., to: "Settings")`), whose root screen renders a settings-style list:
+
 ```
 ┌──────────────────────────────────────────┐
 │                 FakeMirroring            │  ← title bar
 ├──────────────────────────────────────────┤
-│                                          │
 │                  9:41                    │  ← status bar text
 │                                          │
+│   Settings                               │  ← screen title
 │                                          │
-│  Settings    Safari    Photos    Camera  │  ← app icon labels (y=300)
-│                                          │
-│                                          │
-│  Messages    Mail      Clock     Maps   │  ← app icon labels (y=500)
-│                                          │
-│                                          │
+│   General                              > │  ← row label + chevron
+│   Display & Brightness                 > │
+│   Privacy & Security                   > │
 │                                          │
 │              (dark background)           │
 │                                          │
@@ -59,9 +66,9 @@ When unset, they default to `com.apple.ScreenContinuity` and `iPhone Mirroring` 
   410pt × 898pt, white text on dark bg
 ```
 
-Labels are rendered at 18pt medium weight on a dark background — high enough contrast for reliable Vision OCR detection across macOS versions.
+Element labels, rows, and navigation come from the loaded `SimulatorSpec`; the renderer draws whatever scene the foreground `AppPack` declares. Labels are rendered at 18pt medium weight on a dark background — high enough contrast for reliable Vision OCR detection across macOS versions.
 
-**Ref:** `Sources/FakeMirroring/main.swift`
+**Ref:** `Sources/FakeMirroring/main.swift`, `Sources/FakeMirroring/SceneRenderer.swift`
 
 ### App Bundle Packaging
 
@@ -93,7 +100,19 @@ Unit tests use **protocol-based dependency injection** — protocols (`WindowBri
 
 ### Integration Tests (`swift test --filter IntegrationTests`)
 
-Require FakeMirroring to be running. Exercise real macOS APIs:
+All require FakeMirroring to be running. The filter runs the entire `IntegrationTests` target — roughly 60 test functions across 14+ files, not just the FakeMirroring smoke tests. They exercise real macOS APIs end-to-end against the simulator:
+
+| Suite | What It Validates |
+|-------|-------------------|
+| `FakeMirroringIntegrationTests` | Process discovery, AX window access, screencapture, OCR, orientation, menu traversal (smoke tests, below) |
+| `BFSExplorationIntegrationTests`, `DFSExplorerIntegrationTests` | BFS and DFS exploration drive the simulator's scene graph and backtrack correctly |
+| `GenerateSkillIntegrationTests` | `generate_skill` explore loop produces SKILL.md output against a loaded AppPack |
+| `ComponentE2ETests` | Component classification and calibration against rendered scenes |
+| `CompiledSkillIntegrationTests`, `CompiledTapFlowTests`, `ReplayReliabilityTests` | Compiled-skill replay, confidence-gated tap, and reliability |
+| `TapNavigationTests`, `CoordinateStabilityTests`, `InputPipelineTests` | Tap navigation, coordinate stability, and the input pipeline |
+| `AssertIntegrityTests`, `ExplorationCoverageTests`, `DiagnosisValueTests` | Assertion semantics, exploration coverage, and diagnosis values |
+
+The FakeMirroring smoke tests within `FakeMirroringIntegrationTests` are the foundation the rest build on:
 
 | Test | What It Validates |
 |------|-------------------|
@@ -103,10 +122,12 @@ Require FakeMirroring to be running. Exercise real macOS APIs:
 | `testGetOrientation` | Window dimensions → `.portrait` orientation detection |
 | `testTriggerMenuAction` | AX menu bar traversal: View > Spotlight succeeds |
 | `testCaptureBase64` | `screencapture -l <windowID>` produces valid PNG (base64 prefix check) |
-| `testDescribeScreen` | Vision OCR detects "settings", "safari", "9:41" in the captured screenshot |
+| `testDescribeScreen` | Vision OCR detects "settings", "general", "9:41" in the captured screenshot |
 | `testOCRCoordinateAccuracy` | All OCR tap coordinates fall within window bounds with ≥0.5 confidence |
 
-**Ref:** `Tests/IntegrationTests/FakeMirroringIntegrationTests.swift`
+Because the broader suites drive the APP.md scene graph, CI must clone `mirroir-skills` as a sibling and symlink it into `.mirroir-mcp/skills` so FakeMirroring loads the Settings (and other) AppPacks — without it every integration test lands on an empty screen.
+
+**Ref:** `Tests/IntegrationTests/FakeMirroringIntegrationTests.swift`, `Tests/IntegrationTests/`
 
 ### End-to-End MCP Tests (CI workflow)
 
@@ -128,15 +149,16 @@ These tests prove the installed binary (from any install path) can discover Fake
 
 ## CI Workflow: `installers.yml`
 
-Three parallel jobs test each installation method end-to-end on `macos-15` runners:
+Three parallel jobs test each installation method end-to-end on `macos-15` runners. Each job installs the embacle FFI dependency (`brew install embacle-ffi`, symlink `libembacle.a`), clones `mirroir-skills` as a sibling and symlinks it into `.mirroir-mcp/skills` so FakeMirroring has AppPacks to load, then runs the full `IntegrationTests` target. After building, the workflow verifies the FFI is statically linked (`nm .build/release/mirroir-mcp | grep embacle_init`).
 
 ### Job 1: `source-install` — mirroir.sh
 
 Tests the one-line installer script that users run after cloning.
 
 ```
-./mirroir.sh → build FakeMirroring → launch →
-  swift test --filter IntegrationTests (8 tests) →
+install embacle-ffi → clone+symlink mirroir-skills →
+  ./mirroir.sh → verify embacle FFI linked → build FakeMirroring → launch →
+  swift test --filter IntegrationTests →
   MCP initialize → MCP tools/call screenshot
 ```
 
@@ -145,10 +167,11 @@ Tests the one-line installer script that users run after cloning.
 Tests the Homebrew installation path using a local tap.
 
 ```
-git archive tarball → brew tap-new local/test →
-  generate formula with file:// URL → brew install local/test/mirroir-mcp →
+install embacle-ffi → clone+symlink mirroir-skills →
+  git archive tarball → brew tap-new local/test →
+  generate formula with file:// URL (depends_on embacle-ffi) → brew install local/test/mirroir-mcp →
   build FakeMirroring → launch →
-  swift test --filter IntegrationTests (8 tests) →
+  swift test --filter IntegrationTests →
   MCP initialize → MCP tools/call screenshot
 ```
 
@@ -157,9 +180,10 @@ git archive tarball → brew tap-new local/test →
 Tests the npm/npx installation path.
 
 ```
-swift build → stage binary into npm/bin/ →
+install embacle-ffi → clone+symlink mirroir-skills →
+  swift build → stage binary into npm/bin/ →
   build FakeMirroring → launch →
-  swift test --filter IntegrationTests (8 tests) →
+  swift test --filter IntegrationTests →
   MCP initialize → MCP tools/call screenshot
 ```
 
@@ -168,6 +192,7 @@ swift build → stage binary into npm/bin/ →
 | Checkpoint | source-install | homebrew-install | npx-install |
 |-----------|---------------|-----------------|-------------|
 | Binary builds from source | `mirroir.sh` | Homebrew formula `swift build` | Direct `swift build` |
+| embacle FFI statically linked | `nm … grep embacle_init` | `nm … grep embacle_init` | `nm … grep embacle_init` |
 | Binary location correct | `.build/release/` | `/opt/homebrew/bin/` | `npm/bin/` |
 | Process discovery works | Integration test | Integration test | Integration test |
 | AX window access works | Integration test | Integration test | Integration test |
@@ -190,6 +215,15 @@ MIRROIR_BUNDLE_ID=com.jfarcand.FakeMirroring \
 MIRROIR_PROCESS_NAME=FakeMirroring \
 swift test --filter IntegrationTests
 ```
+
+FakeMirroring needs APP.md AppPacks to render scenes. It auto-discovers a `mirroir-skills/patterns/apps` directory sibling to the workspace, or you can point it explicitly:
+
+```bash
+MIRROIR_SKILLS_PATH=/path/to/mirroir-skills/patterns/apps \
+open .build/release/FakeMirroring.app
+```
+
+Without a skills directory the simulator loads no packs and integration tests land on an empty screen.
 
 ## Design Rationale
 

@@ -14,7 +14,7 @@ Thank you for your interest in contributing! By submitting a contribution, you a
 ```
 mirroir-mcp/
 ├── Sources/
-│   ├── mirroir-mcp/           # MCP server + CLI subcommands (~111 files)
+│   ├── mirroir-mcp/           # MCP server + CLI subcommands (~155 files)
 │   │   │
 │   │   │── # ── Core Infrastructure ──
 │   │   ├── mirroir_mcp.swift        # Entry point, CLI dispatch, target registry init
@@ -26,7 +26,7 @@ mirroir-mcp/
 │   │   │── # ── Tool Registration (one file per category, thin handlers) ──
 │   │   ├── ScreenTools.swift        # screenshot, describe_screen, recording
 │   │   ├── InputTools.swift         # tap, swipe, drag, type_text, press_key, long_press, double_tap, shake
-│   │   ├── NavigationTools.swift    # launch_app, open_url, press_home, press_app_switcher, spotlight
+│   │   ├── NavigationTools.swift    # launch_app, open_url, press_home, press_app_switcher, press_back, spotlight
 │   │   ├── ScrollToTools.swift      # scroll_to
 │   │   ├── AppManagementTools.swift # reset_app
 │   │   ├── MeasureTools.swift       # measure
@@ -161,25 +161,33 @@ mirroir-mcp/
 │   │   ├── GridOverlay.swift        # Coordinate grid overlay on screenshots
 │   │   ├── ContentBoundsDetector.swift # Detect iPhone content bounds
 │   │   ├── NavigationHintDetector.swift # Detect back chevrons and nav patterns
-│   │   └── ProcessExtensions.swift  # Timeout-aware Process.wait
+│   │   ├── ProcessExtensions.swift  # Timeout-aware Process.wait
+│   │   ├── AppMdSectioning.swift    # Split APP.md into named sections
+│   │   ├── SimulatorSpec.swift      # Simulator app model (screens, elements, obstacles)
+│   │   └── SimulatorSpecParser.swift # Parse an APP.md `## Simulator` block into a SimulatorSpec
 │   │
 │   └── FakeMirroring/               # Test double app for CI (not a mock — a real macOS app)
-│       ├── main.swift               # Entry point, window setup, input handling
+│       ├── main.swift               # Entry point + window/input bootstrap
+│       ├── AppDelegate.swift        # Window setup, AppPack loading, menu bar (Scenario menu)
+│       ├── AppPack.swift            # One loaded simulator app (a parsed SimulatorSpec)
+│       ├── AppRegistry.swift        # Registry of loaded AppPacks; brokers Spotlight launches
+│       ├── SceneRenderer.swift      # SimulatorScreen + obstacle → ScenarioData render payload
+│       ├── ScenarioData.swift       # Render-time data shape consumed by the draw pipeline
 │       ├── FakeScreenDrawing.swift  # Renders OCR-detectable text labels, cards, tab bars
-│       ├── Scenarios.swift          # Screen scenarios + NavigationMap for tap routing
-│       └── HealthScenarios.swift    # Health-related scenarios (extracted for file size)
+│       ├── FakeScreenView+AppPack.swift # View glue that draws the active AppPack scene
+│       ├── AppSwitcherOverlay.swift # App Switcher card overlay
+│       └── SpotlightOverlay.swift   # Spotlight search overlay
 │
 ├── Tests/
-│   ├── MCPServerTests/        # XCTest — server routing, tool handlers, exploration (71 files)
-│   ├── HelperLibTests/        # Swift Testing — shared library utilities (9 files)
-│   ├── TestRunnerTests/       # Swift Testing — test runner, recorder, skill parser (13 files)
-│   ├── IntegrationTests/      # XCTest — FakeMirroring integration, requires running app (13 files)
+│   ├── MCPServerTests/        # XCTest — server routing, tool handlers, exploration (89 files)
+│   ├── HelperLibTests/        # Swift Testing — shared library utilities (11 files)
+│   ├── TestRunnerTests/       # Swift Testing — test runner, recorder, skill parser (14 files)
+│   ├── IntegrationTests/      # XCTest — FakeMirroring integration, requires running app (15 files)
 │   └── Fixtures/              # Test skill files (YAML + SKILL.md)
 │
 ├── docs/                      # User-facing documentation
 ├── scripts/                   # Build/install/CI scripts
-├── git-hooks/                 # Git hooks (commit-msg: conventional commit enforcement)
-└── .githooks/                 # Git hooks (pre-commit: license, ABOUTME, build checks)
+└── .githooks/                 # Active git hooks (core.hooksPath): commit-msg + pre-commit
 ```
 
 ## Build & Test
@@ -217,9 +225,9 @@ swift test --skip IntegrationTests
 
 ### Git Hooks
 
-The project uses two hook directories:
+The active hooks live in **`.githooks/`** (that's where `core.hooksPath` points):
 
-**`git-hooks/commit-msg`** — enforces commit message format:
+**`.githooks/commit-msg`** — enforces commit message format:
 1. **Conventional commit format** — messages must match `type(scope): description` (e.g., `feat: add check_health tool`, `fix(bfs): handle scroll edge case`)
 2. **Max 2 lines** — subject + optional blank line + body
 3. **No AI assistant references** — rejects `Co-Authored-By: Claude` lines
@@ -233,7 +241,7 @@ The project uses two hook directories:
 
 Set up the hooks:
 ```bash
-git config core.hooksPath git-hooks
+git config core.hooksPath .githooks
 ```
 
 ## How to Add a New MCP Tool
@@ -318,10 +326,10 @@ Add tests in `Tests/MCPServerTests/` for tool handler logic and `Tests/HelperLib
 
 | Target | Framework | Files | Purpose |
 |--------|-----------|-------|---------|
-| `MCPServerTests` | XCTest | 71 | Server routing, tool handlers, exploration algorithms, component detection, graph algorithms |
-| `HelperLibTests` | Swift Testing | 9 | Key mapping, permissions, protocol types, OCR coordinates, layout translation |
-| `TestRunnerTests` | Swift Testing | 13 | Skill parsing, step execution, element matching, event classification, reporters |
-| `IntegrationTests` | XCTest | 13 | Full workflows with FakeMirroring app (requires running FakeMirroring, skipped in CI unit tests) |
+| `MCPServerTests` | XCTest | 89 | Server routing, tool handlers, exploration algorithms, component detection, graph algorithms |
+| `HelperLibTests` | Swift Testing | 11 | Key mapping, permissions, protocol types, OCR coordinates, layout translation |
+| `TestRunnerTests` | Swift Testing | 14 | Skill parsing, step execution, element matching, event classification, reporters |
+| `IntegrationTests` | XCTest | 15 | Full workflows with FakeMirroring app (requires running FakeMirroring, skipped in CI unit tests) |
 
 ### Dependency Injection
 
@@ -405,32 +413,50 @@ open .build/release/FakeMirroring.app
 
 The app window is 410x898pt (matching iPhone screen dimensions) and floats above other windows so CGEvent taps always land on it.
 
-### Scenarios
+### Simulated Apps (AppPacks)
 
-FakeMirroring renders different screen layouts via **scenarios**. Switch scenarios from the Scenario menu or programmatically via `bridge.triggerMenuAction(menu: "Scenario", item: "Settings")`.
+FakeMirroring is an **APP.md-driven multi-app simulator**. Each simulated app is an
+`AppPack` — a `SimulatorSpec` parsed from the `## Simulator …` sections of an APP.md
+file in the configured skills directory. At startup `AppRegistry.loadPacks(from:)`
+loads every APP.md that declares a simulator block; apps without one are skipped
+(guidance-only). `AppRegistry` brokers Spotlight launches and force-quits between
+packs, and the App Switcher overlay renders one card per running pack.
 
-Key scenarios:
+A `SimulatorSpec` declares an `appName`, `spotlightName`, `icon`, a `rootScreenID`,
+a map of `SimulatorScreen`s, and a list of `SimulatorObstacle`s (modal dialogs). Each
+screen has a `title`, optional `backTo` target, `hasTabBar` flag, and a list of
+`SimulatorElement`s: `row`, `button`, `text`, `tab`, `textField`, `slider`, and
+`placeholder` (media rectangle). Tappable elements (`row`/`button`/`tab`) carry a
+`leadsTo` screen ID, which is how the BFS explorer discovers new screens during
+integration tests.
 
-| Scenario | Content | Navigation |
-|----------|---------|------------|
-| `settings` | 6 rows with chevrons (General, Privacy, etc.) | General → detail, Notifications → notifications |
-| `detailWithBack` | Detail screen with `<` back button | `<` → back to source |
-| `healthSummary` | 3 viewports: cards + setup rows + articles | Activity/Workouts/Steps → detailWithBack |
-| `scrollableList` | 20 rows at 60pt spacing (scroll testing) | General → detail |
-| `feed` | Instagram-style posts with images | Tab bar navigation |
+The legacy menu bar **Scenario menu** is still built — one item per loaded pack — so
+existing integration tests can switch the foreground app via
+`bridge.triggerMenuAction(menu: "Scenario", item: "Settings")`. The menu is a
+test-only convenience; it maps each menu title to a registered pack. FakeMirroring
+defaults to the Settings pack on launch so tests start on a known screen.
 
-### Adding a Scenario
+### Adding a Simulated App or Screen
 
-1. Add a case to `FakeScenario` enum in `Scenarios.swift`
-2. Add a `static func myScenario() -> ScenarioData` in the appropriate file (extract to a new file if `Scenarios.swift` is near 500 lines)
-3. Wire it in `ScenarioContent.data(for:)` switch
-4. Add tap routing in `NavigationMap.destination(from:tapping:)` — return the target scenario for each tappable label, or `nil` for dead taps
+There is no `FakeScenario` enum to edit — apps live entirely in APP.md:
 
-`ScenarioData` supports: `rows` (label + chevron), `cards` (Health-style summary cards), `plainTexts`, `buttons`, `placeholders`, and `hasTabBar` / `hasBackChevron`.
+1. Add (or edit) an APP.md in the skills repo (`patterns/apps/<app>/APP.md`) with a
+   `## Simulator` section declaring `root_screen` and metadata, plus one
+   `## Simulator Screen <id>` section per screen and `## Simulator Obstacle <id>` per
+   modal. Bullet syntax is `- key: value` for properties and `- element <kind>: …`
+   for screen elements (see `SimulatorSpecParser` unit tests for examples).
+2. Reload — FakeMirroring picks up the new pack on next launch via
+   `AppRegistry.loadPacks(from:)`. No Swift changes are needed for a new app or screen.
+3. `SceneRenderer` turns the active `SimulatorScreen` (plus any triggered obstacle)
+   into the `ScenarioData` the existing AppKit draw pipeline already knows how to render.
 
-### NavigationMap
+### Navigation & Obstacles
 
-`NavigationMap.destination(from: scenario, tapping: label)` defines what happens when a label is tapped. Returns the target `FakeScenario` for navigation, or `nil` if the tap is a dead tap (no screen change). The BFS explorer uses this to discover new screens during integration tests.
+Tap routing is data-driven: tapping a `row`/`button`/`tab` navigates to its `leadsTo`
+screen, and the back chevron returns to the screen's `backTo` target. A tap on a
+non-interactive element (`text`, `placeholder`) is a dead tap (no screen change).
+Obstacles are modal dialogs declared per app; their trigger (`SimulatorObstacleTrigger`)
+decides when they interrupt exploration. Obstacle rules are honored by the BFS explorer.
 
 ### Input Handling
 
@@ -532,7 +558,7 @@ Every Swift file must have:
 ### Concurrency
 
 - All shared types must conform to `Sendable`
-- Use `OSAllocatedUnfairLock` for protecting mutable state
+- Use a lock for protecting mutable shared state — `OSAllocatedUnfairLock` (e.g. `MCPServer`, `TargetRegistry`, `ScreenRecorder`) or `NSLock` (e.g. `ExplorationSession` and other session accumulators)
 - Protocol abstractions enable safe dependency injection
 
 ### Logging
@@ -551,5 +577,5 @@ Every Swift file must have:
   - Types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `ci`, `style`, `perf`, `build`, `revert`
   - Scope is optional. Multi-scope with `|` is permitted: `fix(module|context): description`
   - Examples: `feat: add check_health tool`, `fix(skills): handle YAML block scalars`
-  - The `commit-msg` hook in `git-hooks/` enforces this — non-conventional commits are rejected
+  - The `commit-msg` hook in `.githooks/` enforces this — non-conventional commits are rejected
 - No AI assistant references in commit messages

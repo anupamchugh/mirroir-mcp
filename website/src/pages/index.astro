@@ -475,9 +475,9 @@ if (!skillsAvailable) {
       <div class="pipeline-step">
         <div class="pipeline-icon">1</div>
         <h3>Generate</h3>
-        <p>A single <code>generate_skill(action: "explore")</code> call runs autonomous BFS traversal &mdash; exploring each screen breadth-first, replaying paths to reach child screens, building a navigation graph of the entire app.</p>
+        <p>A single <code>generate_skill(action: "explore")</code> call runs autonomous BFS traversal &mdash; exploring each screen breadth-first, replaying paths to reach child screens, building a navigation graph of the entire app. Pass <code>explorer: "dfs"</code> for depth-first instead.</p>
         <div class="pipeline-cmd">
-          <code>generate_skill(action: "explore", app: "Settings")</code>
+          <code>generate_skill(action: "explore", app_name: "Settings")</code>
         </div>
       </div>
       <div class="pipeline-step">
@@ -668,7 +668,7 @@ if (!skillsAvailable) {
   <!-- What it does -->
   <section>
     <h2>What Does mirroir-mcp Do?</h2>
-    <p>32 tools exposed as an MCP server.</p>
+    <p>33 tools exposed as an MCP server.</p>
 
     <div class="tool-grid">
       <div class="tool-category cat-touch">
@@ -710,6 +710,7 @@ if (!skillsAvailable) {
           <li><code>open_url</code> <span>Open URL in Safari</span></li>
           <li><code>press_home</code> <span>Return to home screen</span></li>
           <li><code>press_app_switcher</code> <span>Show recent apps</span></li>
+          <li><code>press_back</code> <span>Go back via the OCR-detected back chevron</span></li>
           <li><code>spotlight</code> <span>Open Spotlight search</span></li>
           <li><code>scroll_to</code> <span>Scroll until element visible via OCR</span></li>
           <li><code>reset_app</code> <span>Force-quit app via App Switcher</span></li>
@@ -790,7 +791,7 @@ if (!skillsAvailable) {
       </details>
       <details>
         <summary>Why does my cursor jump when the AI is working?</summary>
-        <p>macOS routes HID input to the frontmost app. The server must activate iPhone Mirroring before each input. Put it in a separate macOS Space to keep your workspace undisturbed.</p>
+        <p>macOS routes HID input to the frontmost app. The server must activate iPhone Mirroring before each input. Put it in a separate macOS Space to keep your workspace undisturbed, or pass <code>cursor_mode: "preserving"</code> to restore the cursor to its original position after each action.</p>
       </details>
       <details>
         <summary>Does it work with any iPhone app?</summary>

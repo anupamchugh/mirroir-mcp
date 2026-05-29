@@ -18,7 +18,18 @@ The MCP server runs as a regular user process. All input is delivered via the ma
 
 ## Fail-Closed Permissions
 
-Without a config file, only read-only tools (`screenshot`, `describe_screen`, `status`, etc.) are exposed. Mutating tools (`tap`, `type_text`, `launch_app`, etc.) are hidden from the MCP client entirely — it never sees them unless you explicitly allow them in `~/.mirroir-mcp/permissions.json`.
+Without a config file, only the 11 read-only tools (`screenshot`, `describe_screen`, `status`, etc.) are exposed. Mutating tools (`tap`, `type_text`, `launch_app`, etc.) are hidden from the MCP client entirely — it never sees them unless you explicitly allow them.
+
+The config loader checks the project-local directory (`<cwd>/.mirroir-mcp/permissions.json`) first, then the global directory (`~/.mirroir-mcp/permissions.json`). A malformed config is treated as no config: the loader logs a warning and falls back to read-only defaults, so a broken file fails closed rather than opening everything up.
+
+Beyond the `allow` whitelist, the config supports:
+
+- **`deny`** — a blocklist that overrides `allow`. A tool in `deny` is refused even if it is also in `allow` (or if `allow` is `"*"`).
+- **`perApp`** — per-app `allow`/`deny` rules layered on top of the global lists during exploration of a named app. A per-app `deny` blocks a globally-allowed tool; a per-app `allow` opens a globally-denied tool. Useful for locking down typing or URL opening while exploring a sensitive app.
+- **`skipElements`** — element text patterns the explorer must never tap (case-insensitive containment).
+- **`blockedApps`** — app names `launch_app` refuses to open.
+
+To bypass all permission gating, pass `--dangerously-skip-permissions` (alias `--yolo`) on the command line; this exposes every tool regardless of config.
 
 See [Permissions](permissions.md) for configuration details and examples.
 

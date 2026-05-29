@@ -1,6 +1,6 @@
 # mirroir-mcp
 
-> Give your AI eyes, hands, and a real iPhone. An MCP server that lets any AI agent see the screen, tap what it needs, and figure the rest out — through macOS iPhone Mirroring. Also supports macOS windows. 32 tools, any MCP client (Claude Code, Cursor, Copilot, ChatGPT, Codex). Written in Swift. Apache 2.0 licensed.
+> Give your AI eyes, hands, and a real iPhone. An MCP server that lets any AI agent see the screen, tap what it needs, and figure the rest out — through macOS iPhone Mirroring. Also supports macOS windows. 33 tools, any MCP client (Claude Code, Cursor, Copilot, ChatGPT, Codex). Written in Swift. Apache 2.0 licensed.
 
 ## Overview
 
@@ -42,7 +42,7 @@ brew tap jfarcand/tap && brew install mirroir-mcp
 
 Requires macOS 15+ and an iPhone connected via iPhone Mirroring.
 
-## MCP Tools (32 total)
+## MCP Tools (33 total)
 
 ### Screen (read-only, always available)
 - `screenshot` — Capture iPhone screen as base64 PNG
@@ -64,6 +64,7 @@ Requires macOS 15+ and an iPhone connected via iPhone Mirroring.
 - `open_url` — Open URL in Safari
 - `press_home` — Go to home screen
 - `press_app_switcher` — Open app switcher
+- `press_back` — Navigate back by OCR-tapping the "<" back chevron, with a canonical-position fallback (the only reliable back navigation through iPhone Mirroring)
 - `spotlight` — Open Spotlight search
 - `scroll_to` — Scroll until a text element becomes visible via OCR. Detects scroll exhaustion.
 - `reset_app` — Force-quit app via App Switcher (swipes through carousel to find off-screen cards)
@@ -128,7 +129,9 @@ Structured step definitions for the deterministic test runner.
 Skills are placed in `~/.mirroir-mcp/skills/` (global) or `<cwd>/.mirroir-mcp/skills/` (project-local).
 
 ### Compiled Skills
-Compile once to capture coordinates and timing. Replay with zero OCR for fast, deterministic execution.
+Compile once to capture coordinates and timing. Replay with zero OCR for fast, deterministic execution. The compiled format is version 2. Compiled steps use one of five action kinds: `tap`, `sleep`, `assertion`, `scroll_sequence`, and `passthrough`. Assertions (`assert_visible` / `assert_not_visible`) compile to a real `assertion` action that sleeps the observed delay then re-runs OCR — they are not collapsed into `sleep`. The sleep buffer added to observed delays is configurable (`compiledSleepBufferMs`, default 200ms).
+
+The CLI auto-recompiles a compiled skill when it drifts (version mismatch or content drift); pass `--no-auto-recompile` to disable.
 
 ```bash
 mirroir compile apps/settings/check-about
@@ -149,6 +152,8 @@ mirroir test apps/settings/check-about   # auto-detects .compiled.json
 ## Security & Permissions
 
 **Fail-closed by default.** Without configuration, only read-only tools are exposed. Mutating tools are hidden entirely from the MCP client.
+
+The read-only allow-list (`PermissionPolicy.readonlyTools`) is exactly 11 tools: `screenshot`, `describe_screen`, `start_recording`, `stop_recording`, `get_orientation`, `status`, `check_health`, `list_targets`, `list_skills`, `get_skill`, `calibrate_component`. Every other tool — including `press_back` — is mutating and permission-gated.
 
 Opt-in via `~/.mirroir-mcp/permissions.json`:
 ```json
@@ -180,7 +185,7 @@ swift test               # run all tests
 ### SPM Targets
 - **mirroir-mcp** — MCP server executable
 - **HelperLib** — Shared library
-- **FakeMirroring** — Test stub app for CI
+- **FakeMirroring** — APP.md-driven multi-app simulator standing in for iPhone Mirroring in CI (AppPack/AppRegistry/AppPackLoader, with HelperLib SimulatorSpec/SimulatorSpecParser)
 
 ### Test Targets
 - **MCPServerTests** — Server routing, tool handlers, exploration, graph algorithms
@@ -270,7 +275,7 @@ Multi-target configuration via `targets.json` for controlling multiple windows s
 ## Documentation Index
 
 - [README](README.md) — Installation, examples, quick start
-- [Tools Reference](docs/tools.md) — All 32 tools with parameters
+- [Tools Reference](docs/tools.md) — All 33 tools with parameters
 - [Security](docs/security.md) — Threat model, kill switch, recommendations
 - [Permissions](docs/permissions.md) — Fail-closed permission model
 - [Component Detection](docs/components.md) — Component definitions, calibration, detection pipeline

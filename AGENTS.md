@@ -35,10 +35,10 @@ Compiled `.compiled.json` files live alongside their source `.yaml` in the skill
 ## Setup After Clone
 
 ```bash
-git config core.hooksPath git-hooks
+git config core.hooksPath .githooks
 ```
 
-This activates the `commit-msg` hook in `git-hooks/` which enforces conventional commit format, max 2-line messages, and rejects `Co-Authored-By: Claude` lines.
+This activates the `commit-msg` hook in `.githooks/` which enforces conventional commit format, max 2-line messages, and rejects `Co-Authored-By: Claude` lines.
 
 ## Package Manager: Swift Package Manager
 
@@ -98,7 +98,7 @@ Apply the pattern whose trigger condition matches your situation:
 | Pure transformation (filter, format, match, compute) | **Enum Namespace**: stateless enum, all `static func`, no stored properties | `LandmarkPicker`, `ActionStepFormatter`, `ElementMatcher` |
 | Multi-step stateful workflow (start/accumulate/finalize) | **Session Accumulator**: `final class` with `NSLock`, explicit lifecycle methods | `ExplorationSession` |
 | Wrapping a protocol to add observation/caching | **Decorator**: new type conforming to same protocol, forwarding + adding behavior | `RecordingDescriber` wraps `ScreenDescribing` |
-| Two input formats producing same output type | **Separate Parsers, Shared Model**: one parser per format, both emit same type | `SkillParser` (YAML) + `SkillMdParser` (Markdown) → `SkillStep` |
+| Two input formats producing related models | **Separate Parsers per Format**: one parser per format, each emitting the model that format supports | `SkillParser` (YAML) → `SkillDefinition`/`[SkillStep]`; `SkillMdParser` (SKILL.md) → `SkillHeader` + markdown body |
 | Generator building structured output from data | **Pipeline with Composable Stages**: generator delegates filtering/formatting to enum-namespace helpers | `SkillMdGenerator` uses `LandmarkPicker` + `ActionStepFormatter` |
 | CLI subcommand | **Command Enum**: `enum XxxCommand` with `static func run(arguments:) -> Int32` | `DoctorCommand`, `MigrateCommand`, `CompileCommand` |
 | Types shared across `mirroir-mcp` and test targets | **HelperLib target**: value types, enums, utilities in `Sources/HelperLib/` | `EnvConfig`, `MCPProtocol`, `PermissionPolicy` |
@@ -141,7 +141,7 @@ When creating a new type or file, walk this checklist in order:
   - Types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `ci`, `style`, `perf`, `build`, `revert`
   - Scope is optional. Multi-scope with `|` is permitted: `fix(module|context): description`
   - Examples: `feat: add check_health tool`, `fix(skills): handle YAML block scalars`, `docs: update architecture guide`
-  - The `commit-msg` hook in `git-hooks/` enforces this — non-conventional commits are rejected.
+  - The `commit-msg` hook in `.githooks/` enforces this — non-conventional commits are rejected.
 - Always create a branch when adding new features. Bug fixes go directly to main branch.
 - Always run validation after making changes: `swift build` then `swift test --skip IntegrationTests`
 

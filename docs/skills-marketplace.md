@@ -6,7 +6,7 @@ Skills are files that describe multi-step iPhone automation flows as intents, no
 
 The system has two layers:
 
-1. **This repository** (`mirroir-mcp`) — provides 32 MCP tools for iPhone interaction
+1. **This repository** (`mirroir-mcp`) — provides 33 MCP tools for iPhone interaction
 2. **Skill repositories** (e.g., [jfarcand/mirroir-skills](https://github.com/jfarcand/mirroir-skills)) — provide reusable skill files (SKILL.md or YAML) + plugin discovery
 
 Skills are intentionally simple. Steps like `tap: "Email"` don't specify pixel coordinates — the AI uses `describe_screen` for fuzzy OCR matching and adapts to unexpected dialogs, layout changes, and timing differences.
@@ -154,6 +154,8 @@ Each step is a single key-value pair in the `steps` list. The AI interprets each
 | `measure` | Object with `action`, `until`, `max`? | `measure` | Time a screen transition after an action |
 | `target` | Target name (string) | `switch_target` | Switch to a different automation target window |
 | `remember` | Instruction (string) | _(AI-interpreted)_ | Tell the AI to extract and remember data from the current screen |
+| `verify` | Instruction (string) | _(AI-interpreted)_ | Tell the AI to confirm a non-textual condition holds (cannot run deterministically) |
+| `summarize` | Instruction (string) | _(AI-interpreted)_ | Tell the AI to summarize the current screen content (cannot run deterministically) |
 | `long_press` | Element text (string) | `describe_screen` + `long_press` | Find element by OCR, long press on it |
 | `drag` | Object with `from`/`to` | `describe_screen` + `drag` | Find elements by OCR, drag between them |
 | `condition` | Object with `if_visible`/`if_not_visible` + `then`/`else` | `describe_screen` | Branch based on screen state — see below |
@@ -173,7 +175,7 @@ Skills can branch using `condition` steps. The AI calls `describe_screen` to eva
       - screenshot: "empty"
 ```
 
-If the condition is true, the `then` steps execute. If false and `else` is present, those steps execute instead. Steps inside branches are regular steps, including nested conditions (up to 3 levels deep).
+If the condition is true, the `then` steps execute. If false and `else` is present, those steps execute instead. Steps inside branches are regular steps, including nested conditions.
 
 ### Repeats
 
@@ -189,7 +191,7 @@ Skills can loop using `repeat` steps. The AI checks a screen condition before ea
       - tap: "< Back"
 ```
 
-Loop modes: `while_visible: "Label"` (continue while present), `until_visible: "Label"` (continue until appears), `times: N` (fixed count). The `max` field is always required to prevent infinite loops. Steps inside are regular steps, including conditions and nested repeats (up to 3 levels deep).
+Loop modes: `while_visible: "Label"` (continue while present), `until_visible: "Label"` (continue until appears), `times: N` (fixed count). The `max` field is always required to prevent infinite loops. Steps inside are regular steps, including conditions and nested repeats.
 
 ## Variable Substitution
 
@@ -262,6 +264,8 @@ Checklist for adding a new skill:
 1. **Create the skill file** (`.md` for SKILL.md format, or `.yaml` for legacy) in the appropriate directory under `skills/`
    - `apps/<app-name>/` for app-specific skills
    - `testing/<framework>/` for test automation skills
+   - `workflows/` for multi-app or cross-cutting flows
+   - `ci/` for continuous-integration skills
 
 2. **Include all required fields:** `name`, `app`, `description`, `steps`
 

@@ -15,6 +15,8 @@ All settings live in `settings.json` — project-local (`.mirroir-mcp/settings.j
 
 Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DESCRIBER_MODE`, `MIRROIR_KEYSTROKE_DELAY_US`). Resolution order: project-local `settings.json` → global `settings.json` → environment variable → built-in default.
 
+Env-var names are derived from the camelCase key by inserting `_` before every uppercase letter and screaming-snake-casing the result. This means adjacent capitals in an acronym are each split: `openAITimeoutSeconds` → `MIRROIR_OPEN_A_I_TIMEOUT_SECONDS` and `defaultAIMaxTokens` → `MIRROIR_DEFAULT_A_I_MAX_TOKENS`. A handful of keys override this with a fixed env var (e.g. `keyboardLayout` → `IPHONE_KEYBOARD_LAYOUT`, `mirroringBundleID` → `MIRROIR_BUNDLE_ID`, `mirroringProcessName` → `MIRROIR_PROCESS_NAME`).
+
 ## Screen Intelligence
 
 | Setting | Default | Description |
@@ -23,6 +25,7 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | `agent` | `""` | AI agent name for vision mode and diagnosis (e.g. `"embacle"`, `"embacle:claude"`) |
 | `agentTransport` | `"auto"` | Agent transport: `"auto"` uses embedded Rust FFI if linked, HTTP otherwise. `"http"` forces HTTP |
 | `visionImageWidth` | `500` | Target image width in pixels for vision API calls (screenshots are resized before sending) |
+| `visionModel` | `""` | Override the model name sent in vision chat completion requests. Empty = provider default (e.g. `"copilot_headless"` for embacle) |
 | `ocrBackend` | `"auto"` | OCR backend: `"auto"`, `"vision"` (text only), `"yolo"` (icons only), or `"both"` |
 | `ocrRecognitionLevel` | `"accurate"` | Apple Vision OCR quality: `"accurate"` or `"fast"` |
 | `ocrLanguageCorrection` | `true` | Enable language correction during OCR text recognition |
@@ -56,6 +59,8 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | `scrollSwipeToYFraction` | `0.11` | Scroll end Y as a fraction of window height |
 | `defaultScrollMaxAttempts` | `10` | Maximum scroll attempts for `scroll_to` before giving up |
 | `scrollDedupStrategy` | `"exact"` | Dedup strategy for scroll-collected elements: `"exact"`, `"levenshtein"`, `"proximity"` |
+| `scrollDedupLevenshteinMax` | `3` | Maximum Levenshtein edit distance for fuzzy text dedup (used by `"levenshtein"` strategy) |
+| `scrollDedupProximityPt` | `15.0` | Maximum Euclidean distance in points for coordinate proximity dedup (used by `"proximity"` strategy) |
 
 ## Exploration
 
@@ -65,7 +70,7 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | `explorationMaxScreens` | `30` | Maximum distinct screens before stopping exploration |
 | `explorationMaxTimeSeconds` | `300` | Maximum wall-clock seconds before stopping exploration |
 | `componentDetection` | `"llm_first_screen"` | Component detection mode: `"heuristic"`, `"llm_first_screen"`, `"llm_every_screen"`, `"llm_fallback"` |
-| `calibrationStrict` | `true` | Fail exploration if too many elements are unclassified after calibration |
+| `calibrationStrict` | `false` | Fail exploration if too many elements are unclassified after calibration |
 | `calibrationUnclassifiedThreshold` | `0.5` | Maximum fraction of unclassified content elements (0.0–1.0) before calibration fails |
 | `compiledTapMinConfidence` | `0.7` | Minimum confidence for compiled taps (below this, falls back to live OCR) |
 | `verifyTaps` | `false` | Follow compiled taps with a verification OCR call |
@@ -75,6 +80,13 @@ Every setting has a corresponding environment variable (e.g. `MIRROIR_SCREEN_DES
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `keyboardLayout` | `""` | iPhone keyboard layout for character substitution (e.g. `"Canadian-CSA"`, `"French"`). Empty = US QWERTY |
+
+## App Identity
+
+| Setting | Default | Env Var | Description |
+|---------|---------|---------|-------------|
+| `mirroringBundleID` | `"com.apple.ScreenContinuity"` | `MIRROIR_BUNDLE_ID` | Bundle ID of the window to target. Override to point at a stand-in app (e.g. FakeMirroring) for local/CI runs |
+| `mirroringProcessName` | `"iPhone Mirroring"` | `MIRROIR_PROCESS_NAME` | Process name of the target window, used alongside the bundle ID for window lookup |
 
 ## AI Provider Timeouts
 

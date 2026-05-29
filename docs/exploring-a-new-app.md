@@ -70,7 +70,7 @@ Short prose — what region the user sees first, what an edge-control cluster lo
 - Delete recording
 ```
 
-What each field actually does — see [APP.md.spec.md § "Field-by-Field Behavior"](APP.md.spec.md). Pay attention to the **fields-not-yet-consumed** call-outs there so you don't waste effort on `## Credentials` / `## Hints`.
+What each field actually does — see [APP.md.spec.md § "Field-by-Field Behavior"](APP.md.spec.md). Both `## Credentials` and `## Tips` are consumed: declared credential keys (never values) surface as a "## Required Credentials" section in the generated SKILL.md, and `## Tips` entries surface as a "## Tips" section. Check the spec for which fields are read by the explorer versus only the generator.
 
 Tip: if you're unsure about Tabs, run `describe_screen` on the app's home, write down the bottom-edge labels exactly as OCR returns them, and use those.
 
@@ -131,13 +131,13 @@ mcp__mirroir__generate_skill(
 )
 ```
 
-## 7. (Optional) record a known-good flow first
+## 7. (Optional) compile a skill for fast replay
 
-If the explorer plateaus or wanders, `record_step` lets you click through the target flow once and saves the steps. Use it to seed a deterministic skill, then let `generate_skill` fill in alternatives.
+`record_step` is not an interactive flow recorder. It is the compilation hook: while an AI agent executes an existing skill step by step, it calls `record_step` after each step with the observed coordinates, timing, and match data, and then `save_compiled` writes a `.compiled.json` next to the source skill. The compiled artifact lets future runs replay deterministically instead of re-driving the AI. See [compiled-skills.md](compiled-skills.md). (For a raw screen-capture video of a run, use `start_recording` / `stop_recording` instead — those produce a `.mov`, not skill steps.)
 
 ## When something goes wrong
 
-- **App launches but explorer reports "Spotlight still visible"** — `launchApp` race; the `launchApp_search_results_populate_us` env var bumps the wait. See [troubleshooting.md](troubleshooting.md).
+- **App launches but explorer reports "Spotlight still visible"** — `launchApp` race; the `searchResultsPopulateUs` setting (env var `MIRROIR_SEARCH_RESULTS_POPULATE_US`) bumps the wait. See [troubleshooting.md](troubleshooting.md).
 - **Wrong app dismissed during reset_before_explore** — re-confirm `app:` matches the launch name; `AppSwitcherDismissal` fails closed when OCR can't disambiguate, so you'll get a clear error rather than a silent wrong dismissal.
 - **Explorer ignores the tabs you declared** — check OCR output for the tab labels; ordinal fallback only fires when text matching fails. The explorer also restricts edge sampling to the declared `## Tab Layout` band.
 - **Taps land above buttons in non-grid toolbars** — `TapPointCalculator`'s icon-row offset was over-eager on horizontal toolbars; the uniform-spacing gate fixes it. If it still happens, capture the OCR row and file an issue with x positions.

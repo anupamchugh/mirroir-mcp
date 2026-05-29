@@ -99,11 +99,13 @@ Per-tab description. Body is injected into the generated skill's context.
 | Field | Type | Required | Behavior |
 |---|---|---|---|
 | `app` | string | ✅ yes | Display name. Matching is diacritics-insensitive + case-insensitive. |
-| `version` | int | reserved | Schema version. No consumer today; reserved for future migrations. |
+| `version` | int | optional | APP.md schema version (carried on `AppDescription.schemaVersion`). The only supported version is `1`. A file declaring a higher version logs a warning at load time and is still parsed best-effort. Defaults to `1` when absent. |
 | `locale` | string | optional | e.g. `fr_CA`. When multiple APP.md files match the same app, a locale match takes priority over a locale-less file. |
 | `archetype` | string | optional | Name of a screen recipe (e.g. `dashboard`, `social-feed`, `settings-list`). When set, bypasses recipe auto-detection. |
 | `reset_before_explore` | bool | optional | `true` / `yes` / `1` → explorer force-quits the app via App Switcher before launching. Used for apps that retain stateful overlays (TikTok, Instagram). Default: `false`. |
 | `obstacle_mode` | enum | optional | `auto` (default): dismiss matching obstacles. `hint`: surface to AI but don't act. `off`: ignore rules. |
+| `spotlight_name` | string | optional | Simulator-only. What `launch_app` types into Spotlight to reach the app in FakeMirroring. Defaults to `app`. Read by `SimulatorSpecParser` only when `## Simulator …` sections are present. |
+| `icon` | string | optional | Simulator-only. Single glyph rendered on the FakeMirroring home screen and App Switcher card. Defaults to the first character of `app`. Read by `SimulatorSpecParser` only when `## Simulator …` sections are present. |
 
 ## Sections
 
@@ -164,6 +166,8 @@ Both `→` and `->` are accepted as separators. Common action prefixes (`tap `, 
 
 When `obstacle_mode: auto` (default), the explorer checks these rules after each OCR pass and taps the action before continuing. `obstacle_mode: hint` surfaces rules as AI context without acting; `off` disables the mechanism.
 
+**Explorer caveat:** only the **BFS explorer** honors these app-specific obstacle rules — `BFSExplorerExploring` passes `obstacles: appObstacles` into `ExplorerUtilities.dismissAlertIfPresent`. The **DFS explorer** calls `dismissAlertIfPresent` without obstacle rules, so it dismisses generic system alerts only and ignores `## Obstacles`.
+
 ### `## Skip` (optional)
 
 Element text patterns the explorer must never tap. Merged with `permissions.json.skipElements` into a single global skip list for the session.
@@ -174,9 +178,9 @@ Element text patterns the explorer must never tap. Merged with `permissions.json
 - Réinitialiser les données
 ```
 
-### `## Credentials` (parsed only)
+### `## Credentials` (optional)
 
-Key-value pairs with `${VAR}` / `${VAR:-default}` substitution from the process environment. `AppDescriptionLoader.resolveVariables` applies the substitution at load time. **No code in the server reads the resulting map** — the field is parsed and carried on `AppDescription.credentials` but every consumer ignores it. Write it if you plan to use it externally; don't rely on the server acting on it.
+Key-value pairs with `${VAR}` / `${VAR:-default}` substitution from the process environment. `AppDescriptionLoader.resolveVariables` applies the substitution at load time. `SkillMdGenerator` reads the resulting map and emits a `## Required Credentials` section into the generated skill listing the declared **key names only** (sorted). Resolved env-var **values never leak** into the skill file — the section tells the AI what the flow needs while keeping secrets out of the artifact.
 
 ```markdown
 - email: ${TEST_EMAIL:-test@example.com}
@@ -190,6 +194,36 @@ Free-form exploration hints. Appended to the generated skill's context so the AI
 ```markdown
 - Swipe down on detail views to return to the summary
 - Some cards show "Aucune donnée" on test devices — treat as normal
+```
+
+### `## Simulator …` family (optional — FakeMirroring scene graph)
+
+When an app is ported to the FakeMirroring multi-app simulator, its APP.md gains a declarative scene graph alongside the guidance fields above. `SimulatorSpecParser.parse` extracts these into a `SimulatorSpec` (on `AppDescription.simulator`); FakeMirroring builds a runnable `AppPack` from it at startup. The parser returns nil — leaving `simulator` unset — when none of these sections are present, so guidance-only APP.md files are unaffected.
+
+Three H2 section shapes are recognized:
+
+- `## Simulator` — root/metadata block. `- root: <screenID>` names the launch screen. When omitted, the lexicographically-first declared screen ID wins (else `"main"`).
+- `## Simulator Screen <id>` — one per screen. Properties via `- key: value` bullets (`title`, `back` → back-chevron destination screen ID, `tab_bar: true` → render the bottom bar). Elements via `- element <kind>: …` bullets, kept in declaration order. A destination is written with `→` or `->` after the text. Element kinds: `row: Text -> dest` (disclosure chevron), `button: Text -> dest` (pill, destination optional), `text: Text` (non-interactive), `tab: Text -> dest` (bottom-bar entry, destination required), `textfield: "placeholder" #fieldID`, `slider: "label" #fieldID = 0.5` (fraction clamped 0.0–1.0), `placeholder: 370x175` (gray media block, width×height in points).
+- `## Simulator Obstacle <id>` — one per modal. Carries a `title`, optional `body`, dismissal `buttons`, and a `trigger`: `on_first_describe`, `after_n_taps:<count>`, or `never`.
+
+The `spotlight_name` and `icon` front-matter fields (above) feed the same `SimulatorSpec` and are only read when at least one `## Simulator …` section exists.
+
+```markdown
+## Simulator
+- root: home
+
+## Simulator Screen home
+- title: Home
+- tab_bar: true
+- element row: Settings -> settings
+- element tab: Home -> home
+- element tab: Profile -> profile
+
+## Simulator Obstacle welcome
+- title: Welcome
+- body: Thanks for trying the app.
+- buttons: Continue
+- trigger: on_first_describe
 ```
 
 ## Loading & Resolution
@@ -246,7 +280,7 @@ APP.md and `permissions.json` are complementary. `permissions.json` governs what
 
    Case-insensitive duplicates are collapsed; the first occurrence keeps its casing. Source counts are emitted to the debug log at session start.
 
-Outside those three points, the systems are disjoint. `AppDescription.credentials` has no counterpart in `permissions.json` and no consumer beyond surfacing key names in the generated skill (see the Credentials section).
+Outside those three points, the systems are disjoint. `AppDescription.credentials` has no counterpart in `permissions.json`; its only consumer is `SkillMdGenerator`, which surfaces the declared key names (never values) in the generated skill (see the Credentials section).
 
 ## Consumers (what today's code actually uses)
 
@@ -260,8 +294,9 @@ Outside those three points, the systems are disjoint. `AppDescription.credential
 | `tabs` | `BFSExplorerHelpers.findTabTargets` — injected as high-priority targets |
 | `tabLayout` | `BFSExplorerHelpers.findTabTargets` — picks which edge to sample and which axis to sort on for ordinal fallback |
 | `context` | `SkillMdGenerator` — written verbatim into generated skill's "App Context" section |
-| `credentials` | **not consumed** (parsed, variables resolved, but no reader) |
-| `hints` | **not consumed** (duplicative with `context` which already includes Tips body) |
+| `credentials` | `SkillMdGenerator` — declared **key names only** rendered as a `## Required Credentials` section in the generated skill. Resolved env-var **values never leak** into the skill file. |
+| `hints` | `SkillMdGenerator` — rendered as a `## Tips` section in the generated skill (parsed from `## Tips`; intentionally excluded from `context` to avoid duplicate rendering). |
+| `simulator` | `AppDescriptionLoader` carries it on `AppDescription`; FakeMirroring builds a runnable `AppPack` from it. nil for guidance-only APP.md files not yet ported to the simulator. |
 
 ## Examples
 
