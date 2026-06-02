@@ -433,9 +433,12 @@ jobs:
       - name: Run mega-sample with three browsers
         working-directory: runner
         run: |
-          # Patch the web-cross-browser scenario to declare all three projects.
-          # The mega-sample default uses [chrome,firefox,webkit] already; this
-          # step verifies firefox + webkit actually execute in CI.
+          # The per-push lane keeps web scenarios chromium-only; here we patch
+          # the cross-browser scenario up to all three projects so firefox +
+          # webkit actually execute in CI (this is the lane that installs them).
+          sed -i.bak 's/browsers: \[chrome\]/browsers: [chrome, firefox, webkit]/' \
+            samples/mega-sample/scenarios/web-cross-browser.yaml
+          rm -f samples/mega-sample/scenarios/web-cross-browser.yaml.bak
           ./target/release/mirroir-run --sample samples/mega-sample
 
       - name: Stop Ollama daemon

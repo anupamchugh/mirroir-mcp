@@ -1,6 +1,9 @@
 version: 1
-name: web — directory listing across all three browsers
+# Chromium-only on the per-push lane (fast). The dedicated all-browsers cron
+# job patches `browsers:` up to [chrome, firefox, webkit] so firefox + webkit
+# are exercised there without slowing every push.
+name: web — directory listing (chromium on push; all browsers on cron)
 steps:
   - spawn: { id: session, from: SAMPLE.md }
-  - target: { kind: web, browsers: [chrome, firefox, webkit], url: "http://127.0.0.1:18898/" }
+  - target: { kind: web, browsers: [chrome], url: "http://127.0.0.1:18898/" }
   - assert_visible: "Directory listing for /"
