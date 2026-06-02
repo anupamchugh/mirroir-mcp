@@ -1,0 +1,1 @@
+Atmosphere supports WebSocket SSE and long-polling transports for real-time apps.

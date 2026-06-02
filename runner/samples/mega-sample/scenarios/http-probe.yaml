@@ -1,0 +1,9 @@
+version: 1
+name: http — GET / returns 200 with body
+steps:
+  - spawn: { id: session, from: SAMPLE.md }
+  - http:
+      method: GET
+      url: "http://127.0.0.1:18898/"
+      expect_status: 200
+      expect_body_contains: ["Directory listing"]

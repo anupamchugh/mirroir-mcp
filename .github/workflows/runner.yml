@@ -1,0 +1,446 @@
+# CI for runner/ (mirroir-run Rust binary). Three lanes:
+#   - runner-fast  : fmt + clippy + test + diff-text smoke on linux + macos.
+#   - runner-smoke : process + http + cross_surface end-to-end (no Playwright, no Ollama).
+#   - runner-e2e   : full pipeline — Playwright (chromium) + real Ollama judge + mega-sample.
+
+name: runner
+
+on:
+  push:
+    paths:
+      - 'runner/**'
+      - '.github/workflows/runner.yml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'runner/**'
+      - '.github/workflows/runner.yml'
+  # Sunday 03:00 UTC — gates the all-browsers lane.
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch / PR to save runner-minutes.
+concurrency:
+  group: runner-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Rust edition 2024 requires 1.85+; bumping requires Cargo.toml's
+  # rust-version field to move in lockstep.
+  RUST_TOOLCHAIN: stable
+  # Suppress Cargo's interactive progress; CI logs are nicer without it.
+  CARGO_TERM_COLOR: always
+
+jobs:
+  runner-fast:
+    name: fmt + clippy + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (${{ env.RUST_TOOLCHAIN }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + git + runner target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner -> target
+          shared-key: runner-fast-${{ matrix.os }}
+
+      - name: cargo fmt --check
+        working-directory: runner
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy (deny pedantic+nursery)
+        working-directory: runner
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test (all targets)
+        working-directory: runner
+        run: cargo test --all-targets --all-features --no-fail-fast
+
+      - name: cargo build --release (smoke)
+        working-directory: runner
+        run: cargo build --release --bin mirroir-run
+
+      - name: --validate sample scenarios (sanity)
+        working-directory: runner
+        run: |
+          for f in samples/mega-sample/scenarios/*.yaml; do
+            echo "::group::validate $f"
+            ./target/release/mirroir-run --validate "$f"
+            echo "::endgroup::"
+          done
+
+      - name: --diff-text MATCH path
+        working-directory: runner
+        run: |
+          echo "Hello world from mirroir" > /tmp/diff-a.txt
+          echo "Hello world from mirroir" > /tmp/diff-b.txt
+          ./target/release/mirroir-run --diff-text /tmp/diff-a.txt /tmp/diff-b.txt
+
+      - name: --diff-text DRIFT path (expected exit 1)
+        working-directory: runner
+        run: |
+          echo "Completely unrelated text from a parallel universe" > /tmp/diff-c.txt
+          set +e
+          ./target/release/mirroir-run --diff-text /tmp/diff-a.txt /tmp/diff-c.txt
+          status=$?
+          set -e
+          if [ "$status" != "1" ]; then
+            echo "Expected exit 1 from DRIFT path, got $status"
+            exit 1
+          fi
+          echo "DRIFT path correctly exited 1"
+
+  runner-smoke:
+    name: process + http + cross_surface smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    needs: runner-fast
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo registry + git + runner target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner -> target
+          shared-key: runner-smoke-${{ matrix.os }}
+
+      - name: Build release binary
+        working-directory: runner
+        run: cargo build --release --bin mirroir-run
+
+      - name: Verify python3 available (used by smoke http server)
+        run: python3 --version
+
+      - name: --run-scenario with process + http (spawn python http.server)
+        working-directory: runner
+        run: |
+          cat > /tmp/smoke-process-http.yaml <<'EOF'
+          version: 1
+          name: ci smoke — process + http
+          description: spawn python http.server, probe it, kill it
+          steps:
+            - spawn: { id: server, command: "python3 -m http.server 18950" }
+            - wait_port: { port: 18950, timeout_s: 15 }
+            - http:
+                method: GET
+                url: "http://127.0.0.1:18950/"
+                expect_status: 200
+                expect_body_contains: ["Directory listing"]
+            - kill: { id: server, grace_s: 2 }
+          EOF
+          ./target/release/mirroir-run --run-scenario /tmp/smoke-process-http.yaml
+
+      - name: --run-scenario with cross_surface (pairwise equivalence)
+        working-directory: runner
+        run: |
+          mkdir -p /tmp/cs
+          printf 'Atmosphere supports WebSocket, SSE, and long-polling transports.\n' > /tmp/cs/web.txt
+          printf 'Atmosphere transports include WebSocket SSE and long-polling support.\n' > /tmp/cs/ios.txt
+          cat > /tmp/cs-pass.yaml <<'EOF'
+          version: 1
+          name: ci smoke — cross_surface pass
+          steps:
+            - cross_surface:
+                response_files:
+                  - "/tmp/cs/web.txt"
+                  - "/tmp/cs/ios.txt"
+                min_similarity: 0.5
+          EOF
+          ./target/release/mirroir-run --run-scenario /tmp/cs-pass.yaml
+
+      - name: --run-scenario with cross_surface mismatch (expected exit 1)
+        working-directory: runner
+        run: |
+          printf 'Completely unrelated text about quantum physics and gravity.\n' > /tmp/cs/bad.txt
+          cat > /tmp/cs-fail.yaml <<'EOF'
+          version: 1
+          name: ci smoke — cross_surface fail
+          steps:
+            - cross_surface:
+                response_files:
+                  - "/tmp/cs/web.txt"
+                  - "/tmp/cs/bad.txt"
+                min_similarity: 0.5
+          EOF
+          set +e
+          ./target/release/mirroir-run --run-scenario /tmp/cs-fail.yaml
+          status=$?
+          set -e
+          if [ "$status" != "1" ]; then
+            echo "Expected exit 1 from cross_surface mismatch, got $status"
+            exit 1
+          fi
+          echo "cross_surface mismatch path correctly exited 1"
+
+      - name: --sample with --no-playwright (judge + Playwright skipped)
+        working-directory: runner
+        run: |
+          # `--no-playwright` skips web batches; this lane has no Ollama so
+          # we author a small SAMPLE.md whose scenarios use only process + http
+          # steps. Full mega-sample with Playwright + Ollama runs in runner-e2e.
+          mkdir -p /tmp/smoke-sample
+          cat > /tmp/smoke-sample/SAMPLE.md <<'EOF'
+          # CI smoke sample (no Playwright, no Ollama)
+
+          ```yaml
+          version: 1
+          name: ci-smoke-sample
+          session:
+            boot_once: true
+            boot_ready_port: 18951
+            boot_ready_timeout_s: 15
+            boot:
+              command: "python3 -m http.server 18951"
+            scenarios:
+              must_pass:
+                - probe.yaml
+          ```
+          EOF
+          cat > /tmp/smoke-sample/probe.yaml <<'EOF'
+          version: 1
+          name: smoke probe
+          steps:
+            - spawn: { id: session, from: SAMPLE.md }
+            - http:
+                method: GET
+                url: "http://127.0.0.1:18951/"
+                expect_status: 200
+                expect_body_contains: ["Directory listing"]
+          EOF
+          ./target/release/mirroir-run --sample /tmp/smoke-sample --no-playwright
+
+  runner-e2e:
+    name: e2e — Playwright + Ollama + mega-sample (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    needs: runner-smoke
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    env:
+      MIRROIR_PLAYWRIGHT_HOME: /tmp/mirroir-pw
+      OLLAMA_JUDGE_MODEL: qwen2.5:0.5b
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo registry + git + runner target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner -> target
+          shared-key: runner-e2e-${{ matrix.os }}
+
+      - name: Setup Node (for npx playwright)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+          # Bump the cache key suffix to force a re-pull when Playwright
+          # major-versions or chromium-channel changes.
+          key: playwright-${{ runner.os }}-chromium-v1
+
+      - name: Install Playwright + chromium
+        run: |
+          mkdir -p "$MIRROIR_PLAYWRIGHT_HOME"
+          cd "$MIRROIR_PLAYWRIGHT_HOME"
+          npm init -y > /dev/null
+          npm install --no-save --silent @playwright/test
+          # `playwright install` honors the cached browsers dir; skips the
+          # download when the binary digest already matches.
+          npx playwright install chromium
+
+      - name: Cache Ollama models
+        id: ollama-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ollama/models
+          # Bump the suffix when the model digest changes.
+          key: ollama-${{ runner.os }}-${{ env.OLLAMA_JUDGE_MODEL }}-v1
+
+      - name: Install Ollama (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Install Ollama (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ollama
+
+      - name: Start Ollama daemon
+        run: |
+          ollama serve > /tmp/ollama.log 2>&1 &
+          echo $! > /tmp/ollama.pid
+          # Wait for daemon ready (port 11434).
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:11434/api/version > /dev/null; then
+              echo "ollama ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:11434/api/version | tee /tmp/ollama-version.json
+
+      - name: Pull judge model (${{ env.OLLAMA_JUDGE_MODEL }})
+        run: |
+          ollama pull "$OLLAMA_JUDGE_MODEL"
+          ollama list
+
+      - name: Build release binary
+        working-directory: runner
+        run: cargo build --release --bin mirroir-run
+
+      - name: Run mega-sample (Playwright + Ollama judge + drift + cross-surface)
+        working-directory: runner
+        run: |
+          ./target/release/mirroir-run --sample samples/mega-sample
+
+      - name: Tail Ollama log on failure
+        if: failure()
+        run: tail -200 /tmp/ollama.log || true
+
+      - name: Stop Ollama daemon
+        if: always()
+        run: |
+          if [ -f /tmp/ollama.pid ]; then
+            kill "$(cat /tmp/ollama.pid)" 2>/dev/null || true
+          fi
+
+  # All three browsers + dual-OS. Heavy lane — Sunday-night cron + on-demand.
+  # Reuses the same Ollama setup as runner-e2e; downloads firefox + webkit
+  # (~600 MB total) which is why this isn't on every push.
+  runner-e2e-allbrowsers:
+    name: e2e — all browsers (${{ matrix.os }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    env:
+      MIRROIR_PLAYWRIGHT_HOME: /tmp/mirroir-pw
+      OLLAMA_JUDGE_MODEL: qwen2.5:0.5b
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner -> target
+          shared-key: runner-e2e-allbrowsers-${{ matrix.os }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Playwright browsers (all three)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-allbrowsers-v1
+
+      - name: Install Playwright + all browsers
+        run: |
+          mkdir -p "$MIRROIR_PLAYWRIGHT_HOME"
+          cd "$MIRROIR_PLAYWRIGHT_HOME"
+          npm init -y > /dev/null
+          npm install --no-save --silent @playwright/test
+          npx playwright install chromium firefox webkit
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ runner.os }}-${{ env.OLLAMA_JUDGE_MODEL }}-v1
+
+      - name: Install Ollama (Linux)
+        if: runner.os == 'Linux'
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Install Ollama (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ollama
+
+      - name: Start Ollama daemon + pull model
+        run: |
+          ollama serve > /tmp/ollama.log 2>&1 &
+          echo $! > /tmp/ollama.pid
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:11434/api/version > /dev/null && break
+            sleep 1
+          done
+          ollama pull "$OLLAMA_JUDGE_MODEL"
+
+      - name: Build release binary
+        working-directory: runner
+        run: cargo build --release --bin mirroir-run
+
+      - name: Run mega-sample with three browsers
+        working-directory: runner
+        run: |
+          # Patch the web-cross-browser scenario to declare all three projects.
+          # The mega-sample default uses [chrome,firefox,webkit] already; this
+          # step verifies firefox + webkit actually execute in CI.
+          ./target/release/mirroir-run --sample samples/mega-sample
+
+      - name: Stop Ollama daemon
+        if: always()
+        run: |
+          if [ -f /tmp/ollama.pid ]; then
+            kill "$(cat /tmp/ollama.pid)" 2>/dev/null || true
+          fi

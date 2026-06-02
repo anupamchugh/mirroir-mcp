@@ -1,0 +1,55 @@
+# ABOUTME: Security and dependency validation configuration for cargo-deny.
+# ABOUTME: Advisories, license allowlist, dependency bans, registry sources.
+
+# ============================================================================
+# Advisory Database — Security Vulnerability Scanning
+# ============================================================================
+[advisories]
+version = 2
+ignore = []
+yanked = "warn"
+
+# ============================================================================
+# License Validation — Only Approved Open Source Licenses
+# ============================================================================
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "ISC",
+    "CDLA-Permissive-2.0",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Zlib",
+    "CC0-1.0",
+    "MIT-0",
+    "Apache-2.0 WITH LLVM-exception",
+    "0BSD",
+]
+confidence-threshold = 0.93
+exceptions = []
+
+# ============================================================================
+# Dependency Bans — Prevent Problematic Dependencies
+# ============================================================================
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow-wildcard-paths = false
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+# ============================================================================
+# Source Validation — Only Trusted Registries
+# ============================================================================
+[sources]
+unknown-git = "deny"
+unknown-registry = "deny"
+allow-git = []
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,6 @@
+version: 1
+name: web — directory listing across all three browsers
+steps:
+  - spawn: { id: session, from: SAMPLE.md }
+  - target: { kind: web, browsers: [chrome, firefox, webkit], url: "http://127.0.0.1:18898/" }
+  - assert_visible: "Directory listing for /"

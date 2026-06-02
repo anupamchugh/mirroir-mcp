@@ -53,6 +53,112 @@ This project uses **Swift Package Manager** (SPM) exclusively. The `Package.swif
 | Clean | `swift package clean` |
 | Resolve dependencies | `swift package resolve` |
 
+## Rust Workspace: `runner/`
+
+The `runner/` subdirectory holds **mirroir-run**, a Rust binary that replays
+mirroir YAML scenarios against web (Playwright), generic process, and HTTP
+targets. It exists so mirroir scenarios can run on Linux CI without macOS-only
+AppKit dependencies. See the design gists for the complete specification:
+
+- [Complete planned solution](https://gist.github.com/jfarcand/e4cc69eeddde2ec4988aa20104566c17)
+- [Brainstorm history](https://gist.github.com/jfarcand/7c30b04801ecfb6ba59c6ca1f62506f7)
+
+### Toolchain
+
+| Task | Command (run from `runner/`) |
+|------|------------------------------|
+| Format check | `cargo fmt --all -- --check` |
+| Lint (zero warnings) | `cargo clippy --all-targets --all-features -- -D warnings` |
+| Test | `cargo test --all-targets` |
+| Security / license / source audit | `cargo deny check` |
+| Build release (static-musl Linux) | `cargo build --release --target=x86_64-unknown-linux-musl` |
+
+`rust-version = "1.85"` (edition 2024) declared in `runner/Cargo.toml`.
+
+### Rust Discipline
+
+The runner enforces a zero-tolerance Rust posture. The configuration files
+under `runner/` express it mechanically; this section documents the intent.
+
+| File | Purpose |
+|------|---------|
+| `runner/Cargo.toml` `[lints]` table | clippy `all`/`pedantic`/`nursery` at deny + `unwrap_used` / `expect_used` / `panic` / `absolute_paths` / `disallowed_methods` / `str_to_string` / `cognitive_complexity` at deny; explicit allows limited to `cast_*`, `missing_const_for_fn`, `struct_excessive_bools`, `too_many_lines`, `significant_drop_tightening`, `module_name_repetitions` |
+| `runner/clippy.toml` | `disallowed-methods` — `anyhow::Context::context` and `anyhow::Context::with_context` are forbidden in favor of structured `RunnerError` variants |
+| `runner/deny.toml` | cargo-deny: advisories, license allowlist (MIT / Apache-2.0 / ISC / BSD-3-Clause / Unicode-3.0 / etc.), bans (`wildcards = "deny"`), sources (crates.io only) |
+| `runner/scripts/ci/pre-push-validate.sh` | Tier 0 fmt → Tier 1 architectural-validation → Tier 2 clippy → Tier 3 tests; stamps `.git/validation-passed` marker (15-min TTL) |
+| `runner/scripts/ci/architectural-validation.sh` | Greps for forbidden patterns (`anyhow!` macro, placeholders, unauthorized `#[allow(clippy::*)]`); refuses to commit on hit |
+
+### Forbidden Patterns (CI Enforced)
+
+These are **release-blocking** regardless of context. The clippy lints + the
+architectural-validation script catch each one independently:
+
+- **`anyhow!()` / `anyhow::anyhow!()` macros** — ABSOLUTELY FORBIDDEN in
+  production code (`runner/src/`). Use structured `RunnerError` variants.
+- **`anyhow::Result` type alias** — FORBIDDEN. Use `crate::error::Result` or
+  the explicit `std::result::Result<T, RunnerError>` form.
+- **`anyhow::Context::context` / `with_context`** — FORBIDDEN. Add a new
+  `RunnerError` variant with structured fields instead.
+- **`.unwrap()` in production code** — FORBIDDEN. Acceptable in tests *only* if
+  they're tests (and even then, prefer `Result<()>` + `?`).
+- **`.expect()` in production code** — Forbidden. Static / compile-time
+  invariants that genuinely cannot fail still surface the error honestly via
+  `Result`; do not silence with `.expect()`.
+- **`panic!()` / `unimplemented!()` / `todo!()`** — Forbidden. Every code path
+  reachable from `main()` must return a typed `Result`.
+- **`#[allow(clippy::*)]` outside the approved list** — Only the following
+  clippy lints may be silenced inline: `cast_possible_truncation`,
+  `cast_sign_loss`, `cast_precision_loss`, `cast_possible_wrap`,
+  `struct_excessive_bools`, `too_many_lines`, `let_unit_value`,
+  `option_if_let_else`, `cognitive_complexity`, `bool_to_int_with_if`,
+  `type_complexity`, `too_many_arguments`, `use_self`. Anything else means
+  fixing the underlying issue.
+- **`unsafe`** — DENY level. No FFI in mirroir-run; any `unsafe` usage is a
+  hard fail with no exemption.
+- **Placeholder / stub / mock language in production code** — phrases like
+  "Implementation would", "Will implement", "TODO: Implementation",
+  "stub implementation", "placeholder", etc. are caught by the architectural
+  validation script. Always implement the real thing; do not leave
+  implementation with "In future versions" or "Fall back".
+
+### Error Handling
+
+All fallible operations return `crate::error::Result<T>` (alias for
+`std::result::Result<T, RunnerError>`). New error categories add a variant to
+`RunnerError` (thiserror-derived enum in `runner/src/error.rs`) with structured
+fields and a `#[source]` for chaining where applicable. External crate errors
+are converted via `#[from]` or `.map_err(|source| RunnerError::Variant { ..., source })`.
+
+### Test Code
+
+Tests inline in `#[cfg(test)] mod tests` follow the same rules as production
+code. Pattern: each `#[test]` function returns `Result<(), E>` where `E` is
+the error variant the test produces; `?` propagates failures; `assert!`,
+`assert_eq!`, `assert_matches!` for assertions; no `unwrap()`, no `expect()`,
+no `panic!()`. Test functions returning Result have worked in Rust since the
+2018 edition; this is the modern idiom.
+
+### File Conventions
+
+- Every `.rs` file starts with a **two-line `// ABOUTME:` header** (same as
+  Swift files in `Sources/`).
+- Max **500 lines** per file. Past 400 lines, extract a focused helper module.
+- No `#![allow(...)]` at crate root. Allows are inline at the smallest scope
+  that needs them, from the approved list only.
+- `use` imports at the top of file (`clippy::absolute_paths = "deny"`).
+- Public APIs documented (`missing_docs = "warn"`).
+
+### Workflow
+
+Same as the Swift side: feature branches → squash merge to `main`. Bug fixes
+go directly to `main`. No PRs. The `commit-msg` hook applies to both Swift
+and Rust commits — conventional commit format, max 2 lines, no `Co-Authored-By:
+Claude`.
+
+Before pushing, run `runner/scripts/ci/pre-push-validate.sh` from the runner
+directory. The script stamps `.git/validation-passed` for 15 minutes; the
+pre-push hook checks the marker before allowing the push.
+
 ## Git Workflow: NO Pull Requests
 
 **CRITICAL: NEVER create Pull Requests. All merges happen locally via squash merge.**

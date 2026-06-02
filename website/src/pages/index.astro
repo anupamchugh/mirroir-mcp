@@ -520,6 +520,67 @@ if (!skillsAvailable) {
     </p>
   </section>
 
+  <!-- mirroir-run: cross-platform replay -->
+  <section id="mirroir-run">
+    <h2>Replay anywhere with <code>mirroir-run</code></h2>
+    <p>
+      <strong>mirroir-mcp</strong> captures scenarios on iOS &mdash; AX + OCR + BFS exploration. <strong>mirroir-run</strong> replays those same scenarios on Linux CI against web, process, and HTTP surfaces. Same YAML grammar, different runtime, one verdict.
+    </p>
+    <p>
+      A single-binary Rust crate (<code>runner/</code> in this repo). Web steps compile to a Playwright <code>.spec.ts</code> and run across chromium, firefox, and webkit. Process and HTTP steps dispatch natively. An LLM judge step scores agent responses against expected signals; drift detection catches output divergence vs. a baseline.
+    </p>
+
+    <div class="pipeline-grid">
+      <div class="pipeline-step">
+        <div class="pipeline-icon">1</div>
+        <h3>Validate</h3>
+        <p>Parse a scenario YAML against the SkillStep grammar &mdash; gate CI on author quality before anything spawns.</p>
+        <div class="pipeline-cmd">
+          <code>mirroir-run --validate scenario.yaml</code>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">2</div>
+        <h3>Compile</h3>
+        <p>Preview the emitted Playwright spec + config that the runner would invoke. Stdout-friendly for piping or review.</p>
+        <div class="pipeline-cmd">
+          <code>mirroir-run --compile-scenario scenario.yaml</code>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">3</div>
+        <h3>Run</h3>
+        <p>Execute one scenario end-to-end. Process / HTTP / web steps dispatch in order; web batches go to Playwright.</p>
+        <div class="pipeline-cmd">
+          <code>mirroir-run --run-scenario scenario.yaml</code>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">4</div>
+        <h3>Sample</h3>
+        <p>Drive a full <code>SAMPLE.md</code>: boot once, run N scenarios sharing the subprocess, aggregate verdicts.</p>
+        <div class="pipeline-cmd">
+          <code>mirroir-run --sample samples/foo</code>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">5</div>
+        <h3>Diff</h3>
+        <p>Standalone drift check between two text files &mdash; Jaccard fingerprint + Levenshtein, exit-coded for CI.</p>
+        <div class="pipeline-cmd">
+          <code>mirroir-run --diff-text a.txt b.txt</code>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      The reference sample <a href="https://github.com/jfarcand/iphone-mirroir-mcp/tree/main/runner/samples/mega-sample" rel="noopener noreferrer"><code>runner/samples/mega-sample/</code></a> exercises every primitive in one run: cross-browser web (chromium + firefox + webkit), HTTP probe, LLM judge against a local Ollama daemon, drift detection vs. a captured baseline, and cross-surface equivalence (web ↔ iOS captures). Deterministic at <code>temperature=0</code>, free per run, no remote LLM dependency in CI.
+    </p>
+    <p>
+      Reference docs live under <a href="https://github.com/jfarcand/iphone-mirroir-mcp/tree/main/runner/docs" rel="noopener noreferrer"><code>runner/docs/</code></a>: scenario grammar, <code>SAMPLE.md</code> schema, judge profiles, Playwright setup, CI integration.
+    </p>
+  </section>
+
   <!-- Skills -->
   <section>
     <h2>Repeatable flows: Skills</h2>

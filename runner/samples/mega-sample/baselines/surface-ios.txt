@@ -1,0 +1,1 @@
+Atmosphere transports include WebSocket, SSE and long-polling for real-time apps.

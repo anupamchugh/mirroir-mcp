@@ -1,0 +1,14 @@
+version: 1
+name: judge + drift — local Ollama scores response, drift compared to baseline
+steps:
+  - spawn: { id: session, from: SAMPLE.md }
+  - judge:
+      profile: byte-stable
+      user_prompt_template_hash: "sha256:abc"
+      response_selector: "[data-test=reply]"
+      pass_threshold: 0.6
+      pass_threshold_tolerance: 0.2
+      expected_signal: "summary mentions WebSocket and SSE transports"
+      response_text: "Atmosphere supports WebSocket, SSE, and long-polling transports for real-time apps."
+      response_drift: { max_levenshtein_pct: 0.15 }
+      drift_baseline_file: "${MIRROIR_SAMPLE_DIR}/baselines/judge.txt"

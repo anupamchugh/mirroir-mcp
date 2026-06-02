@@ -16,12 +16,87 @@ name = "mirroir-run"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
 clap = { version = "4", features = ["derive", "env"] }
+hex = "0.4"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+shell-words = "1"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", default-features = false, features = ["signal"] }
+
+# Note: anyhow is intentionally NOT a dependency. All fallible operations
+# return `crate::error::Result<T>` backed by the structured `RunnerError`
+# thiserror enum. The `anyhow!()` macro is forbidden and `clippy.toml`
+# disallows `anyhow::Context`.
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+
 [profile.release]
 lto = "thin"
-codegen-units = 1
-strip = "symbols"
+codegen-units = 16
+panic = "abort"
+strip = true
+
+[profile.release-lto]
+inherits = "release"
+lto = "fat"
+
+# ============================================================================
+# Lint Configuration
+# ============================================================================
+# ZERO TOLERANCE ENFORCEMENT
+# cargo clippy reads this table and applies level = "deny" — every clippy
+# warning is an ERROR. Compatible with the strict-Rust posture other binaries
+# in this ecosystem apply; one set of rules everywhere.
+
+[lints.rust]
+# STRICT UNSAFE CODE POLICY: zero tolerance with whitelisted exceptions.
+# mirroir-run has no FFI surface; any unsafe usage is a hard fail.
+unsafe_code = "deny"
+
+# Warn on missing documentation for public APIs.
+missing_docs = "warn"
+
+[lints.clippy]
+# Base configuration: enable all clippy lint groups at DENY level.
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+# ── Critical denials — error-handling anti-patterns ──
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+# ── Allowed exceptions ──
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+missing_const_for_fn = "allow"
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+significant_drop_tightening = "allow"
+cognitive_complexity = "deny"
+
+# ── Additional code quality lints ──
+clone_on_copy = "warn"
+redundant_clone = "warn"
+await_holding_lock = "warn"
+str_to_string = "deny"
+module_name_repetitions = "allow"
+uninlined_format_args = "warn"
+map_unwrap_or = "warn"
+absolute_paths = "deny"
+disallowed_methods = "deny"
