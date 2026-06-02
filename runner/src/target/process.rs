@@ -138,6 +138,13 @@ impl ProcessRegistry {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true);
+        // Put the child in its own process group (pgid == child pid) so kill can
+        // signal the whole tree — a `sh -c '<cmd>'` forks `<cmd>`, and killing
+        // only the shell would orphan it (and leave the stdout/stderr pipe open,
+        // hanging the log-pump join). Group teardown also stops real boot trees
+        // (server + forked workers) leaking across samples.
+        #[cfg(unix)]
+        cmd.process_group(0);
 
         let mut child = cmd.spawn().map_err(|source| RunnerError::ProcessSpawn {
             id: args.id.clone(),
@@ -221,19 +228,20 @@ impl ProcessRegistry {
         let graceful = if natural {
             true
         } else {
-            send_sigterm(&args.id, &child);
+            // Signal the whole process GROUP, not just the direct child: a
+            // `sh -c '<cmd>'` forks `<cmd>` as a child, and that grandchild
+            // inherits the stdout/stderr pipe. Killing only the shell orphans
+            // the grandchild, which keeps the pipe open and blocks the log-pump
+            // join below until the grandchild exits on its own. Group signalling
+            // also stops real boot trees (server + workers) leaking across
+            // samples.
+            send_group_sigterm(&args.id, &child);
             let sigterm_grace = Duration::from_secs(u64::from(args.grace_s));
             let exited_via_sigterm =
                 matches!(timeout(sigterm_grace, child.wait()).await, Ok(Ok(_)));
             if !exited_via_sigterm {
                 debug!(id = %args.id, "SIGTERM grace expired, sending SIGKILL");
-                child
-                    .start_kill()
-                    .map_err(|source| RunnerError::ProcessControl {
-                        id: args.id.clone(),
-                        context: "SIGKILL".to_owned(),
-                        source,
-                    })?;
+                send_group_sigkill(&args.id, &child);
                 let _ = child.wait().await;
             }
             exited_via_sigterm
@@ -382,23 +390,44 @@ impl ProcessRegistry {
     }
 }
 
+/// Send `signal` to the child's entire process group (negative pid). The child
+/// leads its own group (spawned with `process_group(0)`), so forked
+/// grandchildren — e.g. the `sleep` a `sh -c 'sleep 30'` forks — are signalled
+/// too, instead of being orphaned with the stdout/stderr pipe still open.
+/// Errors (already-gone group, etc.) are logged, not propagated.
 #[cfg(unix)]
-fn send_sigterm(id: &str, child: &Child) {
+fn signal_group(id: &str, child: &Child, signal: Signal) {
     let Some(pid) = child.id() else {
-        warn!(id = %id, "child has no pid; skipping SIGTERM");
+        warn!(id = %id, "child has no pid; skipping {signal:?}");
         return;
     };
     let pid_i32 = i32::try_from(pid).unwrap_or(i32::MAX);
-    if let Err(err) = kill(Pid::from_raw(pid_i32), Signal::SIGTERM) {
-        warn!(id = %id, error = %err, "SIGTERM failed; falling back to SIGKILL");
+    // Negative pid targets the process group whose id == the child's pid.
+    if let Err(err) = kill(Pid::from_raw(-pid_i32), signal) {
+        warn!(id = %id, error = %err, "{signal:?} to process group failed");
     } else {
-        debug!(id = %id, "sent SIGTERM");
+        debug!(id = %id, "sent {signal:?} to process group");
     }
 }
 
+#[cfg(unix)]
+fn send_group_sigterm(id: &str, child: &Child) {
+    signal_group(id, child, Signal::SIGTERM);
+}
+
+#[cfg(unix)]
+fn send_group_sigkill(id: &str, child: &Child) {
+    signal_group(id, child, Signal::SIGKILL);
+}
+
 #[cfg(not(unix))]
-fn send_sigterm(_id: &str, _child: &Child) {
-    // Non-unix platforms have no SIGTERM; the SIGKILL path on grace expiry handles it.
+fn send_group_sigterm(_id: &str, _child: &Child) {
+    // Non-unix platforms have no process groups; kill_on_drop handles teardown.
+}
+
+#[cfg(not(unix))]
+fn send_group_sigkill(_id: &str, _child: &Child) {
+    // Non-unix platforms have no process groups; kill_on_drop handles teardown.
 }
 
 /// Pump stdout + stderr from a running [`Child`] into a single log file.
@@ -622,7 +651,13 @@ mod tests {
     async fn wait_port_open_resolves_for_ipv6_only_listener() -> TestResult {
         // Vite binds [::1] (IPv6 loopback) when listening on "localhost"; an
         // IPv4-only probe would miss it. wait_port must see the IPv6 listener.
-        let listener = TcpListener::bind("[::1]:0").await?;
+        // Some sandboxes (default Docker networks) have no IPv6 loopback, so the
+        // listener bind itself fails — skip there rather than report a false
+        // failure; environments with IPv6 (CI runners, macOS) exercise it fully.
+        let Ok(listener) = TcpListener::bind("[::1]:0").await else {
+            eprintln!("skipping: no IPv6 loopback available in this environment");
+            return Ok(());
+        };
         let SocketAddr::V6(addr) = listener.local_addr()? else {
             return Err("expected IPv6 listener".into());
         };
