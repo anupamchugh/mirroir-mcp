@@ -66,7 +66,11 @@ Errors: `UnknownProcess`, `ProcessControl`.
 
 ### `wait_port`
 
-Block until a TCP port reaches the expected state.
+Block until a TCP port reaches the expected state. Both loopback addresses are
+probed — IPv4 `127.0.0.1` **and** IPv6 `[::1]` — so dev servers that bind only
+one are detected either way (Vite, for example, binds `[::1]` when told to
+listen on `localhost`). `expect: open` resolves once either connects; `expect:
+closed` once both refuse.
 
 ```yaml
 - wait_port: { port: 8081, timeout_s: 30, expect: open }   # expect: open|closed
@@ -148,16 +152,42 @@ web step of any web batch.
 ### `tap`, `type`, `wait_for`, `assert_visible`, `assert_not_visible`
 
 Click a labelled element / type into the focused element / wait for label /
-assert visibility. Labels resolve via `[data-test="<label>"]` first, then
-`page.getByText(<label>, { exact: true })`.
+assert visibility. A label resolves in three ways, in priority order:
+
+1. **Raw CSS / locator passthrough** — label starts with one of `[ # . : > *`
+   → `page.locator(label)`. Use for form fields and attribute selectors:
+   `[name="email"]`, `[placeholder^="Type a message"]`, `.message--assistant`.
+2. **Playwright locator-engine passthrough** — label starts with `role=`,
+   `text=`, `xpath=`, `css=`, `id=`, or `data-testid=` → `page.locator(label)`.
+   This is the workhorse for accessible apps (ARIA role + accessible name):
+   `role=button[name="Send message"]`, `role=heading[name="Settings"]`.
+3. **Otherwise** → `[data-test="<label>"]` **OR**
+   `page.getByText(<label>, { exact: true })`.
 
 ```yaml
-- tap: "send"                                       # or { label: "send" }
+- tap: "role=button[name=\"Send message\"]"          # role engine (preferred for real apps)
+- tap: "[name=\"email\"]"                            # raw CSS for inputs
 - type: "hello mirroir"
-- wait_for: { label: "delivered", timeout_s: 10 }   # default 30s
-- assert_visible: "delivered"
+- wait_for: { label: "text=claude-opus", timeout_s: 60 }  # text= = substring; survives version bumps
+- assert_visible: "role=heading[name=\"Directory listing for /\"]"
 - assert_not_visible: "Error toast"
 ```
+
+Selector gotchas (each surfaced by real onboarding):
+
+- **`role=…[name="X"]` matches the accessible name EXACTLY** (trimmed,
+  case-insensitive) — not a substring. It won't match an element whose
+  accessible name is a longer concatenation (e.g. a card `<button>` whose name
+  is title + description). Target the unique inner text node instead (bare
+  text → `getByText`, which the click bubbles up), or use `text=`.
+- **`text=` is a substring match**; bare text (no prefix) is **exact** via
+  `getByText`. A label with a trailing count/badge ("Pending Users (3)") needs
+  `text=Pending Users`, not the bare exact form.
+- **Duplicate matches** (label resolves to >1 element → Playwright strict-mode
+  error) → append `>> nth=0`: `role=button[name="Create Group"] >> nth=0`.
+- Trust the accessible name from a browser **accessibility tree** snapshot, not
+  `el.textContent` — they differ (e.g. a tab reads `Pending 3` with a space in
+  the a11y name even when `textContent` is `Pending3`).
 
 ### `press_key`
 
