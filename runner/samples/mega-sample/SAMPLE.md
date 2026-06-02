@@ -23,6 +23,7 @@ session:
   scenarios:
     must_pass:
       - scenarios/web-cross-browser.yaml
+      - scenarios/web-locator-engines.yaml
       - scenarios/http-probe.yaml
       - scenarios/judge-and-drift.yaml
       - scenarios/cross-surface.yaml
