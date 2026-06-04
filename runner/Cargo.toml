@@ -13,6 +13,11 @@ readme = "README.md"
 # (where `if let … && let …` let-chains stabilized), but we standardize on the
 # latest stable release rather than supporting older toolchains.
 rust-version = "1.96"
+keywords = ["testing", "e2e", "playwright", "scenario", "automation"]
+categories = ["development-tools::testing", "command-line-utilities"]
+# Ship a lean binary crate: source + README + license only. Dev/CI fixtures
+# (samples/, docs/, scripts/, deny.toml, clippy.toml) are not part of the crate.
+include = ["src/**", "README.md", "LICENSE"]
 
 [[bin]]
 name = "mirroir-run"
