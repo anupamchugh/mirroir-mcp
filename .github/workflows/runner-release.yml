@@ -1,0 +1,276 @@
+name: Runner Release
+
+# Releases the Rust `mirroir-run` binary (lives in runner/) independently of the
+# Swift MCP server. Its own tag namespace `runner-v*` avoids colliding with the
+# Swift `v*` tags. Manual dispatch bumps runner/Cargo.toml, tags, cross-builds
+# native binaries for macOS/Linux/Windows, publishes a GitHub Release + crates.io,
+# and updates the shared Homebrew tap.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump for mirroir-run'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Bump & tag (runner-v*)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version in runner/Cargo.toml
+        id: bump
+        working-directory: runner
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+          case "${{ inputs.bump }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          VERSION="${major}.${minor}.${patch}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Bumping mirroir-run ${CURRENT} → ${VERSION}"
+          sed -i "0,/^version = \"${CURRENT}\"/s//version = \"${VERSION}\"/" Cargo.toml
+          cargo update -p mirroir-run --precise "${VERSION}" 2>/dev/null || cargo generate-lockfile
+
+      - name: Commit version bump
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.bump.outputs.version }}"
+          git add runner/Cargo.toml runner/Cargo.lock
+          git commit -m "release(runner): mirroir-run v${VERSION}"
+          git push origin HEAD:main
+
+      - name: Create tag via API
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          gh api repos/${{ github.repository }}/git/refs \
+            -f ref="refs/tags/runner-v$VERSION" \
+            -f sha="$SHA"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner-v${{ needs.version.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner -> target
+
+      - name: Install musl build tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build release binary
+        working-directory: runner
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        working-directory: runner
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.version.outputs.version }}"
+          TARGET="${{ matrix.target }}"
+          DIR="mirroir-run-v${VERSION}-${TARGET}"
+          mkdir "$DIR"
+          cp "target/${TARGET}/release/mirroir-run" "$DIR/"
+          cp README.md LICENSE "$DIR/"
+          tar czf "${DIR}.tar.gz" "$DIR"
+          shasum -a 256 "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        working-directory: runner
+        shell: pwsh
+        run: |
+          $VERSION = "${{ needs.version.outputs.version }}"
+          $TARGET  = "${{ matrix.target }}"
+          $DIR     = "mirroir-run-v${VERSION}-${TARGET}"
+          New-Item -ItemType Directory -Path $DIR | Out-Null
+          Copy-Item "target/${TARGET}/release/mirroir-run.exe" "$DIR/"
+          Copy-Item README.md, LICENSE "$DIR/"
+          Compress-Archive -Path "$DIR/*" -DestinationPath "${DIR}.zip"
+          (Get-FileHash "${DIR}.zip" -Algorithm SHA256).Hash.ToLower() | Out-File -Encoding ascii "${DIR}.zip.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirroir-run-${{ matrix.target }}
+          path: runner/mirroir-run-v*
+          retention-days: 7
+
+  publish:
+    name: GitHub Release + crates.io
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner-v${{ needs.version.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: mirroir-run-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: runner-v${{ needs.version.outputs.version }}
+          name: mirroir-run v${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: artifacts/mirroir-run-v*
+
+      - name: Publish to crates.io
+        working-directory: runner
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        # Treat ONLY "already uploaded" as benign (re-run after a partial
+        # release); every other error (auth, verify, missing dep) fails the job.
+        run: |
+          set -euo pipefail
+          if cargo publish --locked 2>&1 | tee /tmp/publish.log; then
+            exit 0
+          fi
+          if grep -q "is already uploaded" /tmp/publish.log; then
+            echo "::warning::mirroir-run version already on crates.io — skipping"
+            exit 0
+          fi
+          echo "::error::cargo publish failed; see log above"
+          exit 1
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: [version, build, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: dravr-ai/homebrew-tap
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Download artifacts (for sha256)
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: mirroir-run-*
+          merge-multiple: true
+
+      - name: Write formula
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="artifacts/mirroir-run-v${VERSION}"
+          SHA_ARM=$(awk '{print $1}' "${base}-aarch64-apple-darwin.tar.gz.sha256")
+          SHA_X86=$(awk '{print $1}' "${base}-x86_64-apple-darwin.tar.gz.sha256")
+          SHA_LNX=$(awk '{print $1}' "${base}-x86_64-unknown-linux-gnu.tar.gz.sha256")
+          rel="https://github.com/jfarcand/mirroir-mcp/releases/download/runner-v#{version}"
+          cat > Formula/mirroir-run.rb <<FORMULA
+          # typed: false
+          # frozen_string_literal: true
+
+          class MirroirRun < Formula
+            desc "Cross-platform replayer for mirroir SkillStep YAML scenarios (web/process/http)"
+            homepage "https://github.com/jfarcand/mirroir-mcp"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "${rel}/mirroir-run-v#{version}-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_ARM}"
+              else
+                url "${rel}/mirroir-run-v#{version}-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_X86}"
+              end
+            end
+
+            on_linux do
+              url "${rel}/mirroir-run-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
+              sha256 "${SHA_LNX}"
+            end
+
+            def install
+              bin.install "mirroir-run"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/mirroir-run --version")
+            end
+          end
+          FORMULA
+          sed -i 's/^          //' Formula/mirroir-run.rb
+
+      - name: Commit & push
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/mirroir-run.rb
+          git commit -m "chore: mirroir-run v${VERSION}"
+          git push

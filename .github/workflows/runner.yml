@@ -26,8 +26,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Rust edition 2024 requires 1.85+; bumping requires Cargo.toml's
-  # rust-version field to move in lockstep.
+  # MSRV is declared in runner/Cargo.toml (rust-version = 1.96); CI builds on
+  # latest stable. Keep that field accurate when language features change.
   RUST_TOOLCHAIN: stable
   # Suppress Cargo's interactive progress; CI logs are nicer without it.
   CARGO_TERM_COLOR: always
@@ -447,3 +447,26 @@ jobs:
           if [ -f /tmp/ollama.pid ]; then
             kill "$(cat /tmp/ollama.pid)" 2>/dev/null || true
           fi
+
+  # Rehearse `cargo publish` so crates.io packaging never silently drifts from
+  # the source tree (catches bad metadata / excluded files / build breakage
+  # before a release). Mirrors runner-release.yml's publish job — no token, no
+  # upload.
+  publish-rehearsal:
+    name: cargo publish --dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner -> target
+          shared-key: runner-publish-rehearsal
+      - name: cargo publish --dry-run
+        working-directory: runner
+        run: cargo publish --dry-run --locked
