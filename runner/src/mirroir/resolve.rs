@@ -211,10 +211,10 @@ fn resolve_version_from_constraint(
     if let Some(v) = locked_version {
         return Ok(v.to_owned());
     }
-    if let Some(v) = ref_constraint {
-        if let Some(parsed) = parse_exact_version(v) {
-            return Ok(format!("{}.{}.{}", parsed.0, parsed.1, parsed.2));
-        }
+    if let Some(v) = ref_constraint
+        && let Some(parsed) = parse_exact_version(v)
+    {
+        return Ok(format!("{}.{}.{}", parsed.0, parsed.1, parsed.2));
     }
     let entries = read_installed_versions(root)?;
     let constraint = Constraint::parse(ref_constraint.unwrap_or(""));
