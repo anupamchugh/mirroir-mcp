@@ -9,7 +9,10 @@ license = "Apache-2.0"
 description = "Cross-platform replayer for mirroir SkillStep YAML scenarios — drives web (Chrome via CDP, Firefox/WebKit via WebDriver), generic process, and HTTP targets."
 repository = "https://github.com/jfarcand/mirroir-mcp"
 readme = "README.md"
-rust-version = "1.85"
+# Policy floor: track current stable. The code's *technical* minimum is 1.88
+# (where `if let … && let …` let-chains stabilized), but we standardize on the
+# latest stable release rather than supporting older toolchains.
+rust-version = "1.96"
 
 [[bin]]
 name = "mirroir-run"
