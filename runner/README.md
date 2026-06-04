@@ -27,7 +27,22 @@ Two secret design gists hold the locked specification:
   — how we got here (Rust vs. Swift, the Playwright decision, the
   agent + chrome-devtools-mcp canonical chrome recorder).
 
+## Install
+
+```bash
+# crates.io
+cargo install mirroir-run
+
+# Homebrew
+brew install dravr-ai/tap/mirroir-run
+```
+
+Prebuilt binaries for macOS (Intel + Apple Silicon), Linux (gnu + musl), and
+Windows are attached to each [`runner-v*` release](https://github.com/jfarcand/mirroir-mcp/releases).
+
 ## Build
+
+To build from source (contributors):
 
 ```bash
 cd runner

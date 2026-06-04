@@ -445,6 +445,52 @@ When a vision element ends with a mapped suffix (e.g. "Entraînements chevron"),
 
 See [Component Detection](docs/components.md) for the full definition format, match rule reference, and the detection pipeline.
 
+## Replay anywhere with `mirroir-run`
+
+`mirroir-mcp` captures scenarios on iOS — AX + OCR + BFS exploration. `mirroir-run` replays the same SkillStep YAML on Linux CI against **web, process, and HTTP** surfaces. Same grammar, different runtime, one verdict. It's a single Rust binary (`runner/` in this repo), independent of the Swift server.
+
+Drop a `.mirroir/` directory in any repo and `mirroir-run` discovers it from the working directory:
+
+```
+your-app/
+└── .mirroir/
+    ├── mirroir.yaml          # the plan: must-pass / nice-to-pass entries
+    └── apps/<sample>/
+        ├── SAMPLE.md         # how to boot the app under test
+        ├── APP.md            # structure, obstacles, skip lists
+        └── scenarios/*.yaml  # SkillStep flows to replay
+```
+
+```bash
+cd your-app
+mirroir-run                          # discover .mirroir/, replay the must-pass plan
+mirroir-run --scenarios all          # include nice-to-pass entries too
+```
+
+Each plan entry either points at a `local:` sample tree or extends a shared **archetype** (`archetypes: ["<pack>/<name>@<ver>"]`) with per-instance `vars:` and `boot:`. An archetype captures a reusable app shape — say, an AI chat console — once, and parameterizes it per app.
+
+Web steps compile to a Playwright `.spec.ts` and run across chromium, firefox, and webkit. Selectors resolve three ways: raw CSS, Playwright engine prefixes (`role=button[name="Save"]`, `text=Welcome`, `xpath=…`), or `data-test` + visible text. Process and HTTP steps dispatch natively; an LLM judge step scores agent responses against expected signals, and drift detection catches output divergence vs. a baseline.
+
+| Mode | Command |
+|---|---|
+| Validate a scenario against the grammar | `mirroir-run --validate scenario.yaml` |
+| Preview the emitted Playwright spec | `mirroir-run --compile-scenario scenario.yaml` |
+| Run one scenario end-to-end | `mirroir-run --run-scenario scenario.yaml` |
+| Boot a sample dir, run its scenarios | `mirroir-run --sample .mirroir/apps/foo` |
+| Standalone text drift check | `mirroir-run --diff-text a.txt b.txt` |
+
+### Install `mirroir-run`
+
+```bash
+# crates.io
+cargo install mirroir-run
+
+# Homebrew
+brew install dravr-ai/tap/mirroir-run
+```
+
+Prebuilt binaries for macOS (Intel + Apple Silicon), Linux (gnu + musl), and Windows are attached to each [`runner-v*` release](https://github.com/jfarcand/mirroir-mcp/releases). See [`runner/docs/`](runner/docs/) for the scenario grammar, `SAMPLE.md` schema, judge profiles, and CI integration.
+
 ## Security
 
 Giving an AI access to your phone demands defense in depth. mirroir-mcp is **fail-closed** at every layer.
@@ -549,6 +595,7 @@ See [Configuration Reference](docs/configuration.md) for all 40+ settings coveri
 | [YOLO Icon Detection](docs/yolo-models.md) | Recommended YOLO models, CoreML setup, and configuration |
 | [Compiled Skills](docs/compiled-skills.md) | Zero-OCR skill replay |
 | [Testing](docs/testing.md) | FakeMirroring, integration tests, and CI strategy |
+| [Cross-surface replay](runner/docs/) | `mirroir-run` scenario grammar, `.mirroir/` plan, `SAMPLE.md`, judge profiles, CI |
 | [Troubleshooting](docs/troubleshooting.md) | Debug mode and common issues |
 | [Contributing](CONTRIBUTING.md) | How to add tools, commands, and tests |
 | [Skills Marketplace](docs/skills-marketplace.md) | Skill format, plugin discovery, and authoring |

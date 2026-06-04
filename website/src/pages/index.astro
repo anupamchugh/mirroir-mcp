@@ -12,6 +12,8 @@ const version = serverJson.version;
 const curlCmd = '/bin/bash -c "$(curl -fsSL https://mirroir.dev/get-mirroir.sh)"';
 const npxCmd = "npx -y mirroir-mcp install";
 const brewCmd = "brew tap jfarcand/tap && brew install mirroir-mcp";
+const runnerCargoCmd = "cargo install mirroir-run";
+const runnerBrewCmd = "brew install dravr-ai/tap/mirroir-run";
 
 const permissionsCode = `{
   "allow": ["tap", "swipe", "type_text", "press_key", "launch_app"],
@@ -527,7 +529,10 @@ if (!skillsAvailable) {
       <strong>mirroir-mcp</strong> captures scenarios on iOS &mdash; AX + OCR + BFS exploration. <strong>mirroir-run</strong> replays those same scenarios on Linux CI against web, process, and HTTP surfaces. Same YAML grammar, different runtime, one verdict.
     </p>
     <p>
-      A single-binary Rust crate (<code>runner/</code> in this repo). Web steps compile to a Playwright <code>.spec.ts</code> and run across chromium, firefox, and webkit. Process and HTTP steps dispatch natively. An LLM judge step scores agent responses against expected signals; drift detection catches output divergence vs. a baseline.
+      A single-binary Rust crate (<code>runner/</code> in this repo). Web steps compile to a Playwright <code>.spec.ts</code> and run across chromium, firefox, and webkit &mdash; selectors resolve as raw CSS, Playwright engine prefixes (<code>role=button[name="Save"]</code>, <code>text=Welcome</code>), or <code>data-test</code> + visible text. Process and HTTP steps dispatch natively. An LLM judge step scores agent responses against expected signals; drift detection catches output divergence vs. a baseline.
+    </p>
+    <p>
+      Drop a <code>.mirroir/</code> directory in any repo and a bare <code>mirroir-run</code> discovers it from the working directory, then replays the plan in <code>mirroir.yaml</code>. Each entry points at a <code>local:</code> sample tree or extends a shared <strong>archetype</strong> (<code>archetypes: ["&lt;pack&gt;/&lt;name&gt;@&lt;ver&gt;"]</code>) with per-instance <code>vars:</code> and <code>boot:</code> &mdash; capture a reusable app shape once, parameterize it per app.
     </p>
 
     <div class="pipeline-grid">
@@ -574,10 +579,24 @@ if (!skillsAvailable) {
     </div>
 
     <p>
-      The reference sample <a href="https://github.com/jfarcand/iphone-mirroir-mcp/tree/main/runner/samples/mega-sample" rel="noopener noreferrer"><code>runner/samples/mega-sample/</code></a> exercises every primitive in one run: cross-browser web (chromium + firefox + webkit), HTTP probe, LLM judge against a local Ollama daemon, drift detection vs. a captured baseline, and cross-surface equivalence (web ↔ iOS captures). Deterministic at <code>temperature=0</code>, free per run, no remote LLM dependency in CI.
+      The reference sample <a href="https://github.com/jfarcand/mirroir-mcp/tree/main/runner/samples/mega-sample" rel="noopener noreferrer"><code>runner/samples/mega-sample/</code></a> exercises every primitive in one run: cross-browser web (chromium + firefox + webkit), HTTP probe, LLM judge against a local Ollama daemon, drift detection vs. a captured baseline, and cross-surface equivalence (web ↔ iOS captures). Deterministic at <code>temperature=0</code>, free per run, no remote LLM dependency in CI.
     </p>
     <p>
-      Reference docs live under <a href="https://github.com/jfarcand/iphone-mirroir-mcp/tree/main/runner/docs" rel="noopener noreferrer"><code>runner/docs/</code></a>: scenario grammar, <code>SAMPLE.md</code> schema, judge profiles, Playwright setup, CI integration.
+      Reference docs live under <a href="https://github.com/jfarcand/mirroir-mcp/tree/main/runner/docs" rel="noopener noreferrer"><code>runner/docs/</code></a>: scenario grammar, <code>SAMPLE.md</code> schema, judge profiles, Playwright setup, CI integration.
+    </p>
+
+    <p class="install-hint">Install the runner:</p>
+    <div class="install-block">
+      <code><span class="prompt">$</span> {runnerCargoCmd}</code>
+      <button class="copy-btn" data-copy={runnerCargoCmd}>Copy</button>
+    </div>
+    <p class="alt-install">or via Homebrew:</p>
+    <div class="install-block install-block-alt">
+      <code><span class="prompt">$</span> {runnerBrewCmd}</code>
+      <button class="copy-btn" data-copy={runnerBrewCmd}>Copy</button>
+    </div>
+    <p class="alt-install">
+      or grab a prebuilt binary for macOS / Linux / Windows from the <a href="https://github.com/jfarcand/mirroir-mcp/releases" rel="noopener noreferrer"><code>runner-v*</code> releases</a>.
     </p>
   </section>
 
