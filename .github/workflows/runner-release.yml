@@ -227,7 +227,7 @@ jobs:
           SHA_ARM=$(awk '{print $1}' "${base}-aarch64-apple-darwin.tar.gz.sha256")
           SHA_X86=$(awk '{print $1}' "${base}-x86_64-apple-darwin.tar.gz.sha256")
           SHA_LNX=$(awk '{print $1}' "${base}-x86_64-unknown-linux-gnu.tar.gz.sha256")
-          rel="https://github.com/jfarcand/mirroir-mcp/releases/download/runner-v#{version}"
+          rel="https://github.com/jfarcand/mirroir-mcp/releases/download/runner-v${VERSION}"
           cat > Formula/mirroir-run.rb <<FORMULA
           # typed: false
           # frozen_string_literal: true
@@ -235,22 +235,24 @@ jobs:
           class MirroirRun < Formula
             desc "Cross-platform replayer for mirroir SkillStep YAML scenarios (web/process/http)"
             homepage "https://github.com/jfarcand/mirroir-mcp"
-            version "${VERSION}"
             license "Apache-2.0"
 
             on_macos do
-              if Hardware::CPU.arm?
-                url "${rel}/mirroir-run-v#{version}-aarch64-apple-darwin.tar.gz"
+              on_arm do
+                url "${rel}/mirroir-run-v${VERSION}-aarch64-apple-darwin.tar.gz"
                 sha256 "${SHA_ARM}"
-              else
-                url "${rel}/mirroir-run-v#{version}-x86_64-apple-darwin.tar.gz"
+              end
+              on_intel do
+                url "${rel}/mirroir-run-v${VERSION}-x86_64-apple-darwin.tar.gz"
                 sha256 "${SHA_X86}"
               end
             end
 
             on_linux do
-              url "${rel}/mirroir-run-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
-              sha256 "${SHA_LNX}"
+              on_intel do
+                url "${rel}/mirroir-run-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_LNX}"
+              end
             end
 
             def install
