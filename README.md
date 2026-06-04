@@ -486,7 +486,7 @@ Web steps compile to a Playwright `.spec.ts` and run across chromium, firefox, a
 cargo install mirroir-run
 
 # Homebrew
-brew install dravr-ai/tap/mirroir-run
+brew install jfarcand/tap/mirroir-run
 ```
 
 Prebuilt binaries for macOS (Intel + Apple Silicon), Linux (gnu + musl), and Windows are attached to each [`runner-v*` release](https://github.com/jfarcand/mirroir-mcp/releases). See [`runner/docs/`](runner/docs/) for the scenario grammar, `SAMPLE.md` schema, judge profiles, and CI integration.

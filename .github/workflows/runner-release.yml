@@ -208,7 +208,7 @@ jobs:
       - name: Checkout tap
         uses: actions/checkout@v4
         with:
-          repository: dravr-ai/homebrew-tap
+          repository: jfarcand/homebrew-tap
           token: ${{ secrets.RELEASE_PAT }}
 
       - name: Download artifacts (for sha256)

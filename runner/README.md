@@ -34,7 +34,7 @@ Two secret design gists hold the locked specification:
 cargo install mirroir-run
 
 # Homebrew
-brew install dravr-ai/tap/mirroir-run
+brew install jfarcand/tap/mirroir-run
 ```
 
 Prebuilt binaries for macOS (Intel + Apple Silicon), Linux (gnu + musl), and
