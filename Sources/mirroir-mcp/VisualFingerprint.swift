@@ -1,3 +1,6 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
 // ABOUTME: Perceptual hash (pHash) of screenshots for visual state identity.
 // ABOUTME: Secondary fingerprint signal that catches visual-only state changes OCR misses.
 
@@ -7,7 +10,8 @@ import ImageIO
 
 /// Perceptual hashing for screenshot-based visual state comparison.
 /// Uses a DCT-based approach: resize to 32x32 grayscale, compute DCT,
-/// threshold the low-frequency 8x8 block to produce a compact 64-bit hash.
+/// threshold the low-frequency 8x8 block — excluding the DC coefficient at
+/// [0,0] — to produce a compact 63-bit hash.
 /// Two hashes can be compared via Hamming distance for visual similarity.
 enum VisualFingerprint {
 

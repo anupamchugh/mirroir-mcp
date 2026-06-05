@@ -5,35 +5,23 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::mem;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use clap::ValueEnum;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::compile::invoke::PlaywrightRunner;
-use crate::compile::playwright::compile_scenario;
+use crate::compile::playwright::{ResponseCapture, compile_scenario_with_captures};
 use crate::error::{Result, RunnerError};
-use crate::oracle::drift::{DriftVerdict, Fingerprint, detect_drift, jaccard_similarity};
-use crate::oracle::judge::{JudgeRegistry, enforce_threshold, run_judge};
 use crate::parser::env::substitute;
 use crate::parser::sample::{SAMPLE_SCHEMA_VERSION, SampleManifest, extract_yaml_block};
 use crate::parser::scenario::{SCHEMA_VERSION, Scenario};
-use crate::parser::step::{
-    CrossSurfaceArgs, JudgeArgs, KillArgs, PortState, SkillStep, SpawnArgs, WaitPortArgs,
-};
+use crate::parser::step::{JudgeArgs, SkillStep};
+use crate::replay_dispatch::{dispatch_cross_surface, dispatch_judge, judge_capture_file};
+use crate::replay_sample::resolve_spawn_args;
 use crate::target::http::HttpClient;
 use crate::target::process::ProcessRegistry;
 
-/// Which set of scenarios from a `SAMPLE.md` session block to drive.
-#[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum ScenarioSet {
-    /// `session.scenarios.must_pass` — these must pass for the sample to be considered green.
-    MustPass,
-    /// `session.scenarios.nice_to_pass` — informational; FAIL doesn't block the sample.
-    NiceToPass,
-    /// Both `must_pass` and `nice_to_pass`.
-    All,
-}
+pub use crate::replay_sample::{ScenarioSet, run_sample};
 
 /// Read + env-substitute + parse a scenario YAML file with `version` gating.
 ///
@@ -158,9 +146,9 @@ pub struct SampleContext<'a> {
 /// Tunables for [`run_scenario_with_context`].
 ///
 /// Default behavior: web step batches dispatched through `npx playwright test`.
-/// Set `disable_playwright = true` to fail closed if a scenario contains web
-/// steps (useful in CI lanes where Playwright isn't installed and the run
-/// should not silently skip).
+/// Set `skip_playwright = true` to log and skip web steps instead (useful in CI
+/// lanes where Playwright isn't installed); process / HTTP / `assert_log` steps
+/// still run. This skips rather than fails — web assertions are not evaluated.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReplayOptions {
     /// When true, web steps are logged and skipped instead of dispatched
@@ -214,8 +202,15 @@ pub async fn run_scenario_with_context(
             web_buffer.push(step.clone());
             continue;
         }
-        // Non-web step: flush any pending web batch before dispatching.
-        flush_web_buffer(&mut web_buffer, &scenario.name, options).await?;
+        // Non-web step: flush any pending web batch before dispatching. When a
+        // judge: step needs its response scraped from the live DOM, capture the
+        // selector's text during this final flush and read it back below.
+        let judge_capture = judge_capture_file(step, &web_buffer, options)?;
+        let capture_specs: Vec<ResponseCapture> = judge_capture
+            .as_ref()
+            .map(|(_, cap)| vec![cap.clone()])
+            .unwrap_or_default();
+        flush_web_buffer(&mut web_buffer, &scenario.name, options, &capture_specs).await?;
         info!(idx, kind = step_kind(step), "dispatching step");
         match step {
             SkillStep::Spawn(args) => {
@@ -240,7 +235,19 @@ pub async fn run_scenario_with_context(
             SkillStep::AssertLog(args) => processes.assert_log(args).await?,
             SkillStep::AssertLogClean(args) => processes.assert_log_clean(args).await?,
             SkillStep::Http(args) => http.dispatch(args).await?,
-            SkillStep::Judge(args) => dispatch_judge(args).await?,
+            SkillStep::Judge(args) => {
+                let captured;
+                let effective = if let Some((tmp, _)) = &judge_capture {
+                    captured = JudgeArgs {
+                        response_file: Some(tmp.path().display().to_string()),
+                        ..args.clone()
+                    };
+                    &captured
+                } else {
+                    args
+                };
+                dispatch_judge(effective).await?;
+            }
             SkillStep::CrossSurface(args) => dispatch_cross_surface(args)?,
             _ => info!(
                 idx,
@@ -249,8 +256,8 @@ pub async fn run_scenario_with_context(
             ),
         }
     }
-    // End-of-scenario: flush any trailing web batch.
-    flush_web_buffer(&mut web_buffer, &scenario.name, options).await?;
+    // End-of-scenario: flush any trailing web batch (no judge capture follows).
+    flush_web_buffer(&mut web_buffer, &scenario.name, options, &[]).await?;
 
     info!(file = %path.display(), name = %scenario.name, "scenario run completed");
     Ok(())
@@ -270,6 +277,7 @@ async fn flush_web_buffer(
     buffer: &mut Vec<SkillStep>,
     scenario_name: &str,
     options: ReplayOptions,
+    captures: &[ResponseCapture],
 ) -> Result<()> {
     if buffer.is_empty() {
         return Ok(());
@@ -288,7 +296,7 @@ async fn flush_web_buffer(
         tags: Vec::new(),
         steps: mem::take(buffer),
     };
-    let spec = compile_scenario(&batch_scenario)?;
+    let spec = compile_scenario_with_captures(&batch_scenario, captures)?;
     let runner = PlaywrightRunner::from_env()?;
     info!(count, browsers = ?spec.browsers, "dispatching web batch to Playwright");
     let verdict = runner.run(&spec).await?;
@@ -300,103 +308,6 @@ async fn flush_web_buffer(
         "playwright batch completed"
     );
     Ok(())
-}
-
-fn dispatch_cross_surface(args: &CrossSurfaceArgs) -> Result<()> {
-    if args.response_files.len() < 2 {
-        return Err(RunnerError::CrossSurfaceTooFewFiles {
-            count: args.response_files.len(),
-        });
-    }
-    let threshold = args.min_similarity.unwrap_or(0.7);
-    let mut bodies: Vec<(String, String)> = Vec::with_capacity(args.response_files.len());
-    for path in &args.response_files {
-        let body = fs::read_to_string(path).map_err(|source| RunnerError::Io {
-            context: format!("read cross_surface.response_files entry `{path}`"),
-            source,
-        })?;
-        bodies.push((path.clone(), body));
-    }
-
-    // Compute pairwise Jaccard similarity. Fail on the first pair below threshold.
-    for i in 0..bodies.len() {
-        for j in (i + 1)..bodies.len() {
-            let fp_a = Fingerprint::of(&bodies[i].1);
-            let fp_b = Fingerprint::of(&bodies[j].1);
-            let sim = jaccard_similarity(&fp_a, &fp_b);
-            info!(
-                a = %bodies[i].0,
-                b = %bodies[j].0,
-                similarity = sim,
-                threshold,
-                "cross_surface pairwise check"
-            );
-            if sim < threshold {
-                return Err(RunnerError::CrossSurfaceMismatch {
-                    a: bodies[i].0.clone(),
-                    b: bodies[j].0.clone(),
-                    observed: sim,
-                    threshold,
-                });
-            }
-        }
-    }
-    info!(
-        files = args.response_files.len(),
-        threshold, "cross_surface: all pairs above threshold"
-    );
-    Ok(())
-}
-
-async fn dispatch_judge(args: &JudgeArgs) -> Result<()> {
-    let response = load_response_text(args)?;
-    let registry = JudgeRegistry::default();
-    let outcome = run_judge(&registry, args, &response).await?;
-    enforce_threshold(&args.profile, args, &outcome)?;
-    info!(
-        profile = %args.profile,
-        score = outcome.score,
-        pass_threshold = args.pass_threshold,
-        "judge passed"
-    );
-
-    // Optional drift detection if a baseline file is provided.
-    if let Some(drift_config) = &args.response_drift
-        && let Some(baseline_path) = args.drift_baseline_file.as_deref()
-    {
-        let baseline = fs::read_to_string(baseline_path).map_err(|source| RunnerError::Io {
-            context: format!("read drift baseline {baseline_path}"),
-            source,
-        })?;
-        match detect_drift(&baseline, &response, drift_config) {
-            DriftVerdict::Match {
-                fingerprint_similarity,
-                levenshtein_pct,
-            } => info!(
-                fingerprint_similarity,
-                levenshtein_pct, "drift check: MATCH"
-            ),
-            DriftVerdict::Drift { reason, .. } => {
-                return Err(RunnerError::DriftDetected { reason });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn load_response_text(args: &JudgeArgs) -> Result<String> {
-    if let Some(text) = &args.response_text {
-        return Ok(text.clone());
-    }
-    if let Some(path) = &args.response_file {
-        return fs::read_to_string(path).map_err(|source| RunnerError::Io {
-            context: format!("read judge.response_file {path}"),
-            source,
-        });
-    }
-    Err(RunnerError::JudgeDecode {
-        reason: "no response source: set response_text or response_file".to_owned(),
-    })
 }
 
 fn is_web_step(step: &SkillStep) -> bool {
@@ -417,174 +328,6 @@ fn is_web_step(step: &SkillStep) -> bool {
             | SkillStep::Drag(_)
             | SkillStep::Remember(_)
     )
-}
-
-/// Implements `mirroir-run --sample <dir>`.
-///
-/// Loads `<dir>/SAMPLE.md`, picks the scenario list for `set`, and drives
-/// each scenario through [`run_scenario_with_context`] with manifest context
-/// active. Aggregates verdicts; returns [`RunnerError::SampleScenarioFailures`]
-/// when at least one scenario reported FAIL.
-///
-/// # Errors
-///
-/// * Anything [`load_sample_manifest`] returns.
-/// * [`RunnerError::SampleScenarioFailures`] when one or more scenarios failed.
-pub async fn run_sample(sample_dir: &Path, set: ScenarioSet, options: ReplayOptions) -> Result<()> {
-    let sample_md_path = sample_dir.join("SAMPLE.md");
-    let manifest = load_sample_manifest(&sample_md_path)?;
-    info!(
-        dir = %sample_dir.display(),
-        name = ?manifest.name,
-        must_pass = manifest.session.scenarios.must_pass.len(),
-        nice_to_pass = manifest.session.scenarios.nice_to_pass.len(),
-        boot_once = manifest.session.boot_once,
-        "sample run starting"
-    );
-
-    let selected = select_scenarios(&manifest, set);
-    let context = SampleContext {
-        sample_dir,
-        manifest: &manifest,
-    };
-
-    let mut session: Option<ProcessRegistry> = if manifest.session.boot_once {
-        Some(boot_session(sample_dir, &manifest).await?)
-    } else {
-        None
-    };
-
-    let mut failed = 0usize;
-    let total = selected.len();
-    for scenario_rel in selected {
-        let resolved = sample_dir.join(&scenario_rel);
-        info!(scenario = %scenario_rel.display(), "running scenario");
-        let outcome =
-            run_scenario_with_context(&resolved, Some(context), options, session.as_mut()).await;
-        match outcome {
-            Ok(()) => info!(scenario = %scenario_rel.display(), "scenario passed"),
-            Err(err) => {
-                error!(scenario = %scenario_rel.display(), error = %err, "scenario failed");
-                failed += 1;
-            }
-        }
-    }
-
-    // Tear down the shared session boot, if any.
-    if let Some(mut shared) = session.take() {
-        let kill_args = KillArgs {
-            id: SESSION_BOOT_ID.to_owned(),
-            grace_s: 3,
-            cleanup: None,
-        };
-        if let Err(err) = shared.kill_process(&kill_args).await {
-            error!(error = %err, "session boot teardown failed");
-        }
-    }
-
-    if failed == 0 {
-        info!(dir = %sample_dir.display(), total, "sample run completed");
-        Ok(())
-    } else {
-        Err(RunnerError::SampleScenarioFailures { failed, total })
-    }
-}
-
-/// Identifier used for the shared subprocess in `boot_once: true` sample
-/// runs. Scenarios authored with `spawn: { from: SAMPLE.md, id: ... }` are
-/// expected to use this same id so the spawn becomes an idempotent no-op.
-const SESSION_BOOT_ID: &str = "session";
-
-async fn boot_session(sample_dir: &Path, manifest: &SampleManifest) -> Result<ProcessRegistry> {
-    let mut registry = ProcessRegistry::default();
-    let mut env = HashMap::new();
-    env.clone_from(&manifest.session.boot.env);
-    let cwd = manifest
-        .session
-        .boot
-        .cwd
-        .as_ref()
-        .map(|rel| sample_dir.join(rel).display().to_string());
-    let args = SpawnArgs {
-        id: SESSION_BOOT_ID.to_owned(),
-        from: Some("SAMPLE.md".to_owned()),
-        command: Some(manifest.session.boot.command.clone()),
-        cwd,
-        env,
-        timeout_s: manifest.session.boot.timeout_s,
-        expect_exit: None,
-        capture_stdout: None,
-    };
-    info!(
-        id = SESSION_BOOT_ID,
-        command = %manifest.session.boot.command,
-        "booting shared session subprocess"
-    );
-    registry.spawn(&args)?;
-
-    if let Some(port) = manifest.session.boot_ready_port {
-        let timeout_s = manifest.session.boot_ready_timeout_s.unwrap_or(60);
-        info!(port, timeout_s, "waiting for session boot ready port");
-        registry
-            .wait_port(&WaitPortArgs {
-                port,
-                timeout_s,
-                expect: PortState::Open,
-            })
-            .await?;
-    }
-
-    Ok(registry)
-}
-
-/// Build the ordered list of scenario paths the user asked for.
-fn select_scenarios(manifest: &SampleManifest, set: ScenarioSet) -> Vec<PathBuf> {
-    match set {
-        ScenarioSet::MustPass => manifest.session.scenarios.must_pass.clone(),
-        ScenarioSet::NiceToPass => manifest.session.scenarios.nice_to_pass.clone(),
-        ScenarioSet::All => {
-            let mut combined = manifest.session.scenarios.must_pass.clone();
-            combined.extend(manifest.session.scenarios.nice_to_pass.iter().cloned());
-            combined
-        }
-    }
-}
-
-/// Apply manifest defaults to a `spawn:` step that wrote `from: SAMPLE.md`.
-///
-/// Inline values on the step always win — the manifest only fills fields the
-/// scenario left blank. The env map merges with inline overrides taking
-/// precedence per-key. When `from: SAMPLE.md` is set without a sample context
-/// (e.g. user ran `--run-scenario` on a scenario authored for sample mode),
-/// returns [`RunnerError::SpawnFromSampleNoContext`].
-fn resolve_spawn_args(args: &SpawnArgs, context: Option<&SampleContext<'_>>) -> Result<SpawnArgs> {
-    if args.from.as_deref() != Some("SAMPLE.md") {
-        return Ok(args.clone());
-    }
-    let Some(ctx) = context else {
-        return Err(RunnerError::SpawnFromSampleNoContext {
-            id: args.id.clone(),
-        });
-    };
-    let boot = &ctx.manifest.session.boot;
-    let mut resolved = args.clone();
-
-    if resolved.command.is_none() {
-        resolved.command = Some(boot.command.clone());
-    }
-    if resolved.cwd.is_none()
-        && let Some(rel) = &boot.cwd
-    {
-        let abs = ctx.sample_dir.join(rel);
-        resolved.cwd = Some(abs.display().to_string());
-    }
-    if resolved.timeout_s.is_none() {
-        resolved.timeout_s = boot.timeout_s;
-    }
-    for (k, v) in &boot.env {
-        resolved.env.entry(k.clone()).or_insert_with(|| v.clone());
-    }
-    Ok(resolved)
 }
 
 /// Short label for a [`SkillStep`] suitable for `tracing` fields.
@@ -620,201 +363,5 @@ fn step_kind(step: &SkillStep) -> &'static str {
         SkillStep::Http(_) => "http",
         SkillStep::Report(_) => "report",
         SkillStep::CrossSurface(_) => "cross_surface",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::error::Error as StdError;
-    use std::result::Result as StdResult;
-
-    use super::*;
-    use crate::parser::sample::{Boot, Scenarios, Session};
-
-    type TestResult = StdResult<(), Box<dyn StdError>>;
-
-    fn manifest_with_boot(boot: Boot) -> SampleManifest {
-        SampleManifest {
-            version: SAMPLE_SCHEMA_VERSION,
-            name: None,
-            description: None,
-            session: Session {
-                boot,
-                scenarios: Scenarios {
-                    must_pass: Vec::new(),
-                    nice_to_pass: Vec::new(),
-                },
-                boot_once: false,
-                boot_ready_port: None,
-                boot_ready_timeout_s: None,
-            },
-        }
-    }
-
-    fn spawn_args(id: &str) -> SpawnArgs {
-        SpawnArgs {
-            id: id.to_owned(),
-            from: None,
-            command: None,
-            cwd: None,
-            env: HashMap::new(),
-            timeout_s: None,
-            expect_exit: None,
-            capture_stdout: None,
-        }
-    }
-
-    #[test]
-    fn resolve_spawn_passthrough_when_from_is_not_sample_md() -> TestResult {
-        let mut args = spawn_args("server");
-        args.command = Some("./bin/server --port 8080".to_owned());
-        let resolved = resolve_spawn_args(&args, None)?;
-        assert_eq!(
-            resolved.command.as_deref(),
-            Some("./bin/server --port 8080")
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn resolve_spawn_errors_when_sample_md_without_context() -> TestResult {
-        let mut args = spawn_args("server");
-        args.from = Some("SAMPLE.md".to_owned());
-        let res = resolve_spawn_args(&args, None);
-        let Err(RunnerError::SpawnFromSampleNoContext { id }) = res else {
-            return Err(format!("expected SpawnFromSampleNoContext, got {res:?}").into());
-        };
-        if id != "server" {
-            return Err(format!("wrong id `{id}`").into());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn resolve_spawn_fills_command_and_cwd_from_manifest() -> TestResult {
-        let mut env_map = HashMap::new();
-        env_map.insert("SPRING_PROFILES_ACTIVE".to_owned(), "ci".to_owned());
-        let manifest = manifest_with_boot(Boot {
-            command: "java -jar target/foo.jar".to_owned(),
-            cwd: Some("subdir".to_owned()),
-            env: env_map,
-            timeout_s: Some(45),
-        });
-        let sample_dir = PathBuf::from("/samples/foo");
-        let context = SampleContext {
-            sample_dir: &sample_dir,
-            manifest: &manifest,
-        };
-        let mut args = spawn_args("server");
-        args.from = Some("SAMPLE.md".to_owned());
-
-        let resolved = resolve_spawn_args(&args, Some(&context))?;
-        assert_eq!(
-            resolved.command.as_deref(),
-            Some("java -jar target/foo.jar")
-        );
-        assert_eq!(resolved.cwd.as_deref(), Some("/samples/foo/subdir"));
-        assert_eq!(resolved.timeout_s, Some(45));
-        assert_eq!(
-            resolved.env.get("SPRING_PROFILES_ACTIVE"),
-            Some(&"ci".to_owned())
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn resolve_spawn_inline_command_wins_over_manifest() -> TestResult {
-        let manifest = manifest_with_boot(Boot {
-            command: "java -jar target/foo.jar".to_owned(),
-            cwd: None,
-            env: HashMap::new(),
-            timeout_s: None,
-        });
-        let sample_dir = PathBuf::from("/samples/foo");
-        let context = SampleContext {
-            sample_dir: &sample_dir,
-            manifest: &manifest,
-        };
-        let mut args = spawn_args("server");
-        args.from = Some("SAMPLE.md".to_owned());
-        args.command = Some("./bin/override --debug".to_owned());
-        args.env
-            .insert("SPRING_PROFILES_ACTIVE".to_owned(), "dev".to_owned());
-
-        let resolved = resolve_spawn_args(&args, Some(&context))?;
-        assert_eq!(resolved.command.as_deref(), Some("./bin/override --debug"));
-        assert_eq!(
-            resolved.env.get("SPRING_PROFILES_ACTIVE"),
-            Some(&"dev".to_owned())
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn load_sample_manifest_substitutes_env_vars_in_yaml_body() -> TestResult {
-        let tmp = tempfile::tempdir()?;
-        let sample_md = tmp.path().join("SAMPLE.md");
-        let markdown = "# Sample\n\n```yaml\nversion: 1\nname: sub-test\nsession:\n  boot:\n    command: \"java -jar app.jar\"\n    cwd: \"${TEST_HOME:-default-cwd}\"\n  scenarios:\n    must_pass:\n      - smoke.yaml\n```\n";
-        fs::write(&sample_md, markdown)?;
-
-        // Substitution via extras (no process-env mutation — keep tests hermetic).
-        let with_value = load_sample_manifest_with_extras(
-            &sample_md,
-            &[("TEST_HOME", "/tmp/atmosphere-test-home".to_owned())],
-        )?;
-        assert_eq!(
-            with_value.session.boot.cwd.as_deref(),
-            Some("/tmp/atmosphere-test-home")
-        );
-
-        // Default-fallback when the var is absent from extras and process env.
-        let with_default = load_sample_manifest_with_extras(&sample_md, &[])?;
-        // Skip the assertion if a real TEST_HOME leaked in from the developer's
-        // environment — the substitution semantics are exercised by the value
-        // branch above either way.
-        if env::var("TEST_HOME").is_err() {
-            assert_eq!(
-                with_default.session.boot.cwd.as_deref(),
-                Some("default-cwd")
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn select_scenarios_all_concatenates_in_order() {
-        let manifest = SampleManifest {
-            version: SAMPLE_SCHEMA_VERSION,
-            name: None,
-            description: None,
-            session: Session {
-                boot: Boot {
-                    command: String::new(),
-                    cwd: None,
-                    env: HashMap::new(),
-                    timeout_s: None,
-                },
-                scenarios: Scenarios {
-                    must_pass: vec![PathBuf::from("a.yaml"), PathBuf::from("b.yaml")],
-                    nice_to_pass: vec![PathBuf::from("c.yaml")],
-                },
-                boot_once: false,
-                boot_ready_port: None,
-                boot_ready_timeout_s: None,
-            },
-        };
-        let all = select_scenarios(&manifest, ScenarioSet::All);
-        assert_eq!(
-            all,
-            vec![
-                PathBuf::from("a.yaml"),
-                PathBuf::from("b.yaml"),
-                PathBuf::from("c.yaml"),
-            ]
-        );
-        let must = select_scenarios(&manifest, ScenarioSet::MustPass);
-        assert_eq!(must, vec![PathBuf::from("a.yaml"), PathBuf::from("b.yaml")]);
-        let nice = select_scenarios(&manifest, ScenarioSet::NiceToPass);
-        assert_eq!(nice, vec![PathBuf::from("c.yaml")]);
     }
 }

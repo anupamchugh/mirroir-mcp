@@ -94,7 +94,8 @@ enum ExplorationReportFormatter {
         calibration: CalibrationSummary?,
         screens: [ScreenSummary],
         stats: (nodeCount: Int, edgeCount: Int, actionCount: Int, elapsedSeconds: Int),
-        tapCacheTotal: Int
+        tapCacheTotal: Int,
+        graphStructure: String? = nil
     ) -> String {
         var lines: [String] = []
         lines.append("# Exploration Report: \(appName)")
@@ -106,6 +107,11 @@ enum ExplorationReportFormatter {
         lines.append("- Duration: \(stats.elapsedSeconds)s")
         lines.append("- Tap cache saves: \(tapCacheTotal)")
         lines.append("")
+
+        if let structure = graphStructure, !structure.isEmpty {
+            lines.append(structure)
+            lines.append("")
+        }
 
         if let cal = calibration {
             lines.append(formatCalibration(cal))
@@ -129,6 +135,30 @@ enum ExplorationReportFormatter {
             }
         }
 
+        return lines.joined(separator: "\n")
+    }
+
+    /// Render a "Graph Structure" section from the final navigation-graph
+    /// snapshot: SCC "rooms" (GraphAnalyzer) plus the gateway screens
+    /// (DominatorTree) that every path from root must traverse. Diagnostic only
+    /// — it surfaces chokepoints and screen clusters without changing which
+    /// paths exploration or skill generation selects.
+    static func formatGraphStructure(snapshot: GraphSnapshot) -> String {
+        var lines: [String] = ["## Graph Structure"]
+        lines.append("- Rooms: \(GraphAnalyzer.roomSummary(snapshot: snapshot))")
+
+        let gateways = DominatorTree.gateways(snapshot: snapshot)
+            .sorted { $0.dominatedCount > $1.dominatedCount }
+        if gateways.isEmpty {
+            lines.append("- Gateway screens: none")
+        } else {
+            lines.append("- Gateway screens (chokepoints all paths traverse):")
+            for gateway in gateways.prefix(5) {
+                let plural = gateway.dominatedCount == 1 ? "" : "s"
+                lines.append("  - \(gateway.fingerprint.prefix(8)) dominates "
+                    + "\(gateway.dominatedCount) screen\(plural)")
+            }
+        }
         return lines.joined(separator: "\n")
     }
 }

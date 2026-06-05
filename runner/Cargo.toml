@@ -71,40 +71,90 @@ lto = "fat"
 
 [lints.rust]
 # STRICT UNSAFE CODE POLICY: zero tolerance with whitelisted exceptions.
-# mirroir-run has no FFI surface; any unsafe usage is a hard fail.
+# - "deny" level: unsafe code is an ERROR by default everywhere.
+# - mirroir-run has NO FFI surface (unlike dravr's health.rs Windows FFI), so
+#   there is no approved exception — any unsafe usage FAILS the build.
 unsafe_code = "deny"
 
 # Warn on missing documentation for public APIs.
 missing_docs = "warn"
 
 [lints.clippy]
-# Base configuration: enable all clippy lint groups at DENY level.
+# Base configuration: enable all clippy lint groups at DENY level (zero tolerance).
+# Priority -1 ensures these are applied first, then specific overrides below.
+# All clippy warnings are treated as ERRORS via level = "deny".
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 
-# ── Critical denials — error-handling anti-patterns ──
+# ============================================================================
+# Critical Denials - Error Handling Anti-Patterns (AGENTS.md enforcement)
+# ============================================================================
+# These replace the bash script's error handling pattern detection.
+
+# DENY: .unwrap() in production code (acceptable in tests only).
 unwrap_used = "deny"
+
+# DENY: .expect() in production code (acceptable in tests only).
 expect_used = "deny"
+
+# DENY: panic!() in production code (only acceptable in tests).
 panic = "deny"
 
-# ── Allowed exceptions ──
+# ============================================================================
+# Allowed Exceptions (Per AGENTS.md Policy)
+# ============================================================================
+# Type conversion casts - allowed when properly validated.
 cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"
+
+# Const fn suggestions - clippy suggests const for methods that can't actually be const
+# (e.g., methods using .to_lowercase(), .map_or(), Utc::now(), etc.).
 missing_const_for_fn = "allow"
+
+# Structural patterns - validated separately.
 struct_excessive_bools = "allow"
+
+# Long functions - allowed with mandatory documentation comment.
 too_many_lines = "allow"
+
+# Significant drop tightening - false positives with async lock guards;
+# the suggestions given are often syntactically invalid.
 significant_drop_tightening = "allow"
+
+# Cognitive complexity - deny on overly complex functions.
+# Enforces the AGENTS.md guideline of small, focused functions.
 cognitive_complexity = "deny"
 
-# ── Additional code quality lints ──
+# ============================================================================
+# Additional Code Quality Lints
+# ============================================================================
+# Catch common performance issues.
 clone_on_copy = "warn"
 redundant_clone = "warn"
+
+# Catch async anti-patterns.
 await_holding_lock = "warn"
+
+# Catch string allocation inefficiencies.
 str_to_string = "deny"
+
+# Module naming - allow repetition for clarity (e.g., error::ErrorKind).
 module_name_repetitions = "allow"
+
+# ============================================================================
+# Rust Idiom Enforcement (Prevent AI-generated regressions)
+# ============================================================================
+# Enforce modern format string syntax: format!("{foo}") not format!("{}", foo).
 uninlined_format_args = "warn"
+
+# Warn on .map().unwrap_or() - should use map_or() or is_some_and() instead.
 map_unwrap_or = "warn"
+
+# Enforce `use` imports over inline qualified paths (crate::foo::bar).
 absolute_paths = "deny"
+
+# Disallow anyhow::Context methods - use structured RunnerError variants instead.
+# Configuration in clippy.toml specifies which methods are banned.
 disallowed_methods = "deny"

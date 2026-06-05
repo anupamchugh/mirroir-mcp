@@ -1,3 +1,6 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
 // ABOUTME: Strongly connected component detection via Tarjan's algorithm for room-level reasoning.
 // ABOUTME: Condensation DAG collapses SCCs into single nodes, enabling topological exploration ordering.
 

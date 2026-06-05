@@ -59,7 +59,6 @@ enum ComponentLoader {
             }
             for fileURL in files {
                 let stem = fileURL.deletingPathExtension().lastPathComponent
-                guard !seen.contains(stem) else { continue }
 
                 guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
                     continue
@@ -73,6 +72,9 @@ enum ComponentLoader {
                 // Skip non-component files (e.g. vision-indicators.md) that
                 // parse without error but lack a Description section.
                 guard !definition.description.isEmpty else { continue }
+                // Dedup by component name (the identity) so earlier search
+                // paths win on collision. Lookup and insert use the same key.
+                guard !seen.contains(definition.name) else { continue }
                 seen.insert(definition.name)
                 definitions.append(definition)
             }

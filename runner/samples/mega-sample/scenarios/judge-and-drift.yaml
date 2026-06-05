@@ -4,7 +4,7 @@ steps:
   - spawn: { id: session, from: SAMPLE.md }
   - judge:
       profile: byte-stable
-      user_prompt_template_hash: "sha256:abc"
+      user_prompt_template_hash: "sha256:2fd94adeba57835b2267269c672245aeb82c450908f866bd4c887da010602834"
       response_selector: "[data-test=reply]"
       pass_threshold: 0.6
       pass_threshold_tolerance: 0.2

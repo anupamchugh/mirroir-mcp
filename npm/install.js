@@ -8,7 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
-const VERSION = "0.24.0";
+const VERSION = "0.33.3";
 const REPO = "jfarcand/mirroir-mcp";
 const BINARY = "mirroir-mcp";
 
@@ -82,11 +82,14 @@ function verifyChecksum(tarball, filePath, cb) {
       .map((line) => line.split(/\s+/)[0])[0];
 
     if (!expectedHash) {
-      console.warn(
-        `Warning: no checksum found for ${tarball} in SHA256SUMS, skipping verification`
+      console.error(
+        `No checksum found for ${tarball} in SHA256SUMS — refusing to install an unverified binary.`
       );
-      cb();
-      return;
+      console.error(
+        "Install from source instead: https://github.com/" + REPO
+      );
+      fs.unlinkSync(filePath);
+      process.exit(1);
     }
 
     const fileBuffer = fs.readFileSync(filePath);

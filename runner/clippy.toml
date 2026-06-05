@@ -1,8 +1,8 @@
-# ABOUTME: Clippy configuration — disallowed methods + lint behavior tuning.
-# ABOUTME: Prevents anyhow::Context trait methods in favor of structured RunnerError variants.
+# ABOUTME: Clippy configuration for disallowed methods
+# ABOUTME: Prevents usage of anyhow::Context trait methods in favor of structured errors
 
-# Disallow anyhow::Context trait methods — use structured RunnerError variants instead.
-# These methods create untyped errors that bypass our structured error handling.
+# Disallow anyhow::Context trait methods - use structured RunnerError variants instead
+# These methods create untyped errors that bypass our structured error handling
 disallowed-methods = [
     { path = "anyhow::Context::context", reason = "Use structured RunnerError variants instead of .context()" },
     { path = "anyhow::Context::with_context", reason = "Use structured RunnerError variants instead of .with_context()" },

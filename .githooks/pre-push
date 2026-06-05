@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# ABOUTME: Pre-push hook — requires a fresh runner/ validation marker before any push.
+# ABOUTME: Checks <git-dir>/validation-passed exists and is < 15 minutes old; else blocks.
+
+set -euo pipefail
+
+# Must match VALIDATION_TTL_SECONDS in runner/scripts/ci/pre-push-validate.sh.
+VALIDATION_TTL_SECONDS=900
+
+GIT_DIR="$(git rev-parse --git-dir)"
+MARKER="$GIT_DIR/validation-passed"
+VALIDATE_SCRIPT="runner/scripts/ci/pre-push-validate.sh"
+
+fail() {
+    echo "ERROR: push blocked — $1"
+    echo ""
+    echo "Run the runner validation gate first:"
+    echo "  ./$VALIDATE_SCRIPT"
+    echo ""
+    echo "It stamps $MARKER (valid for $((VALIDATION_TTL_SECONDS / 60)) minutes)."
+    exit 1
+}
+
+if [ ! -f "$MARKER" ]; then
+    fail "no validation marker found"
+fi
+
+STAMP="$(cat "$MARKER" 2>/dev/null || echo 0)"
+case "$STAMP" in
+    ''|*[!0-9]*) fail "validation marker is corrupt" ;;
+esac
+
+NOW="$(date +%s)"
+AGE=$((NOW - STAMP))
+
+if [ "$AGE" -lt 0 ] || [ "$AGE" -gt "$VALIDATION_TTL_SECONDS" ]; then
+    fail "validation marker is stale (${AGE}s old, max ${VALIDATION_TTL_SECONDS}s)"
+fi
+
+echo "pre-push: validation marker is fresh (${AGE}s old) — allowing push."
+exit 0

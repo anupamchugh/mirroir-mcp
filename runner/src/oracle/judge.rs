@@ -6,96 +6,15 @@ use std::time::Duration;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing::{debug, info};
 
 use crate::error::{Result, RunnerError};
 use crate::parser::step::JudgeArgs;
 
-/// Profile registry entry — declares how to reach one LLM provider and which
-/// model to use for judging.
-#[derive(Debug, Clone)]
-pub struct JudgeProfile {
-    /// Profile name (referenced from scenario `judge.profile`).
-    pub name: &'static str,
-    /// Chat-completions base URL (e.g. `https://api.openai.com/v1/chat/completions`).
-    pub base_url: &'static str,
-    /// Model identifier the provider expects.
-    pub model: &'static str,
-    /// Environment variable that holds the API key. `None` for local providers
-    /// like Ollama that don't authenticate.
-    pub api_key_env: Option<&'static str>,
-    /// Request timeout in seconds.
-    pub timeout_s: u32,
-}
-
-/// Built-in profiles. Authoring tools may override by passing a custom
-/// [`JudgeRegistry`] to [`run_judge`].
-#[must_use]
-pub fn builtin_profiles() -> Vec<JudgeProfile> {
-    vec![
-        // Hosted, fast, cheap. Costs per token but turns around in <1 s typical.
-        JudgeProfile {
-            name: "fast-ci",
-            base_url: "https://api.openai.com/v1/chat/completions",
-            model: "gpt-4o-mini",
-            api_key_env: Some("OPENAI_API_KEY"),
-            timeout_s: 30,
-        },
-        // Local, deterministic, free (assumes an Ollama daemon at default port).
-        JudgeProfile {
-            name: "byte-stable",
-            base_url: "http://127.0.0.1:11434/v1/chat/completions",
-            model: "qwen2.5:0.5b",
-            api_key_env: None,
-            timeout_s: 60,
-        },
-        // Local, smaller model for quick iteration.
-        JudgeProfile {
-            name: "cheap-local",
-            base_url: "http://127.0.0.1:11434/v1/chat/completions",
-            model: "qwen2.5:0.5b",
-            api_key_env: None,
-            timeout_s: 30,
-        },
-    ]
-}
-
-/// Profile registry — maps profile names to [`JudgeProfile`] entries.
-#[derive(Debug, Clone)]
-pub struct JudgeRegistry {
-    profiles: Vec<JudgeProfile>,
-}
-
-impl Default for JudgeRegistry {
-    fn default() -> Self {
-        Self {
-            profiles: builtin_profiles(),
-        }
-    }
-}
-
-impl JudgeRegistry {
-    /// Build a registry from an explicit profile list. Test-only — production
-    /// callers use [`Self::default`] which loads the built-in profile set.
-    #[cfg(test)]
-    pub fn from_profiles(profiles: Vec<JudgeProfile>) -> Self {
-        Self { profiles }
-    }
-
-    /// Look up a profile by name.
-    ///
-    /// # Errors
-    ///
-    /// [`RunnerError::JudgeUnknownProfile`] when the name isn't in the registry.
-    pub fn resolve(&self, name: &str) -> Result<&JudgeProfile> {
-        self.profiles
-            .iter()
-            .find(|p| p.name == name)
-            .ok_or_else(|| RunnerError::JudgeUnknownProfile {
-                profile: name.to_owned(),
-            })
-    }
-}
+// The profile registry lives in its own module; re-export so existing callers
+// keep using `crate::oracle::judge::{JudgeProfile, JudgeRegistry}`.
+pub use crate::oracle::judge_profiles::{JudgeProfile, JudgeRegistry};
 
 /// Outcome of a single judge invocation.
 #[derive(Debug, Clone, PartialEq)]
@@ -121,13 +40,14 @@ pub async fn run_judge(
     args: &JudgeArgs,
     response: &str,
 ) -> Result<JudgeOutcome> {
+    verify_template_hash(&args.user_prompt_template_hash)?;
     let profile = registry.resolve(&args.profile)?;
     let api_key = api_key_for(profile)?;
     let prompt = build_prompt(args, response);
     info!(
-        profile = profile.name,
-        model = profile.model,
-        url = profile.base_url,
+        profile = %profile.name,
+        model = %profile.model,
+        url = %profile.base_url,
         response_len = response.len(),
         "running judge"
     );
@@ -137,18 +57,18 @@ pub async fn run_judge(
         .user_agent(format!("mirroir-run/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|source| RunnerError::JudgeTransport {
-            url: profile.base_url.to_owned(),
+            url: profile.base_url.clone(),
             source,
         })?;
     let req = ChatRequest {
-        model: profile.model,
+        model: profile.model.as_str(),
         messages: vec![ChatMessage {
             role: "user",
             content: prompt,
         }],
         temperature: 0.0,
     };
-    let mut request = client.post(profile.base_url).json(&req);
+    let mut request = client.post(profile.base_url.as_str()).json(&req);
     if let Some(key) = api_key {
         request = request.bearer_auth(key);
     }
@@ -156,7 +76,7 @@ pub async fn run_judge(
         .send()
         .await
         .map_err(|source| RunnerError::JudgeTransport {
-            url: profile.base_url.to_owned(),
+            url: profile.base_url.clone(),
             source,
         })?;
     let body: ChatResponse =
@@ -164,7 +84,7 @@ pub async fn run_judge(
             .json()
             .await
             .map_err(|source| RunnerError::JudgeTransport {
-                url: profile.base_url.to_owned(),
+                url: profile.base_url.clone(),
                 source,
             })?;
     let Some(choice) = body.choices.into_iter().next() else {
@@ -201,15 +121,55 @@ pub fn enforce_threshold(
 }
 
 fn api_key_for(profile: &JudgeProfile) -> Result<Option<String>> {
-    let Some(env_name) = profile.api_key_env else {
+    let Some(env_name) = profile.api_key_env.as_deref() else {
         return Ok(None);
     };
     match env::var(env_name) {
         Ok(value) if !value.is_empty() => Ok(Some(value)),
         _ => Err(RunnerError::JudgeMissingApiKey {
-            profile: profile.name.to_owned(),
+            profile: profile.name.clone(),
             env_var: env_name.to_owned(),
         }),
+    }
+}
+
+/// Canonical user-prompt template the judge sends to the model. `{expected}`
+/// and `{response}` are substituted at run time. Scenarios pin
+/// [`user_prompt_template_hash`] over this literal so that changing the oracle
+/// wording invalidates scenarios calibrated against the old prompt — the
+/// reproducibility guarantee `judge.user_prompt_template_hash` promises.
+const USER_PROMPT_TEMPLATE: &str = "You are a deterministic test oracle. Given an AI agent's response, score how well it \
+matches the expected outcome. Return ONLY a single decimal number between 0.0 (total \
+failure) and 1.0 (perfect match), with at most three decimal places. Do not include any \
+other text, justification, or punctuation.\n\n\
+Expected outcome: __EXPECTED__\n\n\
+Agent response:\n```\n__RESPONSE__\n```\n\n\
+Score:";
+
+/// SHA-256 of [`USER_PROMPT_TEMPLATE`], formatted `sha256:<hex>`. A scenario's
+/// `judge.user_prompt_template_hash` must equal this value.
+#[must_use]
+pub fn user_prompt_template_hash() -> String {
+    let digest = Sha256::digest(USER_PROMPT_TEMPLATE.as_bytes());
+    format!("sha256:{}", hex::encode(digest))
+}
+
+/// Verify the scenario's pinned template hash matches the current template.
+///
+/// # Errors
+///
+/// [`RunnerError::JudgeTemplateMismatch`] when the declared hash differs from
+/// the hash of [`USER_PROMPT_TEMPLATE`] — the oracle prompt changed and the
+/// scenario must be re-pinned to keep its score calibration meaningful.
+fn verify_template_hash(declared: &str) -> Result<()> {
+    let expected = user_prompt_template_hash();
+    if declared == expected {
+        Ok(())
+    } else {
+        Err(RunnerError::JudgeTemplateMismatch {
+            expected,
+            declared: declared.to_owned(),
+        })
     }
 }
 
@@ -218,15 +178,9 @@ fn build_prompt(args: &JudgeArgs, response: &str) -> String {
         .expected_signal
         .as_deref()
         .unwrap_or("the response satisfies the scenario's success criteria with high fidelity");
-    format!(
-        "You are a deterministic test oracle. Given an AI agent's response, score how well it \
-         matches the expected outcome. Return ONLY a single decimal number between 0.0 (total \
-         failure) and 1.0 (perfect match), with at most three decimal places. Do not include any \
-         other text, justification, or punctuation.\n\n\
-         Expected outcome: {expected}\n\n\
-         Agent response:\n```\n{response}\n```\n\n\
-         Score:"
-    )
+    USER_PROMPT_TEMPLATE
+        .replace("__EXPECTED__", expected)
+        .replace("__RESPONSE__", response)
 }
 
 /// Extract a score from the model's textual reply.
@@ -324,7 +278,7 @@ mod tests {
     fn judge_args(profile: &str) -> JudgeArgs {
         JudgeArgs {
             profile: profile.to_owned(),
-            user_prompt_template_hash: "sha256:test".to_owned(),
+            user_prompt_template_hash: user_prompt_template_hash(),
             response_selector: "[data-test=reply]".to_owned(),
             pass_threshold: 0.8,
             pass_threshold_tolerance: Some(0.05),
@@ -336,11 +290,11 @@ mod tests {
         }
     }
 
-    fn stub_profile(name: &'static str, base_url: &'static str) -> JudgeProfile {
+    fn stub_profile(name: &str, base_url: &str) -> JudgeProfile {
         JudgeProfile {
-            name,
-            base_url,
-            model: "stub",
+            name: name.to_owned(),
+            base_url: base_url.to_owned(),
+            model: "stub".to_owned(),
             api_key_env: None,
             timeout_s: 5,
         }
@@ -449,14 +403,27 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn builtin_profiles_includes_fast_ci_byte_stable_cheap_local() {
+    #[tokio::test]
+    async fn run_judge_rejects_template_hash_mismatch() -> TestResult {
         let registry = JudgeRegistry::default();
-        for name in &["fast-ci", "byte-stable", "cheap-local"] {
-            assert!(
-                registry.resolve(name).is_ok(),
-                "missing builtin profile: {name}"
-            );
+        let mut args = judge_args("fast-ci");
+        args.user_prompt_template_hash = "sha256:stale-pinned-value".to_owned();
+        let res = run_judge(&registry, &args, "x").await;
+        if !matches!(res, Err(RunnerError::JudgeTemplateMismatch { .. })) {
+            return Err(format!("expected JudgeTemplateMismatch, got {res:?}").into());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn template_hash_is_stable() {
+        // Guards the pinned hash baked into shipped sample scenarios. If the
+        // oracle prompt changes, update this constant AND every scenario's
+        // judge.user_prompt_template_hash in lockstep.
+        assert_eq!(
+            user_prompt_template_hash(),
+            "sha256:2fd94adeba57835b2267269c672245aeb82c450908f866bd4c887da010602834",
+            "template hash drifted — re-pin sample scenarios"
+        );
     }
 }

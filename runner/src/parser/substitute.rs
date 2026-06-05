@@ -1,9 +1,6 @@
 // ABOUTME: Post-parse `${VAR}` substitution on serde_yaml::Value trees — string leaves only.
 // ABOUTME: Avoids Helm-class footguns (quoting / structural breakage) of pre-parse textual substitution.
 
-// dead_code allowed until Stage 4 (compose pipeline) consumes this.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use serde_yaml::{Mapping, Value};

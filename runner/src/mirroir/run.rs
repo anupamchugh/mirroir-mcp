@@ -2,28 +2,25 @@
 // ABOUTME: Top-level entry point for bare `mirroir-run` and `mirroir-run --config <PATH>`.
 
 use std::collections::HashMap;
-use std::env as std_env;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::error::{Result, RunnerError};
 use crate::mirroir::compose::{ComposedSample, build_dir_for, compose_needed, compose_sample};
-use crate::mirroir::discover::{LOCAL_OVERRIDES_FILE, MIRROIR_DIR, discover_mirroir_config};
+use crate::mirroir::discover::discover_mirroir_config;
 use crate::mirroir::lock::{
     FreshnessVerdict, LockfileMode, check_lockfile_fresh, enforce_freshness, read_lockfile,
     regenerate_lockfile, write_lockfile,
 };
 use crate::mirroir::resolve::{ResolvedArchetype, resolve_archetype};
-use crate::parser::local_overrides::{apply_overrides, parse_local_overrides};
+use crate::mirroir::run_io::{
+    SampleVerdict, load_and_apply_local_overrides, load_config, project_root_for_config,
+    resolve_home_root, write_summary, write_summary_full,
+};
 use crate::parser::lockfile::Lockfile;
 use crate::parser::mirroir::{
     ArchetypeRef, ArchetypeRefKind, DefaultScenarioSet, MirroirConfig, PlanEntry, PlanEntrySource,
-    parse_mirroir_config,
 };
 use crate::replay::{ReplayOptions, ScenarioSet, run_sample};
 
@@ -57,46 +54,6 @@ impl Default for MirroirRunOptions {
     }
 }
 
-/// Per-sample outcome line in the summary JSON.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SampleVerdict {
-    /// Plan entry name.
-    pub name: String,
-    /// `pass` / `fail` / `skipped`.
-    pub verdict: String,
-    /// Optional error message when the sample failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Top-level summary written to `--report` (`mirroir-run-report.json` by default).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunSummary {
-    /// Schema version of this summary JSON.
-    pub version: u32,
-    /// Absolute path to the `.mirroir/mirroir.yaml` that was loaded.
-    pub config_path: PathBuf,
-    /// Generation timestamp.
-    pub generated_at: DateTime<Utc>,
-    /// Per-sample outcomes in plan order.
-    pub samples: Vec<SampleVerdict>,
-    /// Aggregate counts.
-    pub totals: RunTotals,
-}
-
-/// Aggregate counts for [`RunSummary`].
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct RunTotals {
-    /// Samples discovered in the plan.
-    pub samples: usize,
-    /// Samples whose `run_sample` returned `Ok`.
-    pub passed: usize,
-    /// Samples whose `run_sample` returned `Err`.
-    pub failed: usize,
-    /// Samples that were skipped (`skip: true` in overrides).
-    pub skipped: usize,
-}
-
 /// Run the full `.mirroir/` pipeline against `config_path`.
 ///
 /// Behavior:
@@ -120,7 +77,7 @@ pub struct RunTotals {
 /// compose / replay layers, plus the lockfile-mode enforcement variants.
 pub async fn run_mirroir(
     config_path: &Path,
-    set: ScenarioSet,
+    set: Option<ScenarioSet>,
     options: MirroirRunOptions,
     summary_path: &Path,
 ) -> Result<()> {
@@ -148,10 +105,8 @@ pub async fn run_mirroir(
     let resolved_archetypes =
         resolve_all_archetypes(&config, &project_root, &home_root, lockfile_opt.as_ref())?;
 
-    let include_nice_to_pass = matches!(
-        select_set(config.default_set, set),
-        ScenarioSet::NiceToPass | ScenarioSet::All
-    );
+    let selected_set = select_set(config.default_set, set);
+    let include_nice_to_pass = matches!(selected_set, ScenarioSet::NiceToPass | ScenarioSet::All);
     let composed = build_composed_samples(
         &config,
         &resolved_archetypes,
@@ -196,8 +151,8 @@ pub async fn run_mirroir(
             });
             continue;
         }
-        info!(sample = %entry.name, dir = %sample.directory.display(), "running sample");
-        match run_sample(&sample.directory, ScenarioSet::MustPass, options.replay).await {
+        info!(sample = %entry.name, dir = %sample.directory.display(), set = ?selected_set, "running sample");
+        match run_sample(&sample.directory, selected_set, options.replay).await {
             Ok(()) => {
                 passed += 1;
                 verdicts.push(SampleVerdict {
@@ -229,51 +184,18 @@ pub async fn run_mirroir(
     }
 }
 
-fn select_set(config_default: Option<DefaultScenarioSet>, cli: ScenarioSet) -> ScenarioSet {
-    // CLI choice always wins; config default is applied only when CLI is the
-    // hardcoded clap-default (`MustPass`). To distinguish, the dispatcher
-    // should pass the user's actual choice. For v1 we honor CLI verbatim;
-    // config_default is informational.
-    let _ = config_default;
-    cli
-}
-
-fn load_config(config_path: &Path) -> Result<MirroirConfig> {
-    let raw = fs::read_to_string(config_path).map_err(|source| RunnerError::Io {
-        context: format!("read mirroir.yaml at {}", config_path.display()),
-        source,
-    })?;
-    parse_mirroir_config(&config_path.display().to_string(), &raw)
-}
-
-fn project_root_for_config(config_path: &Path) -> Result<PathBuf> {
-    // config_path is `<root>/.mirroir/mirroir.yaml`; project root is the parent's parent.
-    config_path
-        .parent() // .mirroir/
-        .and_then(Path::parent) // <root>
-        .map(Path::to_path_buf)
-        .ok_or_else(|| RunnerError::MirroirConfigNotFound {
-            searched_from: config_path.to_path_buf(),
-        })
-}
-
-fn load_and_apply_local_overrides(project_root: &Path, config: &mut MirroirConfig) -> Result<()> {
-    let path = project_root.join(MIRROIR_DIR).join(LOCAL_OVERRIDES_FILE);
-    if !path.is_file() {
-        return Ok(());
+/// Resolve the effective scenario set. An explicit CLI `--scenarios` choice
+/// always wins; when the user did not pass one (`None`), the config's
+/// `default_set` is honored, falling back to `MustPass`.
+fn select_set(config_default: Option<DefaultScenarioSet>, cli: Option<ScenarioSet>) -> ScenarioSet {
+    if let Some(set) = cli {
+        return set;
     }
-    let raw = fs::read_to_string(&path).map_err(|source| RunnerError::Io {
-        context: format!("read local overrides at {}", path.display()),
-        source,
-    })?;
-    let overrides = parse_local_overrides(&path.display().to_string(), &raw)?;
-    apply_overrides(config, overrides)
-}
-
-fn resolve_home_root() -> Result<PathBuf> {
-    std_env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or(RunnerError::MirroirHomeDirUnavailable)
+    match config_default {
+        Some(DefaultScenarioSet::MustPass) | None => ScenarioSet::MustPass,
+        Some(DefaultScenarioSet::NiceToPass) => ScenarioSet::NiceToPass,
+        Some(DefaultScenarioSet::All) => ScenarioSet::All,
+    }
 }
 
 fn ensure_lockfile(
@@ -285,7 +207,18 @@ fn ensure_lockfile(
 ) -> Result<Option<Lockfile>> {
     if !lockfile_path.is_file() {
         match mode {
-            LockfileMode::Locked | LockfileMode::Frozen => {
+            // Frozen specifically guarantees a hermetic, network-free run, which
+            // requires a committed lockfile — surface that distinctly from the
+            // plain locked-but-missing case.
+            LockfileMode::Frozen => {
+                return Err(RunnerError::MirroirFrozenViolation {
+                    reason: format!(
+                        "lockfile {} is absent; --frozen requires a committed mirroir.lock (no regeneration, no network fetch)",
+                        lockfile_path.display()
+                    ),
+                });
+            }
+            LockfileMode::Locked => {
                 return Err(RunnerError::MirroirLockfileMissing {
                     path: lockfile_path.to_path_buf(),
                 });
@@ -406,42 +339,6 @@ fn build_composed_samples<'a>(
     Ok(out)
 }
 
-fn write_summary(path: &Path, config_path: &Path, verdicts: Vec<SampleVerdict>) -> Result<()> {
-    let total = verdicts.len();
-    write_summary_full(path, config_path, verdicts, total, 0, 0)
-}
-
-fn write_summary_full(
-    path: &Path,
-    config_path: &Path,
-    verdicts: Vec<SampleVerdict>,
-    passed: usize,
-    failed: usize,
-    skipped: usize,
-) -> Result<()> {
-    let total = verdicts.len();
-    let summary = RunSummary {
-        version: 1,
-        config_path: config_path.to_path_buf(),
-        generated_at: Utc::now(),
-        samples: verdicts,
-        totals: RunTotals {
-            samples: total,
-            passed,
-            failed,
-            skipped,
-        },
-    };
-    let json = serde_json::to_string_pretty(&summary).map_err(|source| RunnerError::Io {
-        context: "serialize mirroir summary".to_owned(),
-        source: io::Error::other(source.to_string()),
-    })?;
-    fs::write(path, json).map_err(|source| RunnerError::Io {
-        context: format!("write summary at {}", path.display()),
-        source,
-    })
-}
-
 /// Convenience: discover + run. Used by bare `mirroir-run` invocation.
 ///
 /// # Errors
@@ -450,10 +347,79 @@ fn write_summary_full(
 /// plus anything [`run_mirroir`] returns.
 pub async fn run_mirroir_autodiscover(
     cwd: &Path,
-    set: ScenarioSet,
+    set: Option<ScenarioSet>,
     options: MirroirRunOptions,
     summary_path: &Path,
 ) -> Result<()> {
     let config_path = discover_mirroir_config(cwd)?;
     run_mirroir(&config_path, set, options, summary_path).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as StdError;
+    use std::path::Path;
+    use std::result::Result as StdResult;
+
+    use super::{DefaultScenarioSet, ScenarioSet, ensure_lockfile, select_set};
+    use crate::error::RunnerError;
+    use crate::mirroir::lock::LockfileMode;
+    use crate::parser::mirroir::parse_mirroir_config;
+
+    #[test]
+    fn explicit_cli_choice_wins_over_config_default() {
+        let resolved = select_set(Some(DefaultScenarioSet::MustPass), Some(ScenarioSet::All));
+        assert!(matches!(resolved, ScenarioSet::All));
+    }
+
+    #[test]
+    fn config_default_honored_when_cli_absent() {
+        assert!(matches!(
+            select_set(Some(DefaultScenarioSet::All), None),
+            ScenarioSet::All
+        ));
+        assert!(matches!(
+            select_set(Some(DefaultScenarioSet::NiceToPass), None),
+            ScenarioSet::NiceToPass
+        ));
+    }
+
+    #[test]
+    fn falls_back_to_must_pass_when_both_absent() {
+        assert!(matches!(select_set(None, None), ScenarioSet::MustPass));
+    }
+
+    #[test]
+    fn frozen_missing_lockfile_is_frozen_violation() -> StdResult<(), Box<dyn StdError>> {
+        let cfg = parse_mirroir_config("test", "version: 1\nplan:\n  must_pass: []\n")?;
+        let res = ensure_lockfile(
+            Path::new("/nonexistent/mirroir.lock"),
+            &cfg,
+            Path::new("/tmp"),
+            Path::new("/tmp"),
+            LockfileMode::Frozen,
+        );
+        assert!(
+            matches!(res, Err(RunnerError::MirroirFrozenViolation { .. })),
+            "frozen + missing lockfile must be a frozen violation, got {res:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn locked_missing_lockfile_is_plain_missing() -> StdResult<(), Box<dyn StdError>> {
+        let cfg = parse_mirroir_config("test", "version: 1\nplan:\n  must_pass: []\n")?;
+        let res = ensure_lockfile(
+            Path::new("/nonexistent/mirroir.lock"),
+            &cfg,
+            Path::new("/tmp"),
+            Path::new("/tmp"),
+            LockfileMode::Locked,
+        );
+        assert!(
+            matches!(res, Err(RunnerError::MirroirLockfileMissing { .. })),
+            "locked + missing lockfile must be MirroirLockfileMissing, got {res:?}"
+        );
+        Ok(())
+    }
 }

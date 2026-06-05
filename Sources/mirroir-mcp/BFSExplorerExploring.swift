@@ -98,6 +98,20 @@ extension BFSExplorer {
                 return scrollResult
             }
 
+            // Plan exhausted on this screen. If systematic coverage has
+            // plateaued (discovery rate fell off but the run hasn't timed out
+            // into exhaustion yet), ask the AI advisor for one more element to
+            // try before declaring the screen done. No-op unless an advisor is
+            // configured AND CoverageMonitor is in the `.plateau` phase.
+            if let advisorStep = tryPlateauAdvisor(
+                fingerprint: currentFP,
+                screenshotBase64: result.screenshotBase64,
+                viewportElements: viewportElements,
+                input: input
+            ) {
+                return advisorStep
+            }
+
             // Done with this screen — no more viewports to scroll to
             let visited = graph.node(for: currentFP)?.visitedElements ?? []
             DebugLog.log("bfs", "=== SCREEN DONE depth=\(screen.depth) visited=\(visited.count) items ===")

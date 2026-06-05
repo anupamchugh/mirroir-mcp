@@ -448,6 +448,24 @@ jobs:
             kill "$(cat /tmp/ollama.pid)" 2>/dev/null || true
           fi
 
+  # Security / license / source audit over runner/ — runs the committed
+  # deny.toml (advisories, license allowlist, bans, crates.io-only sources).
+  runner-deny:
+    name: cargo deny check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: cargo-deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: runner/Cargo.toml
+          arguments: --all-features
+
   # Rehearse `cargo publish` so crates.io packaging never silently drifts from
   # the source tree (catches bad metadata / excluded files / build breakage
   # before a release). Mirrors runner-release.yml's publish job — no token, no

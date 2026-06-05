@@ -19,13 +19,8 @@ pub type Result<T> = StdResult<T, RunnerError>;
 ///
 /// Each variant carries enough context for both human-readable display via
 /// [`std::fmt::Display`] and downstream programmatic handling (e.g. CLI exit
-/// codes, structured logging fields).
-//
-// Several Mirroir* variants are constructed in later stages (compose, lockfile,
-// runtime CLI dispatch). The enum-level dead_code allow tolerates that
-// transitional state without masking the broader rule that errors are typed
-// rather than ad-hoc.
-#[allow(dead_code)]
+/// codes, structured logging fields). Every variant is constructed somewhere in
+/// the crate — there is no blanket `dead_code` allow masking unused variants.
 #[derive(Debug, Error)]
 pub enum RunnerError {
     /// A regex pattern failed to compile.
@@ -320,6 +315,29 @@ pub enum RunnerError {
     JudgeDecode {
         /// Short human-readable description of what was wrong.
         reason: String,
+    },
+
+    /// `oracles/profiles.yaml` exists but could not be read or parsed as a
+    /// `profiles:` list of judge profiles.
+    #[error("failed to load judge profiles from {path}: {reason}")]
+    JudgeProfilesParse {
+        /// Path to the offending `profiles.yaml`.
+        path: PathBuf,
+        /// Read or parse error description.
+        reason: String,
+    },
+
+    /// Scenario pinned a `user_prompt_template_hash` that no longer matches the
+    /// current oracle prompt template — the prompt changed, so the scenario's
+    /// score calibration is stale and must be re-pinned.
+    #[error(
+        "judge user_prompt_template_hash mismatch: scenario pinned `{declared}` but current template is `{expected}` — re-pin the scenario"
+    )]
+    JudgeTemplateMismatch {
+        /// Hash of the current oracle user-prompt template.
+        expected: String,
+        /// Hash the scenario declared.
+        declared: String,
     },
 
     /// Judge scored the response below `pass_threshold - tolerance`.

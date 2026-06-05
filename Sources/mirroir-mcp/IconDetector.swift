@@ -112,7 +112,9 @@ enum IconDetector {
     // MARK: - Zone Detection
 
     /// Identify horizontal bands with few OCR text elements.
-    /// Checks the bottom 15% (tab bar) and top 12% (nav bar) of the window.
+    /// Checks the bottom zone (tab bar) and top zone (nav bar); the fractions
+    /// are configurable via `EnvConfig.iconBottomZoneFraction` (default 0.08)
+    /// and `EnvConfig.iconTopZoneFraction` (default 0.12).
     static func findEmptyZones(
         ocrElements: [TapPoint],
         windowWidth: Double,

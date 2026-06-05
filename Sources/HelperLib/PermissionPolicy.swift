@@ -110,6 +110,7 @@ public struct PermissionPolicy: Sendable {
         "open_url",
         "press_home",
         "press_app_switcher",
+        "press_back",
         "spotlight",
         "scroll_to",
         "reset_app",

@@ -63,14 +63,13 @@ jobs:
           sed -i '' "s/\"version\": \"$OLD_VERSION\"/\"version\": \"$VERSION\"/" npm/package.json
           sed -i '' "s/const VERSION = \"$OLD_VERSION\"/const VERSION = \"$VERSION\"/" npm/install.js
           sed -i '' "s/\"version\": \"$OLD_VERSION\"/\"version\": \"$VERSION\"/g" server.json
-          sed -i '' "s/\.string(\"$OLD_VERSION\")/.string(\"$VERSION\")/" Sources/mirroir-mcp/MCPServer.swift
-          sed -i '' "s/\.string(\"$OLD_VERSION\")/.string(\"$VERSION\")/" Tests/MCPServerTests/MCPServerRoutingTests.swift
+          sed -i '' "s/static let current = \"$OLD_VERSION\"/static let current = \"$VERSION\"/" Sources/mirroir-mcp/Version.swift
 
       - name: Verify no stale version references
         env:
           OLD_VERSION: ${{ steps.current.outputs.version }}
         run: |
-          FILES="npm/package.json npm/install.js server.json Sources/mirroir-mcp/MCPServer.swift Tests/MCPServerTests/MCPServerRoutingTests.swift"
+          FILES="npm/package.json npm/install.js server.json Sources/mirroir-mcp/Version.swift"
           if grep -l "$OLD_VERSION" $FILES; then
             echo "ERROR: Stale version references remain in the files above"
             exit 1
@@ -116,8 +115,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add npm/package.json npm/install.js server.json \
-            Sources/mirroir-mcp/MCPServer.swift \
-            Tests/MCPServerTests/MCPServerRoutingTests.swift
+            Sources/mirroir-mcp/Version.swift
           git commit -m "chore: bump version to $VERSION"
           git push origin main
 
@@ -131,12 +129,22 @@ jobs:
             -f ref="refs/tags/v$VERSION" \
             -f sha="$SHA"
 
-      - name: Create tarball and checksums
+      - name: Build x86_64 (Intel) release binary
         run: |
+          swift build -c release --arch x86_64 --product mirroir-mcp
+
+      - name: Create tarballs and checksums
+        run: |
+          # arm64 (Apple Silicon) — built by the earlier `swift build -c release`.
           cd .build/release
           tar czf "$GITHUB_WORKSPACE/mirroir-mcp-darwin-arm64.tar.gz" mirroir-mcp
+          # x86_64 (Intel) — built into the arch-specific release dir.
+          cd "$GITHUB_WORKSPACE/.build/x86_64-apple-macosx/release"
+          tar czf "$GITHUB_WORKSPACE/mirroir-mcp-darwin-x86_64.tar.gz" mirroir-mcp
           cd "$GITHUB_WORKSPACE"
-          shasum -a 256 mirroir-mcp-darwin-arm64.tar.gz > SHA256SUMS
+          shasum -a 256 \
+            mirroir-mcp-darwin-arm64.tar.gz \
+            mirroir-mcp-darwin-x86_64.tar.gz > SHA256SUMS
 
       - name: Generate release notes
         env:
@@ -206,6 +214,7 @@ jobs:
         run: |
           gh release create "v$VERSION" \
             mirroir-mcp-darwin-arm64.tar.gz \
+            mirroir-mcp-darwin-x86_64.tar.gz \
             SHA256SUMS \
             --title "v$VERSION" \
             --notes-file release-notes.md
@@ -346,3 +355,30 @@ jobs:
             echo "WARNING: npm shows $PUBLISHED, expected $VERSION (may need propagation time)"
           fi
           echo "npm version: $PUBLISHED"
+
+  # Publish server.json to the official MCP Registry. Runs after publish-npm so
+  # the npm package referenced in server.json already exists when the registry
+  # validates it. Auth is GitHub OIDC: the server name lives in the
+  # io.github.jfarcand/* namespace, which `mcp-publisher login github-oidc`
+  # proves ownership of via the workflow's id-token — NO secret is required
+  # (per https://github.com/modelcontextprotocol/registry docs/modelcontextprotocol-io/github-actions.mdx).
+  publish-mcp-registry:
+    needs: [release, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC authentication to the MCP Registry.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ github.event.inputs.version }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json to MCP Registry
+        run: ./mcp-publisher publish

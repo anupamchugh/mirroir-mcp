@@ -1,3 +1,6 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
 // ABOUTME: Upscales small CGImages to a minimum width for improved OCR accuracy.
 // ABOUTME: At small zoom modes the screenshot has too few pixels for Apple Vision to resolve all text.
 

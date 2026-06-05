@@ -1,3 +1,6 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
 // ABOUTME: Dominator tree computation via the Lengauer-Tarjan algorithm.
 // ABOUTME: Identifies gateway screens that all paths must traverse, enabling subtree pruning.
 

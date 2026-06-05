@@ -450,7 +450,8 @@ extension BFSExplorer {
             calibration: report.calibrationSummary,
             screens: screenSummaries,
             stats: currentStats,
-            tapCacheTotal: report.totalCacheHits
+            tapCacheTotal: report.totalCacheHits,
+            graphStructure: ExplorationReportFormatter.formatGraphStructure(snapshot: snapshot)
         )
     }
 }

@@ -26,6 +26,8 @@ mod mirroir;
 mod oracle;
 mod parser;
 mod replay;
+mod replay_dispatch;
+mod replay_sample;
 mod target;
 
 use crate::compile::playwright::{compile_scenario, emit_playwright_config};
@@ -94,9 +96,11 @@ struct Cli {
     #[arg(long, default_value_t = 0.2)]
     levenshtein_threshold: f64,
 
-    /// Scenario set to run when `--sample` is set (ignored otherwise).
-    #[arg(long, value_enum, default_value_t = ScenarioSet::MustPass)]
-    scenarios: ScenarioSet,
+    /// Scenario set to run. When omitted, the `.mirroir/` pipeline honors the
+    /// config's `default_set` (falling back to `must_pass`); the `--sample`
+    /// path defaults to `must_pass`.
+    #[arg(long, value_enum)]
+    scenarios: Option<ScenarioSet>,
 
     /// Path to the JSON report artifact.
     #[arg(long, default_value = "mirroir-run-report.json")]
@@ -228,7 +232,7 @@ async fn run(cli: &Cli) -> Result<()> {
     }
 
     if let Some(dir) = &cli.sample {
-        return run_sample(dir, cli.scenarios, options).await;
+        return run_sample(dir, cli.scenarios.unwrap_or(ScenarioSet::MustPass), options).await;
     }
 
     // .mirroir/ pipeline — explicit --config OR bare invocation with autodiscovery.

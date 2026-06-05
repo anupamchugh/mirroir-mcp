@@ -3,3 +3,4 @@
 
 pub mod invoke;
 pub mod playwright;
+pub mod playwright_emit;

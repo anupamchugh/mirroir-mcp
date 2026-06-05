@@ -1,3 +1,6 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
 // ABOUTME: Detects when the explorer has left the target app (home screen, lock screen, system dialogs).
 // ABOUTME: Returns a diagnosis used by ExplorerUtilities.verifyAppContext to trigger recovery or graceful stop.
 
