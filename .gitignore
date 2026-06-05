@@ -23,6 +23,7 @@ npm/bin/com.jfarcand.mirroir-helper.plist
 scratch/
 # Claude Code local session + memory data (machine-specific).
 .claude/projects/
+.claude/skills/
 mirroir-test-results/
 integrations/
 scripts/test-vd*
