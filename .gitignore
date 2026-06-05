@@ -15,7 +15,14 @@ update-helper.sh
 npm/bin/mirroir-mcp-native
 npm/bin/mirroir-helper
 npm/bin/com.jfarcand.mirroir-helper.plist
-.mirroir-mcp/skills/
+# Local skills symlink (machine-specific path) — no trailing slash so it also
+# matches the symlink itself, not just a real directory. targets.json stays tracked.
+.mirroir-mcp/skills
+.mirroir-mcp/settings.json
+# Scratch space for session artifacts (workflow scripts, drafts) — never shipped.
+scratch/
+# Claude Code local session + memory data (machine-specific).
+.claude/projects/
 mirroir-test-results/
 integrations/
 scripts/test-vd*
