@@ -500,6 +500,10 @@ final class SkillFileTests: XCTestCase {
             if relPath.hasPrefix("components/") { continue }
             // Skip patterns/ (element patterns, recipes, APP.md files — not skills)
             if relPath.hasPrefix("patterns/") { continue }
+            // Skip archetypes/ (framework archetype metadata — archetype.md,
+            // SKILL.md, and web scenarios consumed by the runner's .mirroir/
+            // pipeline, not standalone iPhone skills).
+            if relPath.hasPrefix("archetypes/") { continue }
             // Skip APP.md files (they're app patterns, not skills)
             if (relPath as NSString).lastPathComponent.uppercased() == "APP.MD" { continue }
             // Skip dotfile directories (.claude/, .github/)
@@ -517,10 +521,12 @@ final class SkillFileTests: XCTestCase {
         return stems.sorted()
     }
 
-    /// Return non-legacy .yaml files for tests that require parsed steps.
+    /// Return .yaml skill files for tests that require parsed steps, excluding
+    /// legacy/ and archetypes/ (the latter are framework scenarios driven by the
+    /// runner's .mirroir/ pipeline, not standalone iPhone skills).
     private func yamlFilesSkippingLegacy() -> [String] {
         MirroirMCP.findYAMLFiles(in: Self.skillsDir).filter {
-            !$0.hasPrefix("legacy/")
+            !$0.hasPrefix("legacy/") && !$0.hasPrefix("archetypes/")
         }
     }
 
