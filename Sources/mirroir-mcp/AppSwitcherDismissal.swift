@@ -69,19 +69,21 @@ enum AppSwitcherDismissal {
             return "App Switcher appears empty — no app cards detected"
         }
 
-        // 5. Locate the matching card via OCR intersection. Fail closed
-        // when the locator returns nil — never drag a guess.
+        // 5. Locate the matching card via OCR intersection. Fail closed when
+        // the locator returns nil (no match OR an ambiguous one) — never drag a
+        // guess, or we quit the wrong app.
+        let windowSize = bridge.getWindowInfo()?.size ?? CGSize(width: 410, height: 898)
         guard let cardX = AppSwitcherCardLocator.locateCardX(
             appElements: appOcr.elements,
-            switcherElements: switcherOcr.elements
+            switcherElements: switcherOcr.elements,
+            windowWidth: Double(windowSize.width)
         ) else {
             _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
-            return "Cannot locate '\(appName)' card in App Switcher (OCR text intersection found no match) — refusing to drag at hard-coded coordinates"
+            return "Cannot locate '\(appName)' card in App Switcher unambiguously — refusing to drag (would risk quitting the wrong app)"
         }
         DebugLog.log("reset_app", "located '\(appName)' card at x=\(Int(cardX)) via OCR match")
 
         // 6. Drag the card upward.
-        let windowSize = bridge.getWindowInfo()?.size ?? CGSize(width: 410, height: 898)
         let cardY = Double(windowSize.height) * EnvConfig.appSwitcherCardYFraction
         let toY = max(0, cardY - EnvConfig.appSwitcherSwipeDistance)
         if let error = input.drag(

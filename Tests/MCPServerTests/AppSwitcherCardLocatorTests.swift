@@ -29,7 +29,7 @@ final class AppSwitcherCardLocatorTests: XCTestCase {
             tap("Activité", x: 195), tap("Bouger", x: 200),
         ]
         let result = AppSwitcherCardLocator.locateCardX(
-            appElements: app, switcherElements: switcher
+            appElements: app, switcherElements: switcher, windowWidth: 410
         )
         XCTAssertNotNil(result)
         if let r = result {
@@ -65,7 +65,7 @@ final class AppSwitcherCardLocatorTests: XCTestCase {
             tap("Entraînemen", x: 363),  // truncated in App Switcher OCR
         ]
         let result = AppSwitcherCardLocator.locateCardX(
-            appElements: app, switcherElements: switcher
+            appElements: app, switcherElements: switcher, windowWidth: 410
         )
         XCTAssertNotNil(result)
         if let r = result {
@@ -87,21 +87,21 @@ final class AppSwitcherCardLocatorTests: XCTestCase {
             tap("Sans toi", x: 70),
         ]
         XCTAssertNil(AppSwitcherCardLocator.locateCardX(
-            appElements: app, switcherElements: switcher
+            appElements: app, switcherElements: switcher, windowWidth: 410
         ))
     }
 
     func testReturnsNilWhenAppOcrEmpty() {
         let switcher: [TapPoint] = [tap("Résumé", x: 200)]
         XCTAssertNil(AppSwitcherCardLocator.locateCardX(
-            appElements: [], switcherElements: switcher
+            appElements: [], switcherElements: switcher, windowWidth: 410
         ))
     }
 
     func testReturnsNilWhenSwitcherOcrEmpty() {
         let app: [TapPoint] = [tap("Résumé", x: 92)]
         XCTAssertNil(AppSwitcherCardLocator.locateCardX(
-            appElements: app, switcherElements: []
+            appElements: app, switcherElements: [], windowWidth: 410
         ))
     }
 
@@ -116,7 +116,7 @@ final class AppSwitcherCardLocatorTests: XCTestCase {
             tap("longerword", x: 100),
         ]
         let result = AppSwitcherCardLocator.locateCardX(
-            appElements: app, switcherElements: switcher
+            appElements: app, switcherElements: switcher, windowWidth: 410
         )
         // Only "longerword" should match (X and . are too short).
         XCTAssertEqual(result ?? -1, 100, accuracy: 1)
@@ -128,9 +128,53 @@ final class AppSwitcherCardLocatorTests: XCTestCase {
             tap("résumé", x: 359), tap("épinglés", x: 360),
         ]
         let result = AppSwitcherCardLocator.locateCardX(
-            appElements: app, switcherElements: switcher
+            appElements: app, switcherElements: switcher, windowWidth: 410
         )
         XCTAssertNotNil(result)
         XCTAssertEqual(result ?? -1, 359.5, accuracy: 1)
+    }
+
+    // MARK: - Regressions: wrong-app force-quit
+
+    /// The bug that quit the wrong app: on a French multi-app switcher the
+    /// just-launched app's card was center, but a clipped far-left card whose
+    /// OCR caught common tab labels ("Accueil"/"Recherche") out-voted it and got
+    /// dragged. The locator must reject the left sliver and pick the center card.
+    func testRejectsClippedLeftEdgeCardWithCommonWords() {
+        let app: [TapPoint] = [
+            tap("@johndoe", x: 60), tap("Belle journée à la plage", x: 100),
+            tap("@janesmithphoto", x: 60),
+            tap("Accueil", x: 30), tap("Recherche", x: 90), tap("Reels", x: 160),
+        ]
+        // Clipped left-edge card (x<82) OCRs only the common tab words;
+        // Instagram's real card is centered with the distinctive content.
+        let switcher: [TapPoint] = [
+            tap("Accueil", x: 40), tap("Recherche", x: 55), tap("Reels", x: 47),
+            tap("@johndoe", x: 200), tap("Belle journée à la plage", x: 205),
+            tap("@janesmithphoto", x: 198),
+        ]
+        let result = AppSwitcherCardLocator.locateCardX(
+            appElements: app, switcherElements: switcher, windowWidth: 410
+        )
+        XCTAssertNotNil(result)
+        if let r = result {
+            XCTAssert(r >= 190 && r <= 230,
+                "Must pick the center card, not the clipped left-edge card; got \(r)")
+        }
+    }
+
+    func testFailsClosedWhenTwoCardsMatchEqually() {
+        // Two non-edge cards with equal distinctive overlap — indistinguishable,
+        // so the locator must fail closed rather than drag-quit a guess.
+        let app: [TapPoint] = [tap("Dashboard", x: 100), tap("Settings", x: 110)]
+        let switcher: [TapPoint] = [
+            tap("Dashboard", x: 180), tap("Settings", x: 185),
+            tap("Dashboard", x: 320), tap("Settings", x: 325),
+        ]
+        XCTAssertNil(
+            AppSwitcherCardLocator.locateCardX(
+                appElements: app, switcherElements: switcher, windowWidth: 410
+            ),
+            "Two equally-matching cards must fail closed (never quit the wrong app)")
     }
 }

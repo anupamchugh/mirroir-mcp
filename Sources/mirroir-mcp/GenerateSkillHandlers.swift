@@ -275,8 +275,14 @@ extension MirroirMCP {
                 input: ctx.input,
                 describer: ctx.describer
             ) {
-                return .error(
-                    "Failed to reset '\(appName)' before explore: \(resetError)")
+                // Non-fatal: the force-quit fails closed (it never drags an
+                // unverified card, so it cannot quit the wrong app). Rather than
+                // abort the explore, log and continue — the app is already
+                // relaunched, just exploring from its current state instead of a
+                // freshly-reset one.
+                DebugLog.log("explore",
+                    "reset_before_explore skipped for '\(appName)': \(resetError) — "
+                    + "exploring from current state")
             }
         }
 

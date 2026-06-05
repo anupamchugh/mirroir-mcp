@@ -20,27 +20,43 @@ import HelperLib
 /// chooses to position it within the carousel.
 enum AppSwitcherCardLocator {
 
-    /// Width of each X bucket (points). Larger buckets tolerate more OCR
-    /// jitter; smaller buckets discriminate adjacent cards more sharply.
-    /// 100pt is a good compromise on a 410-wide window: with three visible
-    /// cards, each card occupies roughly one bucket.
-    static let bucketWidthPt: Double = 100.0
-
     /// Minimum text length to use for matching. Single characters and short
     /// fragments produce too many false matches.
     static let minTextLength: Int = 3
 
-    /// Locate the X coordinate of the just-launched app's card in App
-    /// Switcher OCR by matching against the app's foreground OCR text.
+    /// Fraction of the window width below which a card is treated as the
+    /// far-left clipped/peeking sliver. The just-launched app is the current
+    /// foreground app — its card is centered or to the right in the switcher,
+    /// never the leftmost (oldest) card. That left sliver is where OCR is
+    /// unreliable and common localized words (tab labels like "Accueil") create
+    /// false matches; dragging it quits the WRONG app. Matches there are dropped.
+    static let leftEdgeFraction: Double = 0.20
+
+    /// Max X gap (points) between consecutive matches that still belong to the
+    /// same card. Each running app is one card; matches within a card-width
+    /// cluster together.
+    static let clusterGapPt: Double = 90.0
+
+    /// The winning card cluster must out-score the runner-up by at least this
+    /// factor. A near-tie means we cannot tell two cards apart, so we fail
+    /// closed (return nil) rather than drag a guess and quit the wrong app.
+    static let ambiguityMargin: Double = 1.5
+
+    /// Locate the X coordinate of the just-launched app's card in App Switcher
+    /// OCR by matching against the app's foreground OCR text. Returns nil — so
+    /// the caller fails closed and never drags — when no card can be located
+    /// *unambiguously*.
     ///
     /// - Parameters:
     ///   - appElements: OCR text captured while the app was the foreground app.
     ///   - switcherElements: OCR text captured after opening App Switcher.
-    /// - Returns: The median X coordinate of the matched cluster, or nil
-    ///   when no clear match is found (caller should fall back to a default).
+    ///   - windowWidth: Mirroring window width (points), for the left-edge guard.
+    /// - Returns: The median X of the winning card cluster, or nil when the
+    ///   match is absent or ambiguous.
     static func locateCardX(
         appElements: [TapPoint],
-        switcherElements: [TapPoint]
+        switcherElements: [TapPoint],
+        windowWidth: Double
     ) -> Double? {
         let appTexts = Set(
             appElements
@@ -49,24 +65,45 @@ enum AppSwitcherCardLocator {
         )
         guard !appTexts.isEmpty else { return nil }
 
+        // Candidate matches: switcher tokens present in the foreground app,
+        // excluding the far-left clipped sliver.
+        let leftEdge = windowWidth * leftEdgeFraction
         let matches = switcherElements.filter { el in
             let key = normalize(el.text)
-            return key.count >= minTextLength && appTexts.contains(key)
+            return el.tapX >= leftEdge && key.count >= minTextLength && appTexts.contains(key)
         }
         guard !matches.isEmpty else { return nil }
 
-        var bucketCounts: [Int: Int] = [:]
-        for m in matches {
-            let bucket = Int(m.tapX / bucketWidthPt)
-            bucketCounts[bucket, default: 0] += 1
-        }
-        guard let bestBucket = bucketCounts.max(by: { $0.value < $1.value })?.key else {
-            return nil
+        // Cluster by X proximity — one cluster per app card.
+        let sorted = matches.sorted { $0.tapX < $1.tapX }
+        var clusters: [[TapPoint]] = []
+        for match in sorted {
+            if let lastX = clusters.last?.last?.tapX, match.tapX - lastX <= clusterGapPt {
+                clusters[clusters.count - 1].append(match)
+            } else {
+                clusters.append([match])
+            }
         }
 
-        let inBucket = matches.filter { Int($0.tapX / bucketWidthPt) == bestBucket }
-        let xs = inBucket.map { $0.tapX }.sorted()
-        return xs[xs.count / 2]
+        // Score each cluster by total matched text length (distinctiveness),
+        // so a card showing several common short words cannot out-vote the real
+        // card's distinctive content. Highest score wins.
+        let scored = clusters
+            .map { cluster -> (score: Int, xs: [Double]) in
+                let score = cluster.reduce(0) { $0 + normalize($1.text).count }
+                return (score, cluster.map { $0.tapX }.sorted())
+            }
+            .sorted { $0.score > $1.score }
+
+        guard let best = scored.first else { return nil }
+        // Fail closed on a near-tie between two cards.
+        if scored.count >= 2 {
+            let runnerUp = scored[1].score
+            if runnerUp > 0, Double(best.score) < Double(runnerUp) * ambiguityMargin {
+                return nil
+            }
+        }
+        return best.xs[best.xs.count / 2]
     }
 
     private static func normalize(_ text: String) -> String {
