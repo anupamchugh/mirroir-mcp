@@ -123,6 +123,14 @@ public enum JSONValue: Codable, Sendable, Equatable {
     public func getToolName() -> String? {
         getString("name")
     }
+
+    /// Return the value at `key` if this is an object, else nil. Unlike
+    /// `getString`/`getNumber` this preserves the nested `JSONValue`, so callers
+    /// can walk paths like `params.member("_meta")?.member(metaKey)`.
+    public func member(_ key: String) -> JSONValue? {
+        guard case .object(let dict) = self else { return nil }
+        return dict[key]
+    }
 }
 
 // MARK: - JSONValue Convenience Extensions
@@ -171,10 +179,16 @@ public struct JSONRPCResponse: Encodable, Sendable {
 public struct JSONRPCError: Encodable, Sendable {
     public let code: Int
     public let message: String
+    /// Optional structured payload. Carries `{supported, requested}` for the
+    /// modern `UnsupportedProtocolVersionError` (-32004) and
+    /// `{requiredCapabilities}` for `MissingRequiredClientCapabilityError`
+    /// (-32003). Omitted from the wire when nil (synthesized `encodeIfPresent`).
+    public let data: JSONValue?
 
-    public init(code: Int, message: String) {
+    public init(code: Int, message: String, data: JSONValue? = nil) {
         self.code = code
         self.message = message
+        self.data = data
     }
 }
 

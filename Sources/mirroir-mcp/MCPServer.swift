@@ -55,8 +55,21 @@ final class MCPServer: Sendable {
         }
     }
 
-    /// Supported MCP protocol versions, most recent first.
-    static let supportedProtocolVersions = ["2025-11-25", "2024-11-05"]
+    /// Supported MCP protocol versions, most recent first. `2026-07-28` is the
+    /// modern (stateless, per-request `_meta`) revision; the `2025-*`/`2024-*`
+    /// entries are legacy (`initialize`-handshake) revisions. The server is
+    /// dual-era: it serves both. See `handleRequest`.
+    static let supportedProtocolVersions = ["2026-07-28", "2025-11-25", "2024-11-05"]
+
+    /// Reserved `_meta` keys a modern (`2026-07-28`) client puts on every request.
+    private enum MetaKey {
+        static let protocolVersion = "io.modelcontextprotocol/protocolVersion"
+        static let clientInfo = "io.modelcontextprotocol/clientInfo"
+        static let clientCapabilities = "io.modelcontextprotocol/clientCapabilities"
+    }
+
+    /// How long a client may cache a `server/discover` response (1 hour).
+    private static let discoverTtlMs = 3_600_000
 
     func handleRequest(_ request: JSONRPCRequest) -> JSONRPCResponse? {
         // Notifications have no id — the spec says receivers MUST NOT respond
@@ -64,15 +77,43 @@ final class MCPServer: Sendable {
             return nil
         }
 
+        // `server/discover` is the modern MUST-implement method and the stdio
+        // backward-compat probe; it is answered regardless of negotiated era.
+        if request.method == "server/discover" {
+            return handleDiscover(request)
+        }
+
+        // Dual-era routing: a request carrying the modern `_meta`
+        // protocolVersion is served statelessly per 2026-07-28; otherwise it is
+        // a legacy request (post-`initialize`) and served as before. For modern
+        // requests, validate the version and required `_meta` fields up front.
+        let modernVersion = request.params?
+            .member("_meta")?.member(MetaKey.protocolVersion)?.asString()
+        let isModern = modernVersion != nil
+        if let requested = modernVersion {
+            if !Self.supportedProtocolVersions.contains(requested) {
+                return unsupportedVersionError(id: request.id, requested: requested)
+            }
+            if let missing = missingRequiredMetaField(request) {
+                return JSONRPCResponse(
+                    id: request.id, result: nil,
+                    error: JSONRPCError(
+                        code: -32602,
+                        message: "Invalid params: missing required _meta field '\(missing)'"
+                    )
+                )
+            }
+        }
+
         switch request.method {
         case "initialize":
             return handleInitialize(request)
         case "tools/list":
-            return handleToolsList(request)
+            return handleToolsList(request, modern: isModern)
         case "tools/call":
-            return handleToolsCall(request)
+            return handleToolsCall(request, modern: isModern)
         case "ping":
-            return JSONRPCResponse(id: request.id, result: .object([:]), error: nil)
+            return JSONRPCResponse(id: request.id, result: completeResult([:], modern: isModern), error: nil)
         default:
             return JSONRPCResponse(
                 id: request.id,
@@ -82,15 +123,74 @@ final class MCPServer: Sendable {
         }
     }
 
+    /// Wrap a modern result object with `resultType: "complete"`. Legacy
+    /// (`initialize`-era) responses omit `resultType`; clients treat its
+    /// absence as `"complete"` for backward compatibility.
+    private func completeResult(_ fields: [String: JSONValue], modern: Bool) -> JSONValue {
+        guard modern else { return .object(fields) }
+        var withType = fields
+        withType["resultType"] = .string("complete")
+        return .object(withType)
+    }
+
+    /// First required modern `_meta` field that is absent, or nil if all present.
+    private func missingRequiredMetaField(_ request: JSONRPCRequest) -> String? {
+        let meta = request.params?.member("_meta")
+        if meta?.member(MetaKey.clientInfo) == nil { return MetaKey.clientInfo }
+        if meta?.member(MetaKey.clientCapabilities) == nil { return MetaKey.clientCapabilities }
+        return nil
+    }
+
+    /// `UnsupportedProtocolVersionError` (-32004) with the versions we support.
+    private func unsupportedVersionError(id: RequestID?, requested: String) -> JSONRPCResponse {
+        let supported = Self.supportedProtocolVersions.map { JSONValue.string($0) }
+        let data: JSONValue = .object([
+            "supported": .array(supported),
+            "requested": .string(requested),
+        ])
+        return JSONRPCResponse(
+            id: id, result: nil,
+            error: JSONRPCError(code: -32004, message: "Unsupported protocol version", data: data)
+        )
+    }
+
+    /// Modern `server/discover` — advertise supported versions, capabilities,
+    /// and identity so a client can pick a version without a round-trip error.
+    private func handleDiscover(_ request: JSONRPCRequest) -> JSONRPCResponse {
+        let supported = Self.supportedProtocolVersions.map { JSONValue.string($0) }
+        let result: JSONValue = .object([
+            "resultType": .string("complete"),
+            "supportedVersions": .array(supported),
+            "capabilities": .object([
+                "tools": .object([:]),
+            ]),
+            "serverInfo": .object([
+                "name": .string("mirroir-mcp"),
+                "version": .string(MirroirVersion.current),
+            ]),
+            "instructions": .string(
+                "Drive a real iPhone via macOS iPhone Mirroring: see the screen "
+                + "(describe_screen), tap/swipe/type, and author replayable skills."),
+            "ttlMs": .number(Double(Self.discoverTtlMs)),
+            "cacheScope": .string("public"),
+        ])
+        return JSONRPCResponse(id: request.id, result: result, error: nil)
+    }
+
+    /// Legacy (`initialize`-handshake) protocol versions, most recent first.
+    /// `initialize` negotiates only among these — the modern `2026-07-28`
+    /// revision has no handshake, so it is never the outcome of `initialize`.
+    static let legacyProtocolVersions = ["2025-11-25", "2024-11-05"]
+
     private func handleInitialize(_ request: JSONRPCRequest) -> JSONRPCResponse {
-        // Negotiate protocol version: use the client's version if we support it,
-        // otherwise fall back to our most recent supported version.
+        // Negotiate protocol version: use the client's version if it is a legacy
+        // version we support, otherwise fall back to our most recent legacy one.
         let clientVersion = request.params?.getString("protocolVersion")
         let negotiatedVersion: String
-        if let clientVersion, Self.supportedProtocolVersions.contains(clientVersion) {
+        if let clientVersion, Self.legacyProtocolVersions.contains(clientVersion) {
             negotiatedVersion = clientVersion
         } else {
-            negotiatedVersion = Self.supportedProtocolVersions[0]
+            negotiatedVersion = Self.legacyProtocolVersions[0]
         }
 
         let result: JSONValue = .object([
@@ -107,7 +207,7 @@ final class MCPServer: Sendable {
         return JSONRPCResponse(id: request.id, result: result, error: nil)
     }
 
-    private func handleToolsList(_ request: JSONRPCRequest) -> JSONRPCResponse {
+    private func handleToolsList(_ request: JSONRPCRequest, modern: Bool) -> JSONRPCResponse {
         let toolList: [JSONValue] = tools.withLock { snapshot in
             snapshot.values
                 .filter { policy.isToolVisible($0.name) }
@@ -119,11 +219,11 @@ final class MCPServer: Sendable {
                     ])
                 }
         }
-        let result: JSONValue = .object(["tools": .array(toolList)])
+        let result = completeResult(["tools": .array(toolList)], modern: modern)
         return JSONRPCResponse(id: request.id, result: result, error: nil)
     }
 
-    private func handleToolsCall(_ request: JSONRPCRequest) -> JSONRPCResponse {
+    private func handleToolsCall(_ request: JSONRPCRequest, modern: Bool) -> JSONRPCResponse {
         guard let toolName = request.params?.getToolName() else {
             return JSONRPCResponse(
                 id: request.id,
@@ -146,10 +246,10 @@ final class MCPServer: Sendable {
             let content: JSONValue = .array([
                 MCPContent.text(reason).toJSON()
             ])
-            let result: JSONValue = .object([
+            let result = completeResult([
                 "content": content,
                 "isError": .bool(true),
-            ])
+            ], modern: modern)
             return JSONRPCResponse(id: request.id, result: result, error: nil)
         }
 
@@ -157,10 +257,10 @@ final class MCPServer: Sendable {
         let toolResult = tool.handler(arguments)
 
         let content: JSONValue = .array(toolResult.content.map { $0.toJSON() })
-        let result: JSONValue = .object([
+        let result = completeResult([
             "content": content,
             "isError": .bool(toolResult.isError),
-        ])
+        ], modern: modern)
         return JSONRPCResponse(id: request.id, result: result, error: nil)
     }
 

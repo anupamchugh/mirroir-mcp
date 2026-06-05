@@ -297,4 +297,117 @@ final class MCPServerRoutingTests: XCTestCase {
         ))
         XCTAssertNil(response, "All notifications (no id) must not produce a response")
     }
+
+    // MARK: - Modern protocol (2026-07-28): server/discover + per-request _meta
+
+    /// Build a modern request whose `_meta` carries the required reverse-DNS
+    /// protocol fields for the given version.
+    private func modernRequest(
+        method: String, version: String = "2026-07-28",
+        includeClientInfo: Bool = true, includeClientCapabilities: Bool = true,
+        extraParams: [String: JSONValue] = [:]
+    ) -> JSONRPCRequest {
+        var meta: [String: JSONValue] = [
+            "io.modelcontextprotocol/protocolVersion": .string(version),
+        ]
+        if includeClientInfo {
+            meta["io.modelcontextprotocol/clientInfo"] =
+                .object(["name": .string("test-client"), "version": .string("1.0")])
+        }
+        if includeClientCapabilities {
+            meta["io.modelcontextprotocol/clientCapabilities"] = .object([:])
+        }
+        var params = extraParams
+        params["_meta"] = .object(meta)
+        return makeRequest(method: method, params: .object(params))
+    }
+
+    func testServerDiscoverReturnsSupportedVersionsAndCapabilities() {
+        let server = makeServer()
+        let response = server.handleRequest(makeRequest(method: "server/discover"))
+        guard let response else { return XCTFail("Expected response") }
+        XCTAssertNil(response.error)
+        guard case .object(let result) = response.result else {
+            return XCTFail("Expected object result")
+        }
+        XCTAssertEqual(result["resultType"], .string("complete"))
+        guard case .array(let versions) = result["supportedVersions"] else {
+            return XCTFail("Expected supportedVersions array")
+        }
+        XCTAssertTrue(versions.contains(.string("2026-07-28")), "must advertise the modern version")
+        XCTAssertTrue(versions.contains(.string("2025-11-25")), "must still advertise legacy")
+        guard case .object(let caps) = result["capabilities"],
+              case .object = caps["tools"] else {
+            return XCTFail("Expected tools capability")
+        }
+        guard case .object(let info) = result["serverInfo"] else {
+            return XCTFail("Expected serverInfo")
+        }
+        XCTAssertEqual(info["name"], .string("mirroir-mcp"))
+        // Cacheable per the spec.
+        XCTAssertNotNil(result["ttlMs"])
+    }
+
+    func testModernToolsListIncludesResultType() {
+        let server = makeServer()
+        let response = server.handleRequest(modernRequest(method: "tools/list"))
+        guard let response, case .object(let result) = response.result else {
+            return XCTFail("Expected object result")
+        }
+        XCTAssertNil(response.error)
+        XCTAssertEqual(result["resultType"], .string("complete"),
+            "modern result responses must carry resultType")
+        XCTAssertNotNil(result["tools"])
+    }
+
+    func testLegacyToolsListOmitsResultType() {
+        let server = makeServer()
+        // No modern _meta → legacy request → no resultType (clients treat absence as complete).
+        let response = server.handleRequest(makeRequest(method: "tools/list"))
+        guard let response, case .object(let result) = response.result else {
+            return XCTFail("Expected object result")
+        }
+        XCTAssertNil(result["resultType"], "legacy responses must not include resultType")
+    }
+
+    func testModernUnsupportedVersionReturnsError() {
+        let server = makeServer()
+        let response = server.handleRequest(modernRequest(method: "tools/list", version: "1900-01-01"))
+        guard let response, let error = response.error else {
+            return XCTFail("Expected error")
+        }
+        XCTAssertEqual(error.code, -32004, "unsupported version → UnsupportedProtocolVersionError")
+        guard case .object(let data)? = error.data,
+              case .array(let supported) = data["supported"] else {
+            return XCTFail("Expected data.supported list")
+        }
+        XCTAssertTrue(supported.contains(.string("2026-07-28")))
+        XCTAssertEqual(data["requested"], .string("1900-01-01"))
+    }
+
+    func testModernMissingRequiredMetaFieldReturnsInvalidParams() {
+        let server = makeServer()
+        // protocolVersion present but clientInfo missing → malformed modern request.
+        let response = server.handleRequest(
+            modernRequest(method: "tools/list", includeClientInfo: false))
+        guard let response, let error = response.error else {
+            return XCTFail("Expected error")
+        }
+        XCTAssertEqual(error.code, -32602, "missing required _meta field → Invalid params")
+    }
+
+    func testInitializeNeverNegotiatesModernVersion() {
+        let server = makeServer()
+        // A legacy initialize must not yield the handshake-less modern version,
+        // even if the client names it.
+        let response = server.handleRequest(makeRequest(
+            method: "initialize",
+            params: .object(["protocolVersion": .string("2026-07-28")])
+        ))
+        guard let response, case .object(let result) = response.result else {
+            return XCTFail("Expected object result")
+        }
+        XCTAssertEqual(result["protocolVersion"], .string("2025-11-25"),
+            "initialize negotiates only legacy versions")
+    }
 }
