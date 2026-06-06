@@ -38,9 +38,12 @@ echo "==> Tier 3: cargo test --all-targets"
 cargo test --all-targets
 
 GIT_DIR="$(git rev-parse --git-dir)"
-date +%s > "$GIT_DIR/validation-passed"
+# Marker line: "<unix-timestamp> <HEAD-commit-sha>". The pre-push hook requires
+# both a fresh timestamp AND a SHA matching the commit being pushed, so an
+# amended/added commit after validation invalidates the marker.
+printf '%s %s\n' "$(date +%s)" "$(git rev-parse HEAD)" > "$GIT_DIR/validation-passed"
 
 echo ""
 echo "pre-push-validate: ALL TIERS PASSED"
-echo "Stamped $GIT_DIR/validation-passed (valid for $((VALIDATION_TTL_SECONDS / 60)) minutes)."
+echo "Stamped $GIT_DIR/validation-passed for commit $(git rev-parse --short HEAD) (valid for $((VALIDATION_TTL_SECONDS / 60)) minutes)."
 exit 0

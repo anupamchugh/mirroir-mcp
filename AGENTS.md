@@ -132,6 +132,35 @@ All fallible operations return `crate::error::Result<T>` (alias for
 fields and a `#[source]` for chaining where applicable. External crate errors
 are converted via `#[from]` or `.map_err(|source| RunnerError::Variant { ..., source })`.
 
+When constructing errors:
+
+1. **Return a structured `RunnerError` variant** — never a stringly-typed error.
+2. **Let `?` / `#[from]` do the conversion** — don't hand-build `.into()` chains
+   the trait impls already cover.
+3. **Add a new variant if none fits** — with structured fields and a `#[source]`,
+   not a `Message(String)` catch-all that re-introduces stringly errors.
+4. **Carry context as fields, not as `.context()`** — `anyhow::Context` is a hard
+   clippy fail here (`runner/clippy.toml`); the context lives in the variant's
+   fields.
+
+```rust
+// GOOD — structured variant, ? handles conversion
+let scenario = load_scenario(&path)?;                 // From<io::Error> on RunnerError
+return Err(RunnerError::TargetUnreachable {
+    target: target.name.clone(),
+    source: e,
+});
+
+// GOOD — map an external error into a structured variant with fields
+serde_yaml::from_str(&raw)
+    .map_err(|source| RunnerError::ScenarioParse { path: path.clone(), source })?;
+
+// FORBIDDEN — CI (clippy + architectural-validation.sh) fails on detection:
+anyhow!("target {target} unreachable")        // anyhow! macro
+something().context("loading scenario")?       // anyhow::Context
+fallible().unwrap()                            // unwrap in production
+```
+
 ### Test Code
 
 Tests inline in `#[cfg(test)] mod tests` follow the same rules as production
@@ -159,8 +188,117 @@ and Rust commits — conventional commit format, max 2 lines, no `Co-Authored-By
 Claude`.
 
 Before pushing, run `runner/scripts/ci/pre-push-validate.sh` from the runner
-directory. The script stamps `.git/validation-passed` for 15 minutes; the
-pre-push hook checks the marker before allowing the push.
+directory. The script stamps `.git/validation-passed` (timestamp + commit SHA);
+the pre-push hook allows the push only when the marker is fresh (< 15 minutes)
+**and** stamped for the exact commit being pushed. Amending or adding a commit
+after validation invalidates the marker — re-run the script.
+
+### Idiomatic Rust
+
+Default to idiomatic Rust. The points below are the non-obvious or
+project-enforced ones for `runner/`.
+
+**Ownership & collections.** PREFER borrowing (`&T`, `&str`, `&[T]`) over owned
+params unless ownership is needed; `Cow<T>` for conditionally owned data;
+`AsRef<T>`/`Into<T>` for flexible APIs. Clone the `Arc`, never its contents
+(`arc.clone()`, not `(*arc).clone()`) — `Arc`/`Rc` clones need no comment,
+JUSTIFY non-obvious value clones. PREFER iterator chains, `filter_map()` over
+`filter().map()`, `and_then()` over nested match; pre-size with
+`with_capacity()` when the size is known. PREFER format args `format!("{name}")`
+over concatenation; `&'static str` for string constants.
+
+**Control flow, types & API design.** PREFER early returns with `?` over nested
+matches; `if let` for single patterns, `match` for complex logic; exhaustive
+match when every variant needs distinct handling, catch-all `_` only for
+genuinely evolving enums. Newtype pattern for domain ids; `enum` over boolean
+flags for state; `const fn`/associated consts for type-level values. `impl
+Trait` in argument position for flexibility, concrete return types when callers
+must name them. DESIGN APIs to be hard to misuse (parse, don't validate);
+builder pattern for many-optional-field structs. PREFER small focused functions,
+composition over inheritance, `std` over external crates when sufficient.
+
+**Async, concurrency & performance.** PREFER `async fn` over `impl Future`;
+`tokio::spawn` for concurrent tasks, `.await` for sequential; structured
+concurrency via `join!`/`select!`; always handle `JoinHandle` results (don't
+swallow panics). `Arc<RwLock<T>>` over `Arc<Mutex<T>>` for read-heavy; channels
+over shared mutable state; atomics for simple counters. DOCUMENT every `Arc<T>`
+with its sharing justification. `std::sync::LazyLock` for lazy statics,
+`OnceLock` for one-time runtime init. AVOID premature `#[inline]`; `#[cold]` for
+error paths; `const fn` for compile-time eval; `Box<T>` for recursive types.
+
+**Modules & imports** (enforced by `clippy::absolute_paths = "deny"`). USE `use`
+imports at the top of the file; AVOID inline qualified paths like
+`std::collections::HashMap` mid-body. Qualified paths only for name collisions or
+single-use clarity. PREFER flat module hierarchies.
+
+### Architectural Discipline
+
+These principles govern `runner/` (and generalize to the Swift side). Default
+behavior is to complete the requested task — these override that when they fire.
+
+**No backward compatibility, no legacy.** Pre-1.0, zero external API consumers,
+no deprecation window. Every rename, move, or replacement is a single-commit
+cutover. If you want to keep "the old path around for now," STOP and ask — the
+answer is almost always "finish the migration in this branch."
+
+**Single source of truth.** Before adding a new abstraction: grep for existing
+abstractions with a similar purpose; if one exists, USE IT or DELETE it in the
+same commit that replaces it. Never leave two systems doing the same job "for
+compat."
+
+**When adding, remove.** Every commit that adds a new abstraction must identify
+what it replaces and delete that in the same commit.
+
+**Use the dependency you add (no phantom integrations).** Adding a crate, then
+hand-rolling a parallel version of what it does, is forbidden. If a crate is in
+`runner/Cargo.toml`, its actual API must be used — not its types
+imported/re-exported while a bespoke equivalent does the real work. Before
+adding or extending a dependency, confirm: it's actually called (an unused
+`pub use dep::{...}` is dead weight — `rg` for consumers first); you implement
+its traits, not parallel ones with the same shape; you use its domain types, not
+raw primitives that mirror them; it arrives as a direct dep only if used
+directly. Test: if I deleted this dependency line, what breaks? If "only a
+re-export no one reads," the integration is phantom — finish it or remove it.
+
+**Forbidden patterns (junk disguised as discipline).** These freeze
+architectural debt by making it *testable* instead of *fixed*. Delete them when
+found; do not add them:
+
+- `KNOWN_OFFENDERS` / `PENDING_*` / `EXEMPT_*` const arrays in tests enumerating
+  files that violate an invariant — fix offenders in the same branch, or change
+  the invariant.
+- Adapter/wrapper types bridging an old trait to a new trait
+  (`impl NewTrait for X { fn m() { call_old(...) } }`) — port the body directly,
+  delete the old function and its types.
+- Invariant tests policing drift between two systems ("legacy map X must stay in
+  sync with registry Y") — delete X. Tests policing a *single* canonical
+  system's internal consistency are fine.
+- Fallback dispatch paths ("if not found in new, try legacy").
+- Feature flags creating "old mode vs new mode."
+
+Test: am I making a pre-existing parallel system *acceptable*, or replacing it?
+If "acceptable," stop — that's junk.
+
+**Complete deletion, not deprecation.** Don't mark code `// DEPRECATED` or
+`// TODO remove later`. Delete it. If deletion is blocked, file an issue and link
+it from the code.
+
+### Pushback Triggers — When to Stop and Ask
+
+STOP and surface to ChefFamille before proceeding when you find:
+
+1. **Duplication** — two systems/modules doing similar things.
+2. **Stale state** — `TODO`, `FIXME`, `for compat`, `temporary`, `v2` comments
+   in code you're touching.
+3. **Red CI** — workflows failing on `main`.
+4. **Version drift** — two versions of the same dep in `runner/Cargo.lock`.
+5. **Request conflicts with architecture** — asked to add X but X exists
+   differently → surface the existing thing.
+6. **Half-finished migrations** — both old and new paths still live.
+7. **Adapter/wrapper added without matching deletion** — why does the old path
+   still exist?
+8. **Invariant test with an exception list** — you're pinning debt.
+9. **Phantom dependency integration** — a crate whose API isn't actually called.
 
 ## Git Workflow: NO Pull Requests
 

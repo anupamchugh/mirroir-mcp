@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Pre-push hook — requires a fresh runner/ validation marker before any push.
-# ABOUTME: Checks <git-dir>/validation-passed exists and is < 15 minutes old; else blocks.
+# ABOUTME: Pre-push hook — requires a fresh runner/ validation marker for the exact
+# ABOUTME: commit being pushed. Marker must be < 15 min old AND its SHA must match HEAD.
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ fail() {
     echo "Run the runner validation gate first:"
     echo "  ./$VALIDATE_SCRIPT"
     echo ""
-    echo "It stamps $MARKER (valid for $((VALIDATION_TTL_SECONDS / 60)) minutes)."
+    echo "It stamps $MARKER (timestamp + commit SHA, valid for $((VALIDATION_TTL_SECONDS / 60)) minutes)."
     exit 1
 }
 
@@ -25,7 +25,10 @@ if [ ! -f "$MARKER" ]; then
     fail "no validation marker found"
 fi
 
-STAMP="$(cat "$MARKER" 2>/dev/null || echo 0)"
+# Marker format: "<unix-timestamp> <commit-sha>". The SHA field is optional for
+# backward compatibility with markers stamped by older validate scripts; when
+# absent, only the freshness check applies.
+read -r STAMP MARKER_COMMIT _ < "$MARKER" || true
 case "$STAMP" in
     ''|*[!0-9]*) fail "validation marker is corrupt" ;;
 esac
@@ -37,5 +40,10 @@ if [ "$AGE" -lt 0 ] || [ "$AGE" -gt "$VALIDATION_TTL_SECONDS" ]; then
     fail "validation marker is stale (${AGE}s old, max ${VALIDATION_TTL_SECONDS}s)"
 fi
 
-echo "pre-push: validation marker is fresh (${AGE}s old) — allowing push."
+HEAD_COMMIT="$(git rev-parse HEAD)"
+if [ -n "${MARKER_COMMIT:-}" ] && [ "$MARKER_COMMIT" != "$HEAD_COMMIT" ]; then
+    fail "validation marker is for a different commit (marker ${MARKER_COMMIT:0:12}, HEAD ${HEAD_COMMIT:0:12})"
+fi
+
+echo "pre-push: validation marker is fresh (${AGE}s old) for commit ${HEAD_COMMIT:0:12} — allowing push."
 exit 0
