@@ -404,7 +404,15 @@ jobs:
           cd "$MIRROIR_PLAYWRIGHT_HOME"
           npm init -y > /dev/null
           npm install --no-save --silent @playwright/test
-          npx playwright install chromium firefox webkit
+          # Linux: webkit/firefox link against OS libs (libwoff2, libgstreamer,
+          # libenchant, …) that the runner lacks by default; --with-deps
+          # apt-installs them. macOS uses system frameworks, so install the
+          # browser binaries only (that lane already passes without deps).
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npx playwright install --with-deps chromium firefox webkit
+          else
+            npx playwright install chromium firefox webkit
+          fi
 
       - name: Cache Ollama models
         uses: actions/cache@v4
