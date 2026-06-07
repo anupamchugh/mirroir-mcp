@@ -23,6 +23,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pinned to match runner/rust-toolchain.toml (channel = "1.96.0"); bump the
+  # two together. Release binaries must not float on whatever `stable` is.
+  RUST_TOOLCHAIN: 1.96.0
 
 jobs:
   version:
@@ -107,6 +110,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
@@ -166,6 +170,8 @@ jobs:
           ref: runner-v${{ needs.version.outputs.version }}
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
