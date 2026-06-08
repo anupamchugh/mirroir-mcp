@@ -3,9 +3,12 @@ import Layout from "../layouts/Layout.astro";
 import { Code } from "astro:components";
 import "../styles/global.css";
 import { readFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
-const serverJsonPath = fileURLToPath(new URL("../../../server.json", import.meta.url));
+// Build-time data files resolve from the project root (process.cwd() is the
+// website/ dir during `astro build`). Astro 6 bundles prerendered pages into
+// dist/.prerender/, so import.meta.url-relative paths no longer point here.
+const serverJsonPath = resolve(process.cwd(), "../server.json");
 const serverJson = JSON.parse(readFileSync(serverJsonPath, "utf-8"));
 const version = serverJson.version;
 
@@ -145,7 +148,7 @@ interface Skill {
 
 // Read pre-generated skills index from filesystem (produced by scripts/generate-skills-index.mjs).
 // Falls back to GitHub API if the file doesn't exist, and to an empty list on error.
-const indexPath = fileURLToPath(new URL("../data/skills-index.json", import.meta.url));
+const indexPath = resolve(process.cwd(), "src/data/skills-index.json");
 let skills: Skill[] = [];
 let skillsAvailable = false;
 
