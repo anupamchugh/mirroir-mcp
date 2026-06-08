@@ -23,6 +23,8 @@ jobs:
       - uses: withastro/action@v3
         with:
           path: ./website
+          # Astro 6 requires Node >=22.12.0; the action defaults to Node 20.
+          node-version: 22
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
