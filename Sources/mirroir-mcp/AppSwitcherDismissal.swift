@@ -96,6 +96,21 @@ enum AppSwitcherDismissal {
         }
         usleep(EnvConfig.toolSettlingDelayUs)
 
+        // 6b. Verify the card actually dismissed. The drag posts successfully
+        // (CGEvent=OK) even when the flick fails to fling the card off-screen,
+        // so re-OCR the switcher and re-locate the app: if its card still
+        // matches, report failure rather than the false success that previously
+        // masked a stuck card.
+        if let postDrag = describer.describe(),
+           AppSwitcherCardLocator.locateCardX(
+               appElements: appOcr.elements,
+               switcherElements: postDrag.elements,
+               windowWidth: Double(windowSize.width)
+           ) != nil {
+            _ = menuBridge.triggerMenuAction(menu: "View", item: "Home Screen")
+            return "Swiped '\(appName)' card but it is still in the App Switcher — dismissal did not take"
+        }
+
         // 7. Return to home screen.
         //
         // After a successful card-dismiss drag, iOS occasionally interprets

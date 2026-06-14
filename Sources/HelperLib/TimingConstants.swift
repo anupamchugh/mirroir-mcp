@@ -194,7 +194,10 @@ public enum TimingConstants {
     public static let appSwitcherCardYFraction: Double = 0.55
 
     /// Swipe distance for dismissing app cards in the App Switcher (points).
-    public static let appSwitcherSwipeDistance: Double = 300.0
+    /// Large enough to flick the card off the top: the just-launched (current)
+    /// app's card is centered and larger than the peeking side cards, so a short
+    /// drag that dismisses an edge card leaves the bigger center card on screen.
+    public static let appSwitcherSwipeDistance: Double = 600.0
 
     /// Swipe duration for dismissing app cards in the App Switcher (milliseconds).
     public static let appSwitcherSwipeDurationMs: Int = 200

@@ -77,7 +77,8 @@ extension BFSExplorer {
     /// When the plan is empty and the session has APP.md tabs, injects tab elements
     /// as high-priority navigation targets (tab-driven navigation).
     func buildScreenPlan(
-        classified: [ClassifiedElement], visitedElements: Set<String>
+        classified: [ClassifiedElement], visitedElements: Set<String>,
+        icons: [IconDetector.DetectedIcon] = []
     ) -> [RankedElement] {
         var plan: [RankedElement]
 
@@ -109,7 +110,13 @@ extension BFSExplorer {
         // where component detection can't classify the tab bar.
         let appTabs = session.currentAppDescription?.tabs ?? []
         if !appTabs.isEmpty {
-            let allPoints = classified.map { $0.point }
+            // Include detected unlabeled icons so the ordinal tab-zone mapping
+            // works for icon-only tab bars (Instagram/TikTok), where the tabs
+            // carry no OCR text and never appear among `classified` elements.
+            let iconPoints = icons.map {
+                TapPoint(text: "", tapX: $0.tapX, tapY: $0.tapY, confidence: 1.0)
+            }
+            let allPoints = classified.map { $0.point } + iconPoints
             let tabTargets = findTabTargets(
                 tabNames: appTabs, elements: allPoints, visitedElements: visitedElements)
             if !tabTargets.isEmpty {

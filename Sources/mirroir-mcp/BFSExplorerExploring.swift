@@ -62,7 +62,8 @@ extension BFSExplorer {
             )
             let visitedElements = graph.node(for: currentFP)?.visitedElements ?? []
             let plan = buildScreenPlan(
-                classified: classified, visitedElements: visitedElements
+                classified: classified, visitedElements: visitedElements,
+                icons: result.icons
             )
             graph.setScreenPlan(for: currentFP, plan: applyQBoostIfAvailable(plan: plan, fingerprint: currentFP))
             DebugLog.log("bfs", "=== VIEWPORT \(frontierManager.currentViewportIndex + 1)/\(frontierManager.totalViewpoints) ===")
