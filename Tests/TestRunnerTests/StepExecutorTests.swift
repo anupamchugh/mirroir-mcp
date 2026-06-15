@@ -339,11 +339,25 @@ final class StepExecutorTests: XCTestCase {
 
     // MARK: - reset_app
 
+    /// describe() sequence for a successful reset: foreground OCR, App Switcher
+    /// OCR (the card present at window center, x=200), then the post-drag verify
+    /// OCR with the card gone — so `AppSwitcherCardLocator` returns nil and the
+    /// dismissal is confirmed rather than reported as a stuck card.
+    private func resetDescribeSequence(cardText: String) -> [ScreenDescriber.DescribeResult?] {
+        let withCard = ScreenDescriber.DescribeResult(
+            elements: [TapPoint(text: cardText, tapX: 200, tapY: 400, confidence: 0.95)],
+            screenshotBase64: "")
+        let cardGone = ScreenDescriber.DescribeResult(
+            elements: [TapPoint(text: "OtherApp", tapX: 200, tapY: 400, confidence: 0.95)],
+            screenshotBase64: "")
+        return [withCard, withCard, cardGone]
+    }
+
     func testResetAppForceQuit() {
-        describer.describeResult = ScreenDescriber.DescribeResult(
-            elements: [TapPoint(text: "Settings", tapX: 200, tapY: 400, confidence: 0.95)],
-            screenshotBase64: ""
-        )
+        // describe() order: foreground OCR, App Switcher OCR (locate), then the
+        // post-drag verify — which must show the card gone for the dismiss to
+        // be reported as successful.
+        describer.describeResults = resetDescribeSequence(cardText: "Settings")
 
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
@@ -360,10 +374,7 @@ final class StepExecutorTests: XCTestCase {
     func testResetAppLaunchesViaSpotlight() {
         // The launch-first approach launches the app via Spotlight before
         // opening the App Switcher, so the target is always the centered card.
-        describer.describeResult = ScreenDescriber.DescribeResult(
-            elements: [TapPoint(text: "Settings", tapX: 200, tapY: 400, confidence: 0.95)],
-            screenshotBase64: ""
-        )
+        describer.describeResults = resetDescribeSequence(cardText: "Settings")
 
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
@@ -384,10 +395,7 @@ final class StepExecutorTests: XCTestCase {
     func testResetAppNoCarouselSearch() {
         // The launch-first approach never searches the carousel via OCR,
         // so there should be zero horizontal swipes.
-        describer.describeResult = ScreenDescriber.DescribeResult(
-            elements: [TapPoint(text: "Settings", tapX: 200, tapY: 400, confidence: 0.95)],
-            screenshotBase64: ""
-        )
+        describer.describeResults = resetDescribeSequence(cardText: "Settings")
 
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
@@ -471,10 +479,7 @@ final class StepExecutorTests: XCTestCase {
         // The App Switcher card shows the localized name, not the English
         // name the caller passed. reset_app should still swipe because it
         // trusts the Spotlight launch rather than matching names.
-        describer.describeResult = ScreenDescriber.DescribeResult(
-            elements: [TapPoint(text: "Réglages", tapX: 200, tapY: 400, confidence: 0.95)],
-            screenshotBase64: ""
-        )
+        describer.describeResults = resetDescribeSequence(cardText: "Réglages")
 
         let result = executor.execute(
             step: .resetApp(appName: "Settings"), stepIndex: 0, skillName: "test")
