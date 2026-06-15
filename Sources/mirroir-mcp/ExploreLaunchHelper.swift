@@ -23,6 +23,9 @@ extension MirroirMCP {
         }
     }
 
+    /// Max re-describes to wait out a home screen briefly showing after launch.
+    private static let homeScreenSyncRetries = 4
+
     /// Spotlight-launch `appName` and wait for the overlay to dismiss, returning
     /// the first clean screen describe result.
     static func launchAndWait(
@@ -32,10 +35,26 @@ extension MirroirMCP {
         if let launchError = ctx.input.launchApp(name: appName) {
             return .failure(.launchFailed("Failed to launch '\(appName)': \(launchError)"))
         }
-        guard let result = SpotlightDetector.waitForDismissal(describer: ctx.describer) else {
+        guard var result = SpotlightDetector.waitForDismissal(describer: ctx.describer) else {
             return .failure(.spotlightLingered(
                 "'\(appName)' did not appear after launch — " +
                 "Spotlight search may still be visible. Try launching the app manually first."))
+        }
+        // Post-launch sync: after a reset, Spotlight can dismiss onto the home
+        // screen for a moment before the app finishes launching. Re-describe a
+        // few times so exploration starts inside the app, not on the springboard.
+        let screenHeight = Double(ctx.bridge.getWindowInfo()?.size.height ?? 898)
+        var attempts = 0
+        while attempts < homeScreenSyncRetries,
+              AppContextDetector.detectHomeScreen(
+                  elements: result.elements, screenHeight: screenHeight) {
+            DebugLog.log("explore",
+                "post-launch: home screen detected, waiting for '\(appName)' to foreground "
+                + "(\(attempts + 1)/\(homeScreenSyncRetries))")
+            usleep(EnvConfig.toolSettlingDelayUs)
+            guard let next = ctx.describer.describe() else { break }
+            result = next
+            attempts += 1
         }
         return .success(result)
     }

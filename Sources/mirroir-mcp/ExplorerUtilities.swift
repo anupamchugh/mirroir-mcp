@@ -45,6 +45,13 @@ enum ExplorerUtilities {
     ) -> ScreenDescriber.DescribeResult? {
         guard var result = describer.describe() else { return nil }
 
+        // Triggers that re-appeared after we dismissed them — a self-re-arming
+        // dialog (e.g. the "camera not available" alert on Instagram's Story
+        // camera, which the underlying screen pops right back). Once a trigger
+        // is here we stop tapping its (futile) action and fall through to the
+        // next obstacle, which is typically one that EXITS the screen (tap "X").
+        var rearmingTriggers: Set<String> = []
+
         for _ in 0..<AlertDetector.maxDismissAttempts {
             // System alert takes priority
             if let alert = AlertDetector.detectAlert(elements: result.elements) {
@@ -63,6 +70,10 @@ enum ExplorerUtilities {
                     $0.text.lowercased().contains(triggerLower)
                 }) else { continue }
 
+                // Skip an obstacle whose trigger keeps re-arming — dismissing it
+                // makes no progress; try a later obstacle that exits the screen.
+                if rearmingTriggers.contains(triggerLower) { continue }
+
                 let actionLower = obstacle.action.lowercased()
                 guard let target = result.elements.first(where: {
                     $0.text.lowercased().contains(actionLower)
@@ -74,6 +85,15 @@ enum ExplorerUtilities {
                 usleep(EnvConfig.stepSettlingDelayMs * 1000)
                 guard let cleanResult = describer.describe() else { return nil }
                 result = cleanResult
+                // If the trigger survived the dismissal, it is self-re-arming;
+                // don't tap its action again on the next pass.
+                if result.elements.contains(where: {
+                    $0.text.lowercased().contains(triggerLower)
+                }) {
+                    rearmingTriggers.insert(triggerLower)
+                    DebugLog.log("app-desc",
+                        "obstacle '\(obstacle.trigger)' re-armed — will try a screen-exit obstacle next")
+                }
                 dismissed = true
                 break
             }

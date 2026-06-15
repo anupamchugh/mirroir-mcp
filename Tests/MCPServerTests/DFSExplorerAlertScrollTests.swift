@@ -249,4 +249,47 @@ final class DFSExplorerAlertScrollTests: XCTestCase {
             XCTFail("Expected .backtracked after scroll exhaustion, got \(result)")
         }
     }
+
+    // MARK: - Self-re-arming obstacle (camera-dialog loop)
+
+    func testDismissEscapesSelfReArmingObstacleViaScreenExit() {
+        // Instagram's Story camera pops "camera not available" again after OK,
+        // so dismissing it makes no progress. The handler must fall through to
+        // the screen-exit obstacle (tap "X") instead of looping forever on OK.
+        // 10 elements so AlertDetector treats it as a full screen, not an alert.
+        let cameraScreen: [TapPoint] = [
+            TapPoint(text: "iPhone camera is not available", tapX: 193, tapY: 462, confidence: 0.95),
+            TapPoint(text: "from Mac.", tapX: 129, tapY: 478, confidence: 0.9),
+            TapPoint(text: "OK", tapX: 205, tapY: 515, confidence: 0.95),
+            TapPoint(text: "PUBLICATION STORY REEL EN DIR", tapX: 204, tapY: 837, confidence: 0.9),
+            TapPoint(text: "X", tapX: 42, tapY: 131, confidence: 0.9),
+            TapPoint(text: "alpha", tapX: 100, tapY: 200, confidence: 0.9),
+            TapPoint(text: "beta", tapX: 150, tapY: 220, confidence: 0.9),
+            TapPoint(text: "gamma", tapX: 200, tapY: 240, confidence: 0.9),
+            TapPoint(text: "delta", tapX: 250, tapY: 260, confidence: 0.9),
+            TapPoint(text: "epsilon", tapX: 300, tapY: 280, confidence: 0.9),
+        ]
+        let cleanScreen = makeElements(["Accueil", "Recherche", "Reels", "Profil"])
+        let describer = MockExplorerDescriber(screens: [
+            ScreenDescriber.DescribeResult(elements: cameraScreen, screenshotBase64: "cam"),
+            ScreenDescriber.DescribeResult(elements: cameraScreen, screenshotBase64: "cam2"),
+            ScreenDescriber.DescribeResult(elements: cleanScreen, screenshotBase64: "clean"),
+        ])
+        let input = MockExplorerInput()
+        let obstacles = [
+            ObstacleRule(trigger: "iPhone camera is not available", action: "OK"),
+            ObstacleRule(trigger: "PUBLICATION STORY", action: "X"),
+        ]
+
+        let result = ExplorerUtilities.dismissAlertIfPresent(
+            describer: describer, input: input, obstacles: obstacles)
+
+        XCTAssertNotNil(result)
+        XCTAssertFalse(
+            result?.elements.contains(where: { $0.text.contains("camera") }) ?? true,
+            "Should escape the camera screen, not stay stuck on it")
+        XCTAssertTrue(
+            input.taps.contains(where: { abs($0.x - 42) < 1 && abs($0.y - 131) < 1 }),
+            "Must tap the X to exit the self-re-arming screen instead of OK forever")
+    }
 }
