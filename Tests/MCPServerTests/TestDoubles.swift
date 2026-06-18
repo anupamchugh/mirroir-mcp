@@ -25,6 +25,11 @@ final class StubBridge: MenuActionCapable, @unchecked Sendable {
     var menuActionResult = true
     var pressResumeResult = true
     var processRunning = true
+    /// When true, a `pressResume()` call flips `state` to `.connected` (simulates
+    /// the plain resume overlay being dismissed by AX-press).
+    var connectOnResume = false
+    /// Screen point returned for the paused-overlay dismiss button (nil = none).
+    var pausedButtonPoint: CGPoint?
     /// Records menu action calls for verification.
     var menuActionCalls: [(menu: String, item: String)] = []
 
@@ -52,7 +57,12 @@ final class StubBridge: MenuActionCapable, @unchecked Sendable {
     }
 
     func pressResume() -> Bool {
-        pressResumeResult
+        if connectOnResume { state = .connected }
+        return pressResumeResult
+    }
+
+    func pausedDismissButtonPoint() -> CGPoint? {
+        pausedButtonPoint
     }
 }
 

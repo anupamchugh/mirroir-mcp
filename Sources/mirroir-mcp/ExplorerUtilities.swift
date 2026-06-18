@@ -104,6 +104,31 @@ enum ExplorerUtilities {
         return result
     }
 
+    /// Return the first APP.md obstacle trigger still present on `elements`, or nil.
+    ///
+    /// Call this immediately after `dismissAlertIfPresent`: an obstacle whose
+    /// trigger AND action element are both still on screen could not be cleared
+    /// within the dismissal budget — a self-re-arming trap (e.g. the Story camera,
+    /// whose "camera not available" dialog re-pops every frame). Requiring the
+    /// action element too means `dismissAlertIfPresent` actually tried to dismiss
+    /// it (and failed), so incidental text that merely matches a trigger — with no
+    /// dismiss target — is not misread as a trap. Normal obstacles clear in one
+    /// pass and so never persist here.
+    static func persistentObstacle(
+        elements: [TapPoint], obstacles: [ObstacleRule]
+    ) -> String? {
+        for obstacle in obstacles {
+            let triggerLower = obstacle.trigger.lowercased()
+            let actionLower = obstacle.action.lowercased()
+            let triggerPresent = elements.contains { $0.text.lowercased().contains(triggerLower) }
+            let actionPresent = elements.contains { $0.text.lowercased().contains(actionLower) }
+            if triggerPresent && actionPresent {
+                return obstacle.trigger
+            }
+        }
+        return nil
+    }
+
     // MARK: - Back Button Navigation
 
     /// Find and tap the "<" back button on the current screen.

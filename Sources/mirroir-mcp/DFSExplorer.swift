@@ -17,6 +17,12 @@ enum ExploreStepResult: Sendable {
     case paused(reason: String)
     /// Exploration is complete — all reachable screens have been visited.
     case finished(bundle: SkillBundle)
+    /// Stuck on a self-re-arming screen that cannot be dismissed in-app (e.g. the
+    /// Instagram Story camera, whose "camera not available" dialog re-pops faster
+    /// than it can be cleared). The explore loop recovers by force-quitting and
+    /// cold-relaunching the app to root; the explorer has already reset its own
+    /// position to root before returning this.
+    case trapped(reason: String)
 }
 
 /// Autonomous DFS explorer that systematically traverses app screens.

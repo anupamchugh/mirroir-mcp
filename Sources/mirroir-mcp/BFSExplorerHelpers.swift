@@ -80,7 +80,7 @@ extension BFSExplorer {
         classified: [ClassifiedElement], visitedElements: Set<String>,
         icons: [IconDetector.DetectedIcon] = []
     ) -> [RankedElement] {
-        var plan: [RankedElement]
+        let plan: [RankedElement]
 
         if componentDefinitions.isEmpty {
             DebugLog.log("bfs", "plan-path: LEGACY (0 component definitions)")
@@ -104,120 +104,13 @@ extension BFSExplorer {
                 scoutResults: [:], screenHeight: windowSize.height)
         }
 
-        // Tab-driven navigation: when APP.md declares tabs, inject matching OCR
-        // elements as top-priority breadth navigation targets. This ensures tab
-        // exploration works even in apps with non-standard UI (TikTok, Instagram)
-        // where component detection can't classify the tab bar.
-        let appTabs = session.currentAppDescription?.tabs ?? []
-        if !appTabs.isEmpty {
-            // Include detected unlabeled icons so the ordinal tab-zone mapping
-            // works for icon-only tab bars (Instagram/TikTok), where the tabs
-            // carry no OCR text and never appear among `classified` elements.
-            let iconPoints = icons.map {
-                TapPoint(text: "", tapX: $0.tapX, tapY: $0.tapY, confidence: 1.0)
-            }
-            let allPoints = classified.map { $0.point } + iconPoints
-            let tabTargets = findTabTargets(
-                tabNames: appTabs, elements: allPoints, visitedElements: visitedElements)
-            if !tabTargets.isEmpty {
-                DebugLog.log("bfs", "tab-driven: injected \(tabTargets.count) tab targets " +
-                    "from APP.md: \(tabTargets.map { $0.displayLabel })")
-                plan = tabTargets + plan
-            }
-        }
-
-        return plan
-    }
-
-    /// Find OCR elements matching APP.md tab names.
-    ///
-    /// Primary strategy: case-insensitive substring text match (works when tab bar has labels).
-    /// Fallback: ordinal position mapping inside the tab-bar zone (for icon-only tab bars).
-    /// The layout hint from APP.md (`TabLayout.orientation`, `TabLayout.edge`) decides which
-    /// window edge to sample and whether to sort by X (horizontal bars) or Y (vertical rails).
-    /// When no layout hint is given, the legacy bottom/horizontal convention applies.
-    private func findTabTargets(
-        tabNames: [String], elements: [TapPoint], visitedElements: Set<String>
-    ) -> [RankedElement] {
-        var results: [RankedElement] = []
-        var matchedTabs: Set<String> = []
-
-        // Strategy 1: text matching
-        for tabName in tabNames {
-            let tabLower = tabName.lowercased()
-            guard let match = elements.first(where: { el in
-                let elLower = el.text.lowercased()
-                return (elLower == tabLower || elLower.contains(tabLower) || tabLower.contains(elLower))
-                    && !visitedElements.contains(el.text)
-                    && !visitedElements.contains(tabName)
-            }) else { continue }
-
-            results.append(RankedElement(
-                point: match,
-                score: ScreenPlanner.breadthRoleWeight + ScreenPlanner.highPriorityWeight,
-                reason: "tab-driven(\(tabName))",
-                displayLabel: tabName,
-                isBreadthNavigation: true
-            ))
-            matchedTabs.insert(tabName)
-        }
-
-        // Strategy 2: ordinal mapping for unmatched tabs (icon-only tab bars).
-        // Layout hint drives which window edge to sample and which axis to sort on.
-        let unmatchedTabs = tabNames.filter { !matchedTabs.contains($0) }
-        if !unmatchedTabs.isEmpty {
-            let layout = session.currentAppDescription?.tabLayout
-                ?? TabLayout(orientation: .horizontal, edge: .bottom)
-            let zoneElements = elementsInTabZone(elements: elements, layout: layout)
-            let sorted: [TapPoint]
-            switch layout.orientation {
-            case .horizontal:
-                sorted = zoneElements.sorted { $0.tapX < $1.tapX }
-            case .vertical:
-                sorted = zoneElements.sorted { $0.tapY < $1.tapY }
-            }
-
-            if sorted.count >= tabNames.count {
-                for (index, tabName) in tabNames.enumerated() {
-                    guard !matchedTabs.contains(tabName),
-                          index < sorted.count,
-                          !visitedElements.contains(tabName) else { continue }
-                    let target = sorted[index]
-                    results.append(RankedElement(
-                        point: target,
-                        score: ScreenPlanner.breadthRoleWeight + ScreenPlanner.highPriorityWeight,
-                        reason: "tab-ordinal(\(tabName)@\(index),\(layout.orientation.rawValue))",
-                        displayLabel: tabName,
-                        isBreadthNavigation: true
-                    ))
-                }
-            }
-        }
-
-        return results
-    }
-
-    /// Filter OCR elements to those inside the declared tab-bar zone.
-    /// Zone widths are 12% of the relevant axis — consistent with the existing
-    /// bottom-edge convention used for iPhone portrait tab bars.
-    private func elementsInTabZone(
-        elements: [TapPoint], layout: TabLayout
-    ) -> [TapPoint] {
-        let band: Double = 0.12
-        switch layout.edge {
-        case .bottom:
-            let minY = windowSize.height * (1 - band)
-            return elements.filter { $0.tapY >= minY }
-        case .top:
-            let maxY = windowSize.height * band
-            return elements.filter { $0.tapY <= maxY }
-        case .right:
-            let minX = windowSize.width * (1 - band)
-            return elements.filter { $0.tapX >= minX }
-        case .left:
-            let maxX = windowSize.width * band
-            return elements.filter { $0.tapX <= maxX }
-        }
+        // Tab-driven navigation: inject APP.md tab targets at the front of the
+        // plan (shared with the component-calibration path via TabTargetInjector).
+        let appDesc = session.currentAppDescription
+        return TabTargetInjector.inject(
+            into: plan, classifiedPoints: classified.map { $0.point },
+            icons: icons, visitedElements: visitedElements,
+            tabs: appDesc?.tabs ?? [], tabLayout: appDesc?.tabLayout, windowSize: windowSize)
     }
 
     // MARK: - Calibration Pipeline
@@ -230,7 +123,8 @@ extension BFSExplorer {
     /// the plan directly from classified elements (for vision describers).
     func calibrateScreen(
         fingerprint: String, describer: ScreenDescribing, input: InputProviding,
-        skipComponentDetection: Bool = false
+        skipComponentDetection: Bool = false,
+        icons: [IconDetector.DetectedIcon] = []
     ) -> CalibrationResult {
         // Stage 1: Scroll full page and collect all elements (always runs).
         let scrollData = scrollAndCollect(fingerprint: fingerprint, describer: describer, input: input)
@@ -266,7 +160,8 @@ extension BFSExplorer {
         // Full path: component detection → validation → component plan.
         return calibrateWithComponents(
             fingerprint: fingerprint, scrollData: scrollData,
-            classified: classified, scrolledWithNovelContent: scrolledWithNovelContent
+            classified: classified, scrolledWithNovelContent: scrolledWithNovelContent,
+            icons: icons
         )
     }
 
@@ -274,7 +169,8 @@ extension BFSExplorer {
     /// validate classification quality, and build a component-based exploration plan.
     private func calibrateWithComponents(
         fingerprint: String, scrollData: ScrollCollectionData,
-        classified: [ClassifiedElement], scrolledWithNovelContent: Bool
+        classified: [ClassifiedElement], scrolledWithNovelContent: Bool,
+        icons: [IconDetector.DetectedIcon]
     ) -> CalibrationResult {
         let rawComponents = classifier?.classify(
             classified: classified, definitions: componentDefinitions,
@@ -338,10 +234,18 @@ extension BFSExplorer {
                 "New component definitions may be needed.\n\n\(validation.report)")
         }
 
-        // Build exploration plan from matched components.
-        let plan = ScreenPlanner.buildComponentPlan(
+        // Build exploration plan from matched components, then inject APP.md tab
+        // targets at the front. The component path sets the plan during calibration
+        // and therefore bypasses `buildScreenPlan`, so the same injection runs here
+        // to keep tab-driven navigation working for component-path apps (Instagram).
+        let componentPlan = ScreenPlanner.buildComponentPlan(
             components: components, visitedElements: [],
             scoutResults: [:], screenHeight: windowSize.height)
+        let appDesc = session.currentAppDescription
+        let plan = TabTargetInjector.inject(
+            into: componentPlan, classifiedPoints: classified.map { $0.point },
+            icons: icons, visitedElements: [],
+            tabs: appDesc?.tabs ?? [], tabLayout: appDesc?.tabLayout, windowSize: windowSize)
         graph.setScreenPlan(for: fingerprint, plan: plan)
 
         frontierManager.resetViewports(total: scrollData.scrollCount + 1)
@@ -391,6 +295,13 @@ extension BFSExplorer {
 
         // Pass 1: Try each candidate against the current viewport (no scrolling).
         for candidate in candidates {
+            // Text-less breadth anchors (synthesized icon-only tab targets) carry
+            // authoritative geometric coordinates and have no text to match against
+            // the viewport — the resolver would always report `needsScroll`. Tap
+            // them at their planned position directly.
+            if candidate.isBreadthNavigation && candidate.point.text.isEmpty {
+                return candidate
+            }
             let resolution = PlanCoordinateResolver.resolve(
                 planItem: candidate, viewportElements: viewportElements
             )

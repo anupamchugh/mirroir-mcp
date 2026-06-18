@@ -176,6 +176,18 @@ extension EnvConfig {
         readDouble("iconDeduplicationRadius", default: TimingConstants.iconDeduplicationRadius)
     }
 
+    // MARK: - Tab Anchor Synthesis
+
+    public static var tabSynthesisMinZoneEvidence: Int {
+        readInt("tabSynthesisMinZoneEvidence", default: TimingConstants.tabSynthesisMinZoneEvidence)
+    }
+
+    // MARK: - Paused-Session Recovery
+
+    public static var pausedDismissClickAttempts: Int {
+        readInt("pausedDismissClickAttempts", default: TimingConstants.pausedDismissClickAttempts)
+    }
+
     // MARK: - Icon Cluster Detection
 
     public static var iconColorThreshold: UInt8 {

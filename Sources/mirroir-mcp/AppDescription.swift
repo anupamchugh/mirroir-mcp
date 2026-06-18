@@ -47,9 +47,8 @@ struct AppDescription: Sendable {
     /// bypassing component detection for apps with non-standard UI.
     let tabs: [String]
     /// Optional geometric hint for the tab bar's orientation and edge.
-    /// When present, IconDetector extrapolates missing icons along the declared
-    /// axis and findTabTargets falls back to position-ordinal mapping along
-    /// that axis when text matching fails.
+    /// When present, `TabTargetInjector` synthesizes evenly-spaced tab anchors
+    /// along the declared axis/edge when text matching fails (icon-only bars).
     let tabLayout: TabLayout?
     /// Optional declarative scene graph extracted from `## Simulator …` sections.
     /// Present once the app has been ported to the FakeMirroring simulator;

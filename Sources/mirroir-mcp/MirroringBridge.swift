@@ -153,6 +153,62 @@ final class MirroringBridge: Sendable {
         return false
     }
 
+    /// Maximum AX depth to search for the paused-overlay dismiss button.
+    private static let maxOverlayButtonDepth = 8
+
+    /// Button titles that dismiss a Continuity interruption overlay and free the
+    /// session: the camera dialog's "OK" and the plain pause overlay's resume
+    /// action (localized variants). Matched case-insensitively.
+    private static let dismissButtonTitles: Set<String> = [
+        "ok", "resume", "reprendre", "continuer", "réessayer", "reessayer",
+    ]
+
+    /// Screen-center of the overlay's *dismiss* button (e.g. the camera dialog's
+    /// "OK"), located by title so we don't click a stray titlebar/toolbar control.
+    /// See `MenuActionCapable.pausedDismissButtonPoint`.
+    func pausedDismissButtonPoint() -> CGPoint? {
+        guard let (window, _) = getMainWindow() else { return nil }
+        guard let button = dismissButton(under: window, depth: 0),
+              let geom = WindowListHelper.geometryFromAXElement(button) else { return nil }
+        return CGPoint(
+            x: geom.position.x + geom.size.width / 2,
+            y: geom.position.y + geom.size.height / 2)
+    }
+
+    /// Depth-bounded search for an AXButton whose title/description is a known
+    /// dismiss action. The active (connected) mirroring surface is opaque with no
+    /// AX children, so a button is found only when an interruption overlay shows.
+    private func dismissButton(under element: AXUIElement, depth: Int) -> AXUIElement? {
+        if depth > Self.maxOverlayButtonDepth { return nil }
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        if let r = role as? String, r == kAXButtonRole as String,
+           let title = buttonLabel(element),
+           Self.dismissButtonTitles.contains(title) {
+            return element
+        }
+        var children: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+        guard let kids = children as? [AXUIElement] else { return nil }
+        for kid in kids {
+            if let found = dismissButton(under: kid, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+
+    /// Lower-cased title (or description) of a button element, or nil.
+    private func buttonLabel(_ element: AXUIElement) -> String? {
+        for attr in [kAXTitleAttribute, kAXDescriptionAttribute] {
+            var value: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, attr as CFString, &value)
+            if let s = (value as? String)?.trimmingCharacters(in: .whitespaces).lowercased(),
+               !s.isEmpty {
+                return s
+            }
+        }
+        return nil
+    }
+
     /// Trigger a menu bar action (e.g., View > Home Screen).
     ///
     /// Uses an exact-string match on AX menu and item titles. On non-English

@@ -34,7 +34,7 @@ extension InputSimulation {
     /// Opens Spotlight, types the app name, waits for results, and presses Return.
     /// Returns nil on success, or an error message on failure.
     func launchApp(name: String) -> String? {
-        if let stateError = checkMirroringConnected(tag: "launchApp") {
+        if let stateError = ensureConnected(tag: "launchApp") {
             return stateError
         }
         DebugLog.log("launchApp", "launching '\(name)'")

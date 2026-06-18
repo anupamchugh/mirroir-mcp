@@ -418,6 +418,11 @@ extension MirroirMCP {
             "Budget: depth=\(maxDepth), screens=\(maxScreens), time=\(maxTime)s",
         ]
 
+        // Trap recovery counter: bounds how many times we force-quit + relaunch to
+        // escape a self-re-arming screen (e.g. the Story camera) before giving up.
+        var trapRecoveries = 0
+        let maxTrapRecoveries = 3
+
         // Run exploration loop using detected strategy
         while !explorer.completed {
             let result: ExploreStepResult
@@ -461,6 +466,37 @@ extension MirroirMCP {
                 return .text(
                     ExplorationResultFormatter.formatExploreResult(
                         bundle: bundle, explorer: explorer))
+            case .trapped(let reason):
+                // The explorer hit a screen it cannot dismiss in-app (e.g. the
+                // Story camera). It has already reset its position to root; physically
+                // escape by force-quitting (the only reliable exit) and cold-relaunching
+                // to the feed, then continue exploring.
+                trapRecoveries += 1
+                stepResults.append("Trapped: \(reason) — force-quitting and relaunching to recover")
+                DebugLog.log("explore",
+                    "trapped (\(trapRecoveries)/\(maxTrapRecoveries)): \(reason)")
+                if trapRecoveries > maxTrapRecoveries {
+                    let report = explorer.generateReport()
+                    let snapshot = explorer.graph.finalize()
+                    GraphPersistence.save(snapshot: snapshot, bundleID: appName)
+                    return .text(
+                        "\(stepResults.joined(separator: "\n"))\n\nExploration stopped after " +
+                        "\(maxTrapRecoveries) trap recoveries — a screen kept trapping the " +
+                        "explorer.\n\n\(report)")
+                }
+                _ = ctx.lifecycle.forceQuitBeforeExplore(
+                    appName: appName, bridge: ctx.bridge,
+                    input: ctx.input, describer: ctx.describer)
+                if case .failure(let failure) = launchAndWait(appName: appName, ctx: ctx) {
+                    let report = explorer.generateReport()
+                    let snapshot = explorer.graph.finalize()
+                    GraphPersistence.save(snapshot: snapshot, bundleID: appName)
+                    return .text(
+                        "\(stepResults.joined(separator: "\n"))\n\nExploration stopped — could " +
+                        "not relaunch after trap: \(failure.message)\n\n\(report)")
+                }
+                DebugLog.log("explore",
+                    "trap recovery: relaunched '\(appName)' to root, continuing")
             }
         }
 

@@ -61,6 +61,11 @@ public enum TimingConstants {
     /// Delay for iPhone Mirroring connection to resume from paused state (microseconds).
     public static let resumeFromPausedUs: UInt32 = 2_000_000
 
+    /// Number of mouse clicks on a Continuity interruption overlay (camera dialog /
+    /// resume button) to attempt before giving up freeing a paused session. The
+    /// camera dialog can re-arm, so more than one click may be needed.
+    public static let pausedDismissClickAttempts: Int = 3
+
     /// Delay after heartbeat for server to process and settle (microseconds).
     public static let postHeartbeatSettleUs: UInt32 = 100_000
 
@@ -200,7 +205,10 @@ public enum TimingConstants {
     public static let appSwitcherSwipeDistance: Double = 600.0
 
     /// Swipe duration for dismissing app cards in the App Switcher (milliseconds).
-    public static let appSwitcherSwipeDurationMs: Int = 200
+    /// Must be a fast flick: iOS reads a slow drag as scrolling the card carousel
+    /// rather than flinging the card off-screen, so the card is never dismissed.
+    /// Verified on-device — a ~120ms flick force-quits; 200ms does not.
+    public static let appSwitcherSwipeDurationMs: Int = 120
 
     /// Maximum horizontal swipes to search for an app card in the App Switcher carousel.
     /// Covers ~15 apps (3 visible per view × 5 swipes).
@@ -306,6 +314,14 @@ public enum TimingConstants {
 
     /// Distance in points within which two icon detections are considered duplicates.
     public static let iconDeduplicationRadius: Double = 25.0
+
+    // MARK: - Tab Anchor Synthesis
+
+    /// Minimum detected elements in the tab-bar band required to treat the band
+    /// as a tab bar and synthesize evenly-spaced anchor points. Baseline `1`: a
+    /// single detected icon in the band is enough evidence of a tab bar; raise it
+    /// to suppress phantom anchors on screens whose bottom band is not a tab bar.
+    public static let tabSynthesisMinZoneEvidence: Int = 1
 
     // MARK: - Icon Cluster Detection
 

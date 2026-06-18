@@ -104,6 +104,48 @@ final class InputSimulation: Sendable {
         }
     }
 
+    /// Free a session suspended by a target interruption (on iPhone Mirroring: the
+    /// "iPhone camera is not available from Mac" OK dialog, or the plain "click to
+    /// resume" overlay) by running the registered `SessionEscapePlugin`s. The
+    /// framework is target-agnostic; the bundled plugins handle iPhone Continuity
+    /// dialogs via a real mouse click that frees the session even when CGEvent
+    /// input to the device is rejected. Interruptions can re-arm, so it retries.
+    /// Returns true if the session is connected (or was never paused).
+    func freePausedSession(tag: String) -> Bool {
+        guard bridge.getState() == .paused else { return true }
+        let pid = cursorFreePID
+        let click: (CGPoint) -> Void = { point in
+            _ = CGEventInput.click(at: point, targetPID: pid)
+        }
+        for attempt in 0 ..< EnvConfig.pausedDismissClickAttempts {
+            DebugLog.log(tag, "session paused — running escape plugins " +
+                "(attempt \(attempt + 1)/\(EnvConfig.pausedDismissClickAttempts))")
+            // Try registered escape plugins in order (camera dialog → resume overlay).
+            guard SessionEscapeRegistry.attemptEscape(
+                bridge: bridge, click: click, tag: tag) else {
+                // No plugin recognized this interruption — nothing more to try.
+                return bridge.getState() == .connected
+            }
+            usleep(EnvConfig.resumeFromPausedUs)
+            if bridge.getState() == .connected {
+                DebugLog.log(tag, "session freed — now connected")
+                return true
+            }
+        }
+        return bridge.getState() == .connected
+    }
+
+    /// Ensure the target is connected, first freeing it from any interruption
+    /// (via the registered session-escape plugins) if needed. Returns nil when
+    /// connected (possibly after freeing), or the state error when it still
+    /// cannot accept input.
+    func ensureConnected(tag: String) -> String? {
+        if bridge.getState() == .paused {
+            _ = freePausedSession(tag: tag)
+        }
+        return checkMirroringConnected(tag: tag)
+    }
+
     /// Common preamble for pointing operations (tap, swipe, drag, long press, double tap).
     /// Validates that the target is connected, the window exists, and coordinates are in bounds.
     /// All pointing operations use CGEvent — no external dependencies.
@@ -115,7 +157,7 @@ final class InputSimulation: Sendable {
     /// the old location, missing the actual window. The post-activate re-query
     /// ensures every pointing operation uses the window's *current* coordinates.
     private func preparePointingInput(tag: String, x: Double, y: Double) -> (info: WindowInfo?, focusChanged: Bool, error: String?) {
-        if let stateError = checkMirroringConnected(tag: tag) {
+        if let stateError = ensureConnected(tag: tag) {
             return (nil, false, stateError)
         }
 
@@ -147,7 +189,7 @@ final class InputSimulation: Sendable {
     /// Common preamble for keyboard operations (type, press_key, shake).
     /// Validates that the target is connected and ensures it's frontmost.
     func prepareKeyboardInput(tag: String) -> String? {
-        if let stateError = checkMirroringConnected(tag: tag) {
+        if let stateError = ensureConnected(tag: tag) {
             return stateError
         }
         return nil

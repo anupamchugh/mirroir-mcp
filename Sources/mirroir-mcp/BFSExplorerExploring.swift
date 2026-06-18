@@ -28,13 +28,25 @@ extension BFSExplorer {
 
         if let exit = handleContextEscape(elements: result.elements, input: input, describer: describer) { return exit }
 
+        // Self-re-arming trap: an obstacle trigger that dismissAlertIfPresent could
+        // not clear (e.g. the Story camera). It cannot be escaped in-app, so reset
+        // our position to root and signal the loop to force-quit + cold-relaunch.
+        if let trigger = ExplorerUtilities.persistentObstacle(
+            elements: result.elements, obstacles: appObstacles) {
+            DebugLog.log("bfs", "TRAP at step start: stuck on '\(trigger)' — requesting force-quit recovery")
+            graph.setCurrentFingerprint(graph.rootFingerprint)
+            frontierManager.phase = .atRoot
+            return .trapped(reason: "screen stuck on '\(trigger)' (cannot be dismissed in-app)")
+        }
+
         // Calibrate this screen if not already done: scroll full page to discover all
         // elements, then optionally run component detection + validation.
         var viewportElements = result.elements
         if !calibratedScreens.contains(currentFP) {
             let calResult = calibrateScreen(
                 fingerprint: currentFP, describer: describer, input: input,
-                skipComponentDetection: skipCalibration
+                skipComponentDetection: skipCalibration,
+                icons: result.icons
             )
             calibratedScreens.insert(currentFP)
             switch calResult {
@@ -179,7 +191,7 @@ extension BFSExplorer {
         usleep(EnvConfig.stepSettlingDelayMs * 1000)
         // OCR the resulting screen to validate the tap actually did something
         guard let afterResult = ExplorerUtilities.dismissAlertIfPresent(
-            describer: describer, input: input
+            describer: describer, input: input, obstacles: appObstacles
         ) else {
             return .paused(reason: "Failed to capture screen after tap")
         }
@@ -190,6 +202,17 @@ extension BFSExplorer {
         // detect it early. The improved AppContextDetector (nav-bar title + single-word
         // ratio filters) prevents false positives on chart/data screens.
         if let exit = handleContextEscape(elements: afterResult.elements, input: input, describer: describer) { return exit }
+
+        // Trap: the tap opened a self-re-arming screen we can't dismiss (Story
+        // camera). The element is already marked visited (above), so reset to root
+        // and request a force-quit recovery rather than recording the trap as a screen.
+        if let trigger = ExplorerUtilities.persistentObstacle(
+            elements: afterResult.elements, obstacles: appObstacles) {
+            DebugLog.log("bfs", "TRAP: tap \"\(label)\" opened a screen stuck on '\(trigger)' — requesting recovery")
+            graph.setCurrentFingerprint(graph.rootFingerprint)
+            frontierManager.phase = .atRoot
+            return .trapped(reason: "tapping \"\(label)\" opened a screen stuck on '\(trigger)'")
+        }
 
         let screenType = strategy.classifyScreen(
             elements: afterResult.elements, hints: afterResult.hints

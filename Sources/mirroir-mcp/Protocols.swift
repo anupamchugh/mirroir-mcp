@@ -25,10 +25,43 @@ protocol WindowBridging: Sendable {
 protocol MenuActionCapable: WindowBridging {
     func triggerMenuAction(menu: String, item: String) -> Bool
     func pressResume() -> Bool
+    /// Screen-coordinate center of the dismiss button on a Continuity interruption
+    /// overlay (e.g. the "iPhone camera is not available from Mac" OK dialog, or
+    /// the plain "click to resume" overlay) while the session is paused. A real
+    /// mouse click here frees the session even when CGEvent input to the iPhone is
+    /// rejected and AX-press is inert. Returns nil when not paused / no button found.
+    func pausedDismissButtonPoint() -> CGPoint?
+}
+
+extension MenuActionCapable {
+    /// Default: no overlay button (non-mirroring bridges have no paused overlay).
+    func pausedDismissButtonPoint() -> CGPoint? { nil }
 }
 
 /// Backward-compatible alias for code that references the old protocol name.
 typealias MirroringBridging = MenuActionCapable
+
+/// A pluggable strategy for clearing a target interruption that blocks input —
+/// for ANY target, not just iPhone Mirroring. Examples: a suspended iPhone
+/// Mirroring session (Continuity camera dialog / resume overlay), or a modal
+/// overlay on a generic window target. Registered plugins are tried in order
+/// whenever input is blocked; the first that recognizes the current state and
+/// acts wins, then the caller re-checks. Add a handler for a new target or
+/// interruption by conforming a type and registering it in `SessionEscapeRegistry`.
+///
+/// Plugins receive the generic `WindowBridging` and narrow to a capability they
+/// need (e.g. `as? MenuActionCapable` for iPhone Mirroring), returning false when
+/// the target isn't theirs — so target-specific plugins coexist in one registry.
+protocol SessionEscapePlugin: Sendable {
+    /// Stable identifier for logging.
+    var id: String { get }
+    /// Attempt to clear the interruption this plugin handles. Returns true if it
+    /// recognized the current state and performed its escape action; false if it
+    /// does not apply (wrong target, or its interruption isn't shown). `click`
+    /// posts a real mouse click at a screen point (which, on iPhone Mirroring,
+    /// frees Continuity dialogs even while CGEvent input to the device is rejected).
+    func attemptEscape(bridge: any WindowBridging, click: (CGPoint) -> Void, tag: String) -> Bool
+}
 
 /// Abstracts user input simulation (tap, swipe, type, etc.) via CGEvent.
 protocol InputProviding: Sendable {
