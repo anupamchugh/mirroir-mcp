@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Pre-push hook — requires a fresh runner/ validation marker for the exact
-# ABOUTME: commit being pushed. Marker must be < 15 min old AND its SHA must match HEAD.
+# ABOUTME: commit being pushed, but ONLY when the push actually contains runner/ changes.
 
 set -euo pipefail
 
@@ -10,6 +10,36 @@ VALIDATION_TTL_SECONDS=900
 GIT_DIR="$(git rev-parse --git-dir)"
 MARKER="$GIT_DIR/validation-passed"
 VALIDATE_SCRIPT="runner/scripts/ci/pre-push-validate.sh"
+ZERO_OID="0000000000000000000000000000000000000000"
+
+# The runner validation gate only protects the Rust workspace, so a push that
+# changes no runner/ files (e.g. Swift-only or docs) does not need the marker.
+# Refs arrive on stdin as "<local-ref> <local-oid> <remote-ref> <remote-oid>".
+runner_touched=false
+while read -r _local_ref local_oid _remote_ref remote_oid; do
+    [ "$local_oid" = "$ZERO_OID" ] && continue   # branch deletion — nothing to push
+    if [ "$remote_oid" = "$ZERO_OID" ]; then
+        # New remote branch: scope the diff to commits past origin/main when that
+        # base is reachable; otherwise be conservative and require validation.
+        base="$(git merge-base "$local_oid" origin/main 2>/dev/null || true)"
+        if [ -z "$base" ]; then
+            runner_touched=true
+            break
+        fi
+        range="$base..$local_oid"
+    else
+        range="$remote_oid..$local_oid"
+    fi
+    if git diff --name-only "$range" 2>/dev/null | grep -q '^runner/'; then
+        runner_touched=true
+        break
+    fi
+done
+
+if [ "$runner_touched" = false ]; then
+    echo "pre-push: no runner/ changes in push range — skipping runner validation gate."
+    exit 0
+fi
 
 fail() {
     echo "ERROR: push blocked — $1"
