@@ -312,7 +312,17 @@ jobs:
       - name: Install Ollama (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ollama
+          # The Homebrew `ollama` FORMULA bottle omits the `llama-server`
+          # inference binary ("llama-server binary not found" → HTTP 500 on the
+          # judge's chat-completion). The official macOS app (cask) bundles the
+          # runners; install it (--no-quarantine so the bundled binaries run
+          # headless) and put its CLI on PATH so the daemon step's `ollama serve`
+          # resolves to it and finds llama-server.
+          brew install --cask --no-quarantine ollama
+          OLLAMA_BIN="$(/usr/bin/find /Applications/Ollama.app -type f -name ollama 2>/dev/null | head -1)"
+          [ -n "$OLLAMA_BIN" ] || { echo "::error::ollama CLI not found in app bundle after cask install"; exit 1; }
+          echo "Found ollama CLI: $OLLAMA_BIN"
+          echo "$(dirname "$OLLAMA_BIN")" >> "$GITHUB_PATH"
 
       - name: Start Ollama daemon
         run: |
@@ -426,7 +436,18 @@ jobs:
 
       - name: Install Ollama (macOS)
         if: runner.os == 'macOS'
-        run: brew install ollama
+        run: |
+          # The Homebrew `ollama` FORMULA bottle omits the `llama-server`
+          # inference binary ("llama-server binary not found" → HTTP 500 on the
+          # judge's chat-completion). The official macOS app (cask) bundles the
+          # runners; install it (--no-quarantine so the bundled binaries run
+          # headless) and put its CLI on PATH so the daemon step's `ollama serve`
+          # resolves to it and finds llama-server.
+          brew install --cask --no-quarantine ollama
+          OLLAMA_BIN="$(/usr/bin/find /Applications/Ollama.app -type f -name ollama 2>/dev/null | head -1)"
+          [ -n "$OLLAMA_BIN" ] || { echo "::error::ollama CLI not found in app bundle after cask install"; exit 1; }
+          echo "Found ollama CLI: $OLLAMA_BIN"
+          echo "$(dirname "$OLLAMA_BIN")" >> "$GITHUB_PATH"
 
       - name: Start Ollama daemon + pull model
         run: |
