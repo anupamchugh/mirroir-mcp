@@ -312,16 +312,16 @@ jobs:
       - name: Install Ollama (macOS)
         if: runner.os == 'macOS'
         run: |
-          # The Homebrew `ollama` FORMULA bottle omits the `llama-server`
-          # inference binary ("llama-server binary not found" → HTTP 500 on the
-          # judge's chat-completion). The official macOS app (cask) bundles the
-          # runners; install it (--no-quarantine so the bundled binaries run
-          # headless) and put its CLI on PATH so the daemon step's `ollama serve`
-          # resolves to it and finds llama-server.
-          brew install --cask --no-quarantine ollama
-          OLLAMA_BIN="$(/usr/bin/find /Applications/Ollama.app -type f -name ollama 2>/dev/null | head -1)"
-          [ -n "$OLLAMA_BIN" ] || { echo "::error::ollama CLI not found in app bundle after cask install"; exit 1; }
-          echo "Found ollama CLI: $OLLAMA_BIN"
+          # The Homebrew `ollama` FORMULA bottle omits the inference runtime, so
+          # the judge's chat-completion returns HTTP 500 ("llama-server binary not
+          # found"). The official `ollama-app` cask (~574MB) bundles the runners
+          # (libllama / libggml-cpu-*) and does inference in-process. Install it,
+          # clear the Gatekeeper quarantine so the bundled binaries run headless,
+          # and put its CLI on PATH so the daemon step's `ollama serve` uses it.
+          brew install --cask ollama-app
+          xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
+          OLLAMA_BIN=/Applications/Ollama.app/Contents/Resources/ollama
+          [ -x "$OLLAMA_BIN" ] || { echo "::error::ollama CLI not found at $OLLAMA_BIN"; exit 1; }
           echo "$(dirname "$OLLAMA_BIN")" >> "$GITHUB_PATH"
 
       - name: Start Ollama daemon
@@ -437,16 +437,16 @@ jobs:
       - name: Install Ollama (macOS)
         if: runner.os == 'macOS'
         run: |
-          # The Homebrew `ollama` FORMULA bottle omits the `llama-server`
-          # inference binary ("llama-server binary not found" → HTTP 500 on the
-          # judge's chat-completion). The official macOS app (cask) bundles the
-          # runners; install it (--no-quarantine so the bundled binaries run
-          # headless) and put its CLI on PATH so the daemon step's `ollama serve`
-          # resolves to it and finds llama-server.
-          brew install --cask --no-quarantine ollama
-          OLLAMA_BIN="$(/usr/bin/find /Applications/Ollama.app -type f -name ollama 2>/dev/null | head -1)"
-          [ -n "$OLLAMA_BIN" ] || { echo "::error::ollama CLI not found in app bundle after cask install"; exit 1; }
-          echo "Found ollama CLI: $OLLAMA_BIN"
+          # The Homebrew `ollama` FORMULA bottle omits the inference runtime, so
+          # the judge's chat-completion returns HTTP 500 ("llama-server binary not
+          # found"). The official `ollama-app` cask (~574MB) bundles the runners
+          # (libllama / libggml-cpu-*) and does inference in-process. Install it,
+          # clear the Gatekeeper quarantine so the bundled binaries run headless,
+          # and put its CLI on PATH so the daemon step's `ollama serve` uses it.
+          brew install --cask ollama-app
+          xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
+          OLLAMA_BIN=/Applications/Ollama.app/Contents/Resources/ollama
+          [ -x "$OLLAMA_BIN" ] || { echo "::error::ollama CLI not found at $OLLAMA_BIN"; exit 1; }
           echo "$(dirname "$OLLAMA_BIN")" >> "$GITHUB_PATH"
 
       - name: Start Ollama daemon + pull model
