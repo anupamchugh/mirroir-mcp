@@ -129,22 +129,16 @@ jobs:
             -f ref="refs/tags/v$VERSION" \
             -f sha="$SHA"
 
-      - name: Build x86_64 (Intel) release binary
-        run: |
-          swift build -c release --arch x86_64 --product mirroir-mcp
-
-      - name: Create tarballs and checksums
+      - name: Create tarball and checksum
         run: |
           # arm64 (Apple Silicon) — built by the earlier `swift build -c release`.
+          # No x86_64 (Intel) binary: embacle-ffi is arm64-only, so an x86_64
+          # build cannot link the embacle symbols. Universal support needs a
+          # universal embacle-ffi (tracked separately).
           cd .build/release
           tar czf "$GITHUB_WORKSPACE/mirroir-mcp-darwin-arm64.tar.gz" mirroir-mcp
-          # x86_64 (Intel) — built into the arch-specific release dir.
-          cd "$GITHUB_WORKSPACE/.build/x86_64-apple-macosx/release"
-          tar czf "$GITHUB_WORKSPACE/mirroir-mcp-darwin-x86_64.tar.gz" mirroir-mcp
           cd "$GITHUB_WORKSPACE"
-          shasum -a 256 \
-            mirroir-mcp-darwin-arm64.tar.gz \
-            mirroir-mcp-darwin-x86_64.tar.gz > SHA256SUMS
+          shasum -a 256 mirroir-mcp-darwin-arm64.tar.gz > SHA256SUMS
 
       - name: Generate release notes
         env:
@@ -214,7 +208,6 @@ jobs:
         run: |
           gh release create "v$VERSION" \
             mirroir-mcp-darwin-arm64.tar.gz \
-            mirroir-mcp-darwin-x86_64.tar.gz \
             SHA256SUMS \
             --title "v$VERSION" \
             --notes-file release-notes.md

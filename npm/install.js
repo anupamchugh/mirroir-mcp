@@ -8,7 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
-const VERSION = "0.34.0";
+const VERSION = "0.33.3";
 const REPO = "jfarcand/mirroir-mcp";
 const BINARY = "mirroir-mcp";
 
