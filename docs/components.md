@@ -121,17 +121,21 @@ Some UI elements span multiple OCR rows — a Health app summary card might have
 
 ### File Locations
 
-Element patterns are loaded from multiple directories in priority order (first match wins by name):
+Element patterns are loaded from all of these directories in priority order (first match wins by name):
 
 | Priority | Path | Use Case |
 |----------|------|----------|
 | 1 | `<cwd>/.mirroir-mcp/components/` | Project-local overrides |
 | 2 | `~/.mirroir-mcp/components/` | User's global custom patterns |
-| 3 | `<cwd>/.mirroir-mcp/skills/patterns/elements/` | Skills repo (new structure) |
-| 4 | `../mirroir-skills/patterns/elements/` | Sibling skills repo (new) |
-| 5 | `../mirroir-skills/components/ios/` | Sibling skills repo (legacy fallback) |
+| 3 | `<cwd>/.mirroir-mcp/skills/patterns/elements/` | Project-local skills repo (new structure) |
+| 4 | `~/.mirroir-mcp/skills/patterns/elements/` | User's global skills repo (new structure) |
+| 5 | `../mirroir-skills/patterns/elements/` | Sibling skills repo (new) |
+| 6 | `<cwd>/.mirroir-mcp/skills/components/ios/` | Project-local skills repo (legacy fallback) |
+| 7 | `<cwd>/.mirroir-mcp/skills/components/custom/` | Project-local skills repo (legacy custom) |
+| 8 | `../mirroir-skills/components/ios/` | Sibling skills repo (legacy fallback) |
+| 9 | `../mirroir-skills/components/custom/` | Sibling skills repo (legacy custom) |
 
-Install the community patterns:
+The home directory `~/.mirroir-mcp/` is the Swift MCP's own config home — distinct from `.mirroir/`, the runner's consumer dotfile. Install the community patterns under the global skills home (priority 4 discovers them):
 
 ```bash
 git clone https://github.com/jfarcand/mirroir-skills ~/.mirroir-mcp/skills
@@ -368,13 +372,18 @@ Card-based overview showing summary metrics that drill down to detail views.
 
 ### Screen Pattern File Locations
 
+Recipes honor both the project-local and the global skills directory (`patterns/screens/` and the legacy `recipes/ios/`):
+
 | Priority | Path |
 |----------|------|
 | 1 | `<cwd>/.mirroir-mcp/recipes/` |
 | 2 | `~/.mirroir-mcp/recipes/` |
 | 3 | `<cwd>/.mirroir-mcp/skills/patterns/screens/` |
-| 4 | `../mirroir-skills/patterns/screens/` |
-| 5 | `../mirroir-skills/recipes/ios/` (legacy fallback) |
+| 4 | `~/.mirroir-mcp/skills/patterns/screens/` |
+| 5 | `../mirroir-skills/patterns/screens/` |
+| 6 | `<cwd>/.mirroir-mcp/skills/recipes/ios/` (legacy fallback) |
+| 7 | `~/.mirroir-mcp/skills/recipes/ios/` (legacy fallback) |
+| 8 | `../mirroir-skills/recipes/ios/` (legacy fallback) |
 
 ## App Patterns (APP.md)
 

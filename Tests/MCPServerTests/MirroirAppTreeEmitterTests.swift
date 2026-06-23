@@ -1,0 +1,140 @@
+// Copyright 2026 jfarcand@apache.org
+// Licensed under the Apache License, Version 2.0
+//
+// ABOUTME: Tests the .mirroir/ iOS-leg emitter — scenario YAML shape, baseline, plan upsert, idempotency.
+// ABOUTME: Emitted scenario shapes are the ones proven to parse by `mirroir-run --validate`.
+
+import XCTest
+import HelperLib
+@testable import mirroir_mcp
+
+final class MirroirAppTreeEmitterTests: XCTestCase {
+
+    private func tap(_ text: String) -> TapPoint {
+        TapPoint(text: text, tapX: 100, tapY: 200, confidence: 0.95)
+    }
+
+    private func screen(
+        index: Int, action: String?, via: String?, elements: [String]
+    ) -> ExploredScreen {
+        ExploredScreen(
+            index: index,
+            elements: elements.map(tap),
+            hints: [],
+            actionType: action,
+            arrivedVia: via,
+            screenshotBase64: ""
+        )
+    }
+
+    private func sampleScreens() -> [ExploredScreen] {
+        [
+            screen(index: 0, action: nil, via: nil, elements: ["General", "Wi-Fi", "Bluetooth"]),
+            screen(index: 1, action: "tap", via: "General", elements: ["About", "Software Update"]),
+            screen(index: 2, action: "tap", via: "About", elements: ["Software Version 17.5.1", "Model Name"]),
+        ]
+    }
+
+    private func tmpRoot() -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mirroir-emit-\(UUID().uuidString)/.mirroir")
+    }
+
+    func testEmitWritesScenarioBaselineAppMdAndPlan() throws {
+        let root = tmpRoot()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+
+        let result = try MirroirAppTreeEmitter.emit(
+            appName: "Settings", flow: "check software version", screens: sampleScreens(), root: root)
+
+        let fm = FileManager.default
+        XCTAssertTrue(fm.fileExists(atPath: result.scenarioPath.path))
+        XCTAssertTrue(fm.fileExists(atPath: result.baselinePath.path))
+        XCTAssertTrue(fm.fileExists(atPath: result.parityPath.path))
+        XCTAssertTrue(fm.fileExists(atPath: result.appDir.appendingPathComponent("APP.md").path))
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("mirroir.yaml").path))
+
+        // Cross-surface parity gate pairs the iOS baseline with a web baseline.
+        let parity = try String(contentsOf: result.parityPath, encoding: .utf8)
+        XCTAssertTrue(parity.contains("- cross_surface:"))
+        XCTAssertTrue(parity.contains("baselines/check-software-version.ios.txt"))
+        XCTAssertTrue(parity.contains("baselines/check-software-version.web.txt"))
+
+        // Scenario carries the iOS target, launch, the taps, and is well-formed.
+        let scenario = try String(contentsOf: result.scenarioPath, encoding: .utf8)
+        XCTAssertTrue(scenario.hasPrefix("version: 1\nname: \"check-software-version\"\n"))
+        XCTAssertTrue(scenario.contains("- target: { kind: ios, app: \"Settings\" }"))
+        XCTAssertTrue(scenario.contains("- launch: \"Settings\""))
+        XCTAssertTrue(scenario.contains("- tap: \"General\""))
+        XCTAssertTrue(scenario.contains("- tap: \"About\""))
+        // Destination landmark = the longest label on the final screen.
+        XCTAssertTrue(scenario.contains("- assert_visible: \"Software Version 17.5.1\""))
+
+        // Baseline is the destination screen's OCR tokens.
+        let baseline = try String(contentsOf: result.baselinePath, encoding: .utf8)
+        XCTAssertTrue(baseline.contains("Software Version 17.5.1"))
+        XCTAssertTrue(baseline.contains("Model Name"))
+
+        // Plan entry created, skip:true under nice_to_pass.
+        let plan = try String(contentsOf: root.appendingPathComponent("mirroir.yaml"), encoding: .utf8)
+        XCTAssertTrue(plan.contains("name: settings"))
+        XCTAssertTrue(plan.contains("local: apps/settings"))
+        XCTAssertTrue(plan.contains("skip: true"))
+    }
+
+    func testReEmitIsIdempotentForPlan() throws {
+        let root = tmpRoot()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        _ = try MirroirAppTreeEmitter.emit(
+            appName: "Settings", flow: "v", screens: sampleScreens(), root: root)
+        let second = try MirroirAppTreeEmitter.emit(
+            appName: "Settings", flow: "v", screens: sampleScreens(), root: root)
+        XCTAssertTrue(second.planNote.contains("already present"),
+            "second emit should not duplicate the plan entry: \(second.planNote)")
+    }
+
+    func testSlugify() {
+        XCTAssertEqual(MirroirAppTreeEmitter.slugify("Wi-Fi & Bluetooth"), "wi-fi-bluetooth")
+        XCTAssertEqual(MirroirAppTreeEmitter.slugify("  Settings  "), "settings")
+        XCTAssertEqual(MirroirAppTreeEmitter.slugify("!!!"), "app")
+    }
+
+    func testScenarioYAMLEmitsValidatedVerbShapes() {
+        let yaml = ScenarioStepFormatter.scenarioYAML(
+            name: "verb-coverage", appName: "TestApp", screens: [
+                screen(index: 0, action: nil, via: nil, elements: ["Start"]),
+                screen(index: 1, action: "type", via: "Email", elements: ["Field"]),
+                screen(index: 2, action: "scroll_to", via: "Bottom", elements: ["Welcome Home Page"]),
+            ])
+        XCTAssertTrue(yaml.contains("- target: { kind: ios, app: \"TestApp\" }"))
+        XCTAssertTrue(yaml.contains("- type: \"Email\""))
+        XCTAssertTrue(yaml.contains("- scroll_to: \"Bottom\""))
+    }
+
+    func testEmitRoutesToOutputDir() throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mirroir-out-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let result = try MirroirAppTreeEmitter.emit(
+            appName: "Demo", flow: "f", screens: sampleScreens(), outputDir: base.path)
+        XCTAssertTrue(result.scenarioPath.path.hasPrefix(base.appendingPathComponent(".mirroir").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.scenarioPath.path))
+    }
+
+    func testRootLocatorRefusesHomeAndHonorsExplicitDir() {
+        // ~/.mirroir is the runner's pack home — never emit there.
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        XCTAssertNil(MirroirRootLocator.resolve(start: home))
+        // An explicit dir maps to <dir>/.mirroir.
+        let explicit = "/tmp/mirroir-loc-\(UUID().uuidString)"
+        let resolved = MirroirRootLocator.resolve(explicitDir: explicit)
+        XCTAssertEqual(resolved?.lastPathComponent, ".mirroir")
+        XCTAssertTrue(resolved?.path.hasPrefix(explicit) ?? false)
+        // A non-home dir with no .mirroir resolves to <dir>/.mirroir.
+        let nonHome = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mirroir-nh-\(UUID().uuidString)")
+        XCTAssertEqual(MirroirRootLocator.resolve(start: nonHome)?.lastPathComponent, ".mirroir")
+    }
+}

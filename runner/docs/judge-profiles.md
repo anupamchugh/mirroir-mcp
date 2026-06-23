@@ -1,7 +1,9 @@
 # Judge profile registry
 
 The `judge:` step scores a captured response against an "expected signal"
-using an LLM. Source of truth: `runner/src/oracle/judge.rs`. CI uses
+using an LLM. Source of truth: `JudgeProfile` and `builtin_profiles()` live in
+`runner/src/oracle/judge_profiles.rs` (`runner/src/oracle/judge.rs` re-exports
+them); the scoring call itself is `runner/src/oracle/judge.rs`. CI uses
 **Ollama** exclusively — no remote LLM, no secret keys.
 
 ## Built-in profiles
@@ -57,11 +59,13 @@ Agent response:
 Score:
 ```
 
-The `user_prompt_template_hash` field on the YAML `judge:` step is *for
-authors* — pin the SHA-256 of your expected template + signal so future
-template tweaks are visible in diffs. The runner does not verify the hash
-today (planned: bump-detection that warns when the on-disk template hash
-differs from the pinned value).
+The `user_prompt_template_hash` field on the YAML `judge:` step pins the
+SHA-256 of the canonical prompt template (formatted `sha256:<hex>`). The runner
+verifies it on **every** invocation: `verify_template_hash` runs first thing in
+`run_judge` (`runner/src/oracle/judge.rs::run_judge`), and a mismatch hard-fails
+the step with `RunnerError::JudgeTemplateMismatch` — the scenario must be
+re-pinned. This keeps a score calibrated against one prompt from silently
+running against a changed prompt.
 
 ## Score parsing
 
@@ -94,23 +98,53 @@ but kept for consistency).
 
 ## Adding a custom profile
 
-The built-in registry covers the common cases. To add your own:
+The built-in registry covers the common cases. The canonical way to add your
+own is an `oracles/profiles.yaml` overlay:
 
-1. Edit `runner/src/oracle/judge.rs::builtin_profiles()`.
-2. Add a `JudgeProfile` entry with `name`, `base_url`, `model`,
-   `api_key_env` (or `None` for local), `timeout_s`.
+1. Create `~/.mirroir/oracles/profiles.yaml` with a `profiles:` list.
+2. Add an entry with `name`, `base_url`, `model`, `api_key_env`
+   (omit for local providers), and optionally `timeout_s` (default 30 s).
 3. Scenarios reference the new name via `judge.profile: <name>`.
 
-For full custom-registry support (load from YAML at runtime), see the
-roadmap in `runner/README.md`. For now, profiles are compiled in to keep
-the trust boundary tight — no untrusted YAML can redirect judge scoring
-to a different endpoint mid-run.
+```yaml
+profiles:
+  - name: my-judge
+    base_url: https://example.test/v1/chat/completions
+    model: my-model
+    api_key_env: MY_KEY
+    timeout_s: 45
+```
+
+To change a built-in's endpoint or credential binding, redeclare its `name`
+in the same file. (Built-ins can also be added directly in
+`runner/src/oracle/judge_profiles.rs::builtin_profiles()`.)
+
+## Profile trust model
+
+Overlay files are loaded by trust level (`JudgeRegistry::load` in
+`runner/src/oracle/judge_profiles.rs`), so a checked-out repository cannot
+redirect judge prompts and API keys to an attacker-controlled host:
+
+- **Trusted** — built-in profiles and `~/.mirroir/oracles/profiles.yaml` (the
+  user's own machine config). May set every field — `base_url`, `api_key_env`,
+  `model`, `timeout_s` — override a built-in's endpoint, and define brand-new
+  profiles.
+- **Untrusted** — `<repo>/oracles/profiles.yaml` and
+  `<repo>/.mirroir/oracles/profiles.yaml` (repo-local config). May only tune
+  `model` / `timeout_s` of an **existing** profile. A repo-local `base_url` /
+  `api_key_env` change or a brand-new profile name is ignored with a warning,
+  keeping the trusted endpoint and credential binding intact.
+
+The repo-local `.mirroir/oracles/profiles.yaml` here is the runner's consumer
+dotfile (`.mirroir/`), distinct from the Swift MCP's home directory
+(`.mirroir-mcp/`).
 
 ## Local development setup (matches CI)
 
 ```bash
-# 1. Install Ollama (macOS)
-brew install ollama
+# 1. Install Ollama (macOS) — the cask bundles llama-server; the
+#    Homebrew formula bottle omits it, which makes the judge return HTTP 500.
+brew install --cask ollama-app
 
 # 1. Install Ollama (Linux)
 curl -fsSL https://ollama.com/install.sh | sh

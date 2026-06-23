@@ -124,7 +124,7 @@ lock time. It is **committed**.
 ```yaml
 version: 1
 generated_at: 2026-05-16T18:22:14Z
-generated_by: mirroir-run 0.2.0
+generated_by: mirroir-run 0.1.2
 archetypes:
 - ref: mirroir-skills/atmosphere/ai-console@v1
   resolved:
@@ -195,8 +195,8 @@ Resolution chain (highest priority first):
 1. Plan entry `vars`
 2. Plan entry `boot.env`
 3. Suite-level `env`
-4. Process environment
-5. Archetype `requires.vars[].default`
+4. Archetype `requires.vars[].default`
+5. Process environment
 6. Inline `${VAR:-fallback}`
 7. Empty string
 
@@ -204,12 +204,14 @@ Keys are **not** substituted — `${KEY}: value` stays a literal `${KEY}`.
 
 ## CLI flags
 
+`.mirroir/` pipeline flags:
+
 ```
 mirroir-run                              # auto-discover .mirroir/, replay
 mirroir-run --config <PATH>              # explicit mirroir.yaml path
 mirroir-run --no-local                   # skip mirroir.local.yaml
-mirroir-run --scenarios must_pass        # tier selector (default)
-mirroir-run --scenarios all              # include nice_to_pass
+mirroir-run --scenarios must-pass        # tier selector (config default_set when omitted)
+mirroir-run --scenarios all              # include nice-to-pass
 mirroir-run --compose-only               # compose without replaying
 mirroir-run --recompose                  # delete .build/, recompose, replay
 mirroir-run --no-compose                 # use existing .build/, no recompose
@@ -217,6 +219,8 @@ mirroir-run --locked                     # CI gate: stale lockfile is an error
 mirroir-run --frozen                     # --locked + no network fetch
 mirroir-run --report <PATH>              # JSON summary path (default mirroir-run-report.json)
 mirroir-run --no-playwright              # skip web steps in scenarios
+mirroir-run --skills <PATH>              # mirroir-skills checkout (env MIRROIR_SKILLS)
+mirroir-run --levenshtein-threshold <FLOAT>  # drift threshold for --diff-text (default 0.2)
 ```
 
 The pre-`.mirroir/` modes still work (`--sample`, `--validate`,
@@ -303,6 +307,47 @@ git clone --branch v1.0.0 https://github.com/jfarcand/mirroir-skills \
 
 Each installed version is a separate directory; the resolver picks the
 right one per `@<version>` constraint + lockfile pin.
+
+## Cross-surface parity (iOS ↔ web)
+
+A `.mirroir/apps/<name>/` sample can hold **two legs of the same flow** and
+assert they stay equivalent:
+
+- **Web leg** — the runnable scenario (`scenarios/<flow>.yaml`) with real DOM
+  selectors, authored against the running web app (e.g. via the `mirroir-onboard`
+  flow). `mirroir-run` replays it on Linux CI.
+- **iOS leg** — emitted by `mirroir-mcp`'s `generate_skill … emit=true` from an
+  iPhone Mirroring capture: a `--validate`-only `scenarios/<flow>.ios.yaml`
+  (a faithful linear walk; the runner has no iOS executor, so it is never
+  replayed) plus the cross-surface oracle `baselines/<flow>.ios.txt`.
+
+The two meet in a `scenarios/<flow>.parity.yaml` gate (also emitted) that compares
+the iOS baseline against a web baseline by Jaccard similarity:
+
+```yaml
+version: 1
+name: <flow> — cross-surface parity
+steps:
+  - cross_surface:
+      response_files:
+        - "${MIRROIR_SAMPLE_DIR}/baselines/<flow>.web.txt"
+        - "${MIRROIR_SAMPLE_DIR}/baselines/<flow>.ios.txt"
+      min_similarity: 0.5
+```
+
+The runner only **compares** files — it does not produce the web baseline. Write
+`baselines/<flow>.web.txt` from the web leg (a Playwright step calling
+`page.locator(...).textContent()` to that path). Until it exists the parity step
+**fails closed** — a missing file is an error, never a silent pass.
+
+`min_similarity` defaults to `0.5` for iOS↔web phrasing divergence; raise it for
+high-entropy screens, and treat low-vocabulary screens (e.g. a bare login form)
+with care — a generic token set can clear a low threshold by coincidence.
+
+> Two surfaces, one grammar. The iOS and web legs are written in the same
+> `SkillStep` language and tied by `cross_surface`, rather than maintained as two
+> bespoke suites. The runner gains no iOS executor (it stays Linux-CI-friendly);
+> the iOS leg is a baseline + parity anchor.
 
 ## Troubleshooting
 

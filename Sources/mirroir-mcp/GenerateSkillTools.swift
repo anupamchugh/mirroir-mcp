@@ -132,6 +132,21 @@ extension MirroirMCP {
                             .string("dfs"),
                         ]),
                     ]),
+                    "emit": .object([
+                        "type": .string("boolean"),
+                        "description": .string(
+                            "When true on the finish or explore action, write a runner-consumable " +
+                            ".mirroir/apps/<app>/ iOS leg (a --validate-able scenario + a " +
+                            "cross-surface baseline + a parity gate) into the consumer repo. " +
+                            "Default: false."),
+                    ]),
+                    "output_dir": .object([
+                        "type": .string("string"),
+                        "description": .string(
+                            "Consumer repo root the emit=true tree is written under " +
+                            "(<output_dir>/.mirroir/apps/<app>/). Defaults to walking up from " +
+                            "the working directory; emitting into ~/.mirroir is refused."),
+                    ]),
                 ]),
                 "required": .array([.string("action")]),
             ],
@@ -146,7 +161,9 @@ extension MirroirMCP {
                 case "capture":
                     return handleCapture(args: args, session: session, registry: registry)
                 case "finish":
-                    return handleFinish(session: session)
+                    return handleFinish(
+                        session: session, emit: args["emit"]?.asBool() ?? false,
+                        outputDir: args["output_dir"]?.asString())
                 case "explore":
                     return handleExplore(
                         args: args, session: session,
