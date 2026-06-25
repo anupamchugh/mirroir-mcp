@@ -93,9 +93,9 @@ Per-app `deny` is the safest way to protect destructive flows (PPV purchase, acc
 
 ## 4. Component coverage check
 
-Before exploring, scan `mirroir-skills/patterns/components/` for patterns that match your app's UI primitives. Common cases:
+Before exploring, scan `mirroir-skills/patterns/elements/` for patterns that match your app's UI primitives. Common cases:
 
-- **List rows with chevron** → `chevron-row` component (covered)
+- **List rows with chevron** → `table-row-disclosure` component (covered)
 - **Summary cards** → `summary-card` (covered)
 - **Video tiles in horizontal carousels** → may need a new pattern
 - **Now-playing bar (persistent footer)** → may need a new pattern

@@ -404,7 +404,44 @@ Built-in agents:
 | `ollama:<model>` | [Ollama](https://ollama.com) (local) | None |
 | `embacle`, `embacle:claude` | [embacle-server](https://github.com/dravr-ai/dravr-embacle) | CLI agent key |
 
-Custom agents can be defined as YAML profiles in `~/.mirroir-mcp/agents/`.
+Custom agents are defined as YAML profiles in `<cwd>/.mirroir-mcp/agents/<name>.yaml` (project-local) or `~/.mirroir-mcp/agents/<name>.yaml` (global, project-local wins). Pass the file's `<name>` to `--agent`.
+
+A profile runs in one of two modes:
+
+**`mode: api`** — call a cloud or local HTTP endpoint:
+
+```yaml
+# ~/.mirroir-mcp/agents/my-gpt.yaml
+mode: api
+provider: openai          # anthropic | openai | ollama | embacle
+model: gpt-5.3
+api_key_env: OPENAI_API_KEY
+base_url: https://api.openai.com
+system_prompt: "You are a terse iOS automation debugger."
+max_tokens: 4096
+```
+
+**`mode: command`** — run a local CLI process (e.g. an already-authenticated `claude -p` / `copilot -p`, or a custom script). The diagnostic payload is delivered two ways: if any `args` entry contains `${PAYLOAD}`, the JSON payload is substituted there; otherwise it is piped to the command's stdin:
+
+```yaml
+# ~/.mirroir-mcp/agents/claude-cli.yaml
+mode: command
+command: claude
+args: ["-p", "${PAYLOAD}"]
+system_prompt: "Diagnose the failed step and reply with JSON."
+```
+
+| Key | Mode | Description |
+|---|---|---|
+| `mode` | both | `api` (default) or `command` |
+| `provider` | api | `anthropic`, `openai`, `ollama`, or `embacle` |
+| `model` | api | Model identifier |
+| `api_key_env` | api | Environment variable holding the API key |
+| `base_url` | api | Endpoint base URL |
+| `command` | command | Executable to launch (`PATH`-resolved, or an absolute path) |
+| `args` | command | Argument array; `${PAYLOAD}` is replaced with the JSON payload |
+| `system_prompt` | both | System prompt sent with the request |
+| `max_tokens` | both | Response token budget |
 
 <details>
 <summary>No API key? Use embacle</summary>
@@ -447,7 +484,7 @@ See [Component Detection](docs/components.md) for the full definition format, ma
 
 ## Replay anywhere with `mirroir-run`
 
-`mirroir-mcp` captures scenarios on iOS — AX + OCR + BFS exploration. `mirroir-run` replays the same SkillStep YAML on Linux CI against **web, process, and HTTP** surfaces. Same grammar, different runtime, one verdict. It's a single Rust binary (`runner/` in this repo), independent of the Swift server.
+`mirroir-mcp` captures iOS flows — AX + OCR + BFS exploration. `mirroir-run` replays `.mirroir/` SkillStep scenarios on Linux CI against **web, process, and HTTP** surfaces. Both speak one SkillStep grammar, so an iOS capture and a web scenario are the same language on two surfaces — tied together by `cross_surface` equivalence rather than maintained as two bespoke suites. A single Rust binary (`runner/` in this repo), independent of the Swift server.
 
 Drop a `.mirroir/` directory in any repo and `mirroir-run` discovers it from the working directory:
 
@@ -468,6 +505,8 @@ mirroir-run --scenarios all          # include nice-to-pass entries too
 ```
 
 Each plan entry either points at a `local:` sample tree or extends a shared **archetype** (`archetypes: ["<pack>/<name>@<ver>"]`) with per-instance `vars:` and `boot:`. An archetype captures a reusable app shape — say, an AI chat console — once, and parameterizes it per app.
+
+**Where the iOS leg comes from.** `generate_skill … emit=true` (on `finish` or `explore`) writes the captured flow into `.mirroir/apps/<app>/` as a `--validate`-able iOS scenario plus a cross-surface oracle (`baselines/<flow>.ios.txt`) and a `cross_surface` parity gate — additive to the web leg's runnable scenarios. Run the MCP from your consumer repo (or pass `output_dir`) so the tree lands in the right `.mirroir/`; emitting into `~/.mirroir` (the runner's pack home) is refused. Pair it with a web capture and `mirroir-run` asserts the two surfaces stay equivalent. See [`runner/docs/mirroir-dotfile.md`](runner/docs/mirroir-dotfile.md) for the pairing convention.
 
 Web steps compile to a Playwright `.spec.ts` and run across chromium, firefox, and webkit. Selectors resolve three ways: raw CSS, Playwright engine prefixes (`role=button[name="Save"]`, `text=Welcome`, `xpath=…`), or `data-test` + visible text. Process and HTTP steps dispatch natively; an LLM judge step scores agent responses against expected signals, and drift detection catches output divergence vs. a baseline.
 

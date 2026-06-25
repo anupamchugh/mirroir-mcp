@@ -177,49 +177,49 @@ if (!skillsAvailable) {
       { headers: ghHeaders }
     );
     const tree = await treeRes.json();
-    const yamlFiles = (tree.tree ?? []).filter(
-      (f: { path: string }) => f.path.endsWith(".yaml") || f.path.endsWith(".yml")
+    // Canonical corpus: Agent-Skills SKILL.md files under skills/. Excludes
+    // legacy *.yaml, archetypes/, and .github/ CI workflows.
+    const skillFiles = (tree.tree ?? []).filter(
+      (f: { path: string }) => f.path.startsWith("skills/") && f.path.endsWith(".md")
     );
 
-    function yamlValue(content: string, key: string): string {
-      const lineMatch = content.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
-      if (!lineMatch) return "";
-      const rest = lineMatch[1].trim();
-      if (rest && rest !== ">" && rest !== "|") return rest;
-      const lines = content.split("\n");
-      const startIdx = lines.findIndex((l) => l.match(new RegExp(`^${key}:`)));
-      if (startIdx < 0) return rest;
-      const blockLines: string[] = [];
-      for (let i = startIdx + 1; i < lines.length; i++) {
-        if (/^\s+\S/.test(lines[i])) {
-          blockLines.push(lines[i].trim());
-        } else if (lines[i].trim() === "") {
-          blockLines.push("");
-        } else {
-          break;
-        }
-      }
-      const firstPara: string[] = [];
-      for (const line of blockLines) {
-        if (line === "") break;
-        firstPara.push(line);
-      }
-      return firstPara.join(" ");
+    function frontmatterField(content: string, key: string): string {
+      const fm = content.match(/^---\n([\s\S]*?)\n---/);
+      const block = fm ? fm[1] : content;
+      const m = block.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+      return m ? m[1].trim() : "";
     }
 
-    const fetches = yamlFiles.map(async (f: { path: string }) => {
+    function descriptionField(content: string): string {
+      const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+      const para: string[] = [];
+      for (const line of body.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed === "") {
+          if (para.length > 0) break;
+          continue;
+        }
+        if (trimmed.startsWith("#")) break;
+        para.push(trimmed);
+      }
+      return para.join(" ");
+    }
+
+    const fetches = skillFiles.map(async (f: { path: string }) => {
       const res = await fetch(
         `https://api.github.com/repos/${skillsRepo}/contents/${f.path}`,
         { headers: ghHeaders }
       );
       const data = await res.json();
-      const content = atob(data.content.replace(/\n/g, ""));
+      // Decode base64 as UTF-8 (atob yields latin1 → mojibake on accents).
+      const content = Buffer.from(data.content, "base64").toString("utf-8");
       const parts = f.path.split("/");
-      const category = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+      // Drop the leading `skills/` segment from the displayed category.
+      const category = parts.slice(1, -1).join("/");
       return {
-        name: yamlValue(content, "name") || f.path,
-        description: yamlValue(content, "description"),
-        app: yamlValue(content, "app"),
+        name: frontmatterField(content, "name") || f.path,
+        description: descriptionField(content),
+        app: frontmatterField(content, "app"),
         path: f.path,
         category,
         url: `${skillsBase}/blob/main/${f.path}`,
@@ -529,13 +529,16 @@ if (!skillsAvailable) {
   <section id="mirroir-run">
     <h2>Replay anywhere with <code>mirroir-run</code></h2>
     <p>
-      <strong>mirroir-mcp</strong> captures scenarios on iOS &mdash; AX + OCR + BFS exploration. <strong>mirroir-run</strong> replays those same scenarios on Linux CI against web, process, and HTTP surfaces. Same YAML grammar, different runtime, one verdict.
+      <strong>mirroir-mcp</strong> captures iOS flows &mdash; AX + OCR + BFS exploration. <strong>mirroir-run</strong> replays <code>.mirroir/</code> SkillStep scenarios on Linux CI against web, process, and HTTP surfaces. Both speak one YAML grammar, so an iOS capture and a web scenario are the same language on two surfaces &mdash; tied together by cross-surface equivalence.
     </p>
     <p>
       A single-binary Rust crate (<code>runner/</code> in this repo). Web steps compile to a Playwright <code>.spec.ts</code> and run across chromium, firefox, and webkit &mdash; selectors resolve as raw CSS, Playwright engine prefixes (<code>role=button[name="Save"]</code>, <code>text=Welcome</code>), or <code>data-test</code> + visible text. Process and HTTP steps dispatch natively. An LLM judge step scores agent responses against expected signals; drift detection catches output divergence vs. a baseline.
     </p>
     <p>
       Drop a <code>.mirroir/</code> directory in any repo and a bare <code>mirroir-run</code> discovers it from the working directory, then replays the plan in <code>mirroir.yaml</code>. Each entry points at a <code>local:</code> sample tree or extends a shared <strong>archetype</strong> (<code>archetypes: ["&lt;pack&gt;/&lt;name&gt;@&lt;ver&gt;"]</code>) with per-instance <code>vars:</code> and <code>boot:</code> &mdash; capture a reusable app shape once, parameterize it per app.
+    </p>
+    <p>
+      The <strong>iOS leg</strong> is written by <code>generate_skill … emit=true</code> (on <code>finish</code> or <code>explore</code>): a captured flow becomes a <code>--validate</code>-able iOS scenario, a cross-surface baseline, and a <code>cross_surface</code> parity gate under <code>.mirroir/apps/&lt;app&gt;/</code> &mdash; additive to the web leg's runnable scenarios. Pair it with a web capture and the runner asserts the two surfaces stay equivalent.
     </p>
 
     <div class="pipeline-grid">
@@ -582,7 +585,7 @@ if (!skillsAvailable) {
     </div>
 
     <p>
-      The reference sample <a href="https://github.com/jfarcand/mirroir-mcp/tree/main/runner/samples/mega-sample" rel="noopener noreferrer"><code>runner/samples/mega-sample/</code></a> exercises every primitive in one run: cross-browser web (chromium + firefox + webkit), HTTP probe, LLM judge against a local Ollama daemon, drift detection vs. a captured baseline, and cross-surface equivalence (web ↔ iOS captures). Deterministic at <code>temperature=0</code>, free per run, no remote LLM dependency in CI.
+      The reference sample <a href="https://github.com/jfarcand/mirroir-mcp/tree/main/runner/samples/mega-sample" rel="noopener noreferrer"><code>runner/samples/mega-sample/</code></a> exercises every primitive in one run: cross-browser web (chromium + firefox + webkit), HTTP probe, LLM judge against a local Ollama daemon, drift detection vs. a captured baseline, and cross-surface equivalence (a web capture compared against a pre-captured iOS surface fixture). Deterministic at <code>temperature=0</code>, free per run, no remote LLM dependency in CI.
     </p>
     <p>
       Reference docs live under <a href="https://github.com/jfarcand/mirroir-mcp/tree/main/runner/docs" rel="noopener noreferrer"><code>runner/docs/</code></a>: scenario grammar, <code>SAMPLE.md</code> schema, judge profiles, Playwright setup, CI integration.
@@ -886,7 +889,7 @@ if (!skillsAvailable) {
       </details>
       <details>
         <summary>Can it control macOS apps too, not just iPhone?</summary>
-        <p>Experimental. You can add targets in <code>.mirroir-mcp/targets.json</code> pointing at macOS windows. The same tools work, but with limitations &mdash; both the MCP client and target window must be in the same macOS Space, and iPhone-specific tools (press_home, app_switcher, spotlight) don't apply. See the README for details.</p>
+        <p>Experimental. You can add targets in <code>.mirroir-mcp/targets.json</code> pointing at macOS windows. The same tools work, but with limitations &mdash; both the MCP client and target window must be in the same macOS Space, and iPhone-specific tools (press_home, press_app_switcher, spotlight) don't apply. See the README for details.</p>
       </details>
       <details>
         <summary>Can I restrict which tools the AI can use?</summary>

@@ -113,7 +113,7 @@ APPROVED="cast_possible_truncation cast_sign_loss cast_precision_loss \
 missing_const_for_fn struct_excessive_bools too_many_lines \
 significant_drop_tightening module_name_repetitions let_unit_value \
 option_if_let_else bool_to_int_with_if type_complexity too_many_arguments use_self \
-cast_possible_wrap cognitive_complexity"
+cast_possible_wrap"
 
 hits=""
 for f in "${rs_files[@]}"; do

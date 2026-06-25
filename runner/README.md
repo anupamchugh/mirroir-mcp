@@ -12,9 +12,12 @@ stays on mirroir's existing Swift `StepExecutor` at the parent level.
 
 ## Status
 
-Scaffold. The design is locked; implementation proceeds incrementally per the
-build sequence in the design gist. Each module ships when it carries real
-implementation — no placeholder code per `AGENTS.md`.
+Shipped. The full build sequence is delivered (13 / 13) and `main.rs` dispatches
+a multi-mode runner: scenario `--validate` / `--compile-scenario` /
+`--run-scenario`, `--sample` session replay, `--diff-text` drift, and the
+`.mirroir/` consumer pipeline (explicit `--config` or bare-invocation
+autodiscovery). Every module carries real implementation — no placeholder code
+per `AGENTS.md`.
 
 ## Design
 
@@ -57,9 +60,16 @@ cargo build --release --target=x86_64-unknown-linux-musl
 
 ## Usage
 
-Five modes are wired and verified end-to-end:
+Six modes are wired and verified end-to-end:
 
 ```bash
+# 0) PRIMARY — `.mirroir/` pipeline. A bare invocation walks `cwd ↑` to the
+#    nearest `.mirroir/mirroir.yaml`, resolves archetypes against
+#    `~/.mirroir/skills/`, checks the lockfile, composes into `.mirroir/.build/`,
+#    then replays each sample. `--config` points at an explicit plan instead.
+mirroir-run
+mirroir-run --config path/to/.mirroir/mirroir.yaml
+
 # 1) Validate a scenario YAML against the SkillStep grammar.
 mirroir-run --validate scenarios/connect-then-broadcast.yaml
 
@@ -77,6 +87,17 @@ MIRROIR_PLAYWRIGHT_HOME=/path/to/playwright \
 # 5) Compute drift between two text files (Jaccard + Levenshtein).
 mirroir-run --diff-text baseline.txt current.txt --levenshtein-threshold 0.2
 ```
+
+The `.mirroir/` pipeline (mode 0) takes these flags: `--config <PATH>` (explicit
+plan, overrides cwd-based discovery), `--no-local` (skip `mirroir.local.yaml`),
+`--compose-only` (compose `.mirroir/.build/` and exit without replaying),
+`--recompose` (delete `.mirroir/.build/` and recompose from scratch),
+`--no-compose` (reuse the existing `.build/` tree as-is), `--locked` (CI gate:
+error when `mirroir.lock` is missing or stale vs `mirroir.yaml`), `--frozen`
+(`--locked` plus no network fetch), `--no-playwright` (skip web step batches),
+`--report <PATH>` (JSON report artifact), `--skills <PATH>`
+(`MIRROIR_SKILLS` checkout), and `--scenarios <set>` (defaults to the config's
+`default_set`, falling back to `must_pass`).
 
 The `samples/mega-sample/` reference walks every primitive in four scenarios:
 cross-browser web (chromium + firefox + webkit), HTTP probe, judge + drift
@@ -109,7 +130,7 @@ the command above to verify the full pipeline on your machine.
 | 10 | Cross-browser fallback (chromium + firefox + webkit, real) | verified in `a494206` |
 | 11 | Sample expansion — `samples/mega-sample/` reference | `3d2c040` |
 | 12 | Session-scoped boot (`session.boot_once: true`) | `a494206` |
-| 13 | Cross-surface invariants (`cross_surface:` step primitive) | this commit |
+| 13 | Cross-surface invariants (`cross_surface:` step primitive) | `2de3692` |
 
 Cross-surface implementation note: the runner provides the equivalence-comparison
 primitive (`cross_surface:` step + pairwise Jaccard fingerprint). Surfaces feed
@@ -122,23 +143,53 @@ output. The runner is surface-agnostic — both are just files to compare.
 
 ```
 src/
-├── main.rs           # CLI entry; clap arg parsing; dispatches to replay::
-├── error.rs          # RunnerError + Result (thiserror, ~25 typed variants)
+├── main.rs                # CLI entry; clap arg parsing; dispatches to replay:: / mirroir::
+├── error.rs               # RunnerError + Result (thiserror, ~50 typed variants)
+├── replay.rs              # scenario dispatch + sample loop + web-batch buffering
+├── replay_dispatch.rs     # judge / drift / cross_surface step dispatch helpers
+├── replay_sample.rs       # `--sample <dir>` session machinery (SAMPLE.md + shared boot)
 ├── parser/
-│   ├── env.rs        # ${VAR} / ${VAR:-default} substitution
-│   ├── sample.rs     # SAMPLE.md manifest (extract_yaml_block + Session)
-│   ├── scenario.rs   # Scenario top-level (singleton_map_recursive enum form)
-│   └── step.rs       # SkillStep enum — 29 variants
-├── replay.rs         # scenario dispatch + sample loop + web-batch buffering
+│   ├── mod.rs             # parser index + compiled.json cache structs
+│   ├── archetype.rs       # archetype.md manifest (YAML frontmatter + markdown body)
+│   ├── env.rs             # ${VAR} / ${VAR:-default} textual substitution
+│   ├── substitute.rs      # post-parse ${VAR} substitution on serde_yaml::Value trees
+│   ├── local_overrides.rs # mirroir.local.yaml merge (instance wins; arrays replace)
+│   ├── lockfile.rs        # mirroir.lock schema + (de)serializer
+│   ├── mirroir.rs         # .mirroir/mirroir.yaml plan (samples + archetype refs)
+│   ├── mirroir_plan.rs    # archetype reference parsing (pack / ./path / user refs)
+│   ├── sample.rs          # SAMPLE.md manifest (fenced-yaml block + Session)
+│   ├── scenario.rs        # Scenario top-level (singleton_map_recursive enum form)
+│   ├── step.rs            # SkillStep enum — 30 variants (Launch..CrossSurface)
+│   ├── step_args.rs       # oracle/verdict step args (judge, drift, http, report, cross_surface)
+│   └── step_process_args.rs # process-target step args (spawn, wait_port, kill, assert_log)
+├── mirroir/
+│   ├── mod.rs             # `.mirroir/` discovery → resolve → compose → run index
+│   ├── discover.rs        # walk-up cwd discovery of `.mirroir/mirroir.yaml`
+│   ├── resolve.rs         # ArchetypeRef → on-disk directory + manifest (per-kind dispatch)
+│   ├── resolve_version.rs # semver-ish version parsing + constraint matching
+│   ├── lock.rs            # lockfile freshness check + --locked/--frozen enforcement
+│   ├── lock_generate.rs   # lockfile generation (source/version/checksum + git provenance)
+│   ├── compose.rs         # archetype + plan entry → `.mirroir/.build/<sample>/` tree
+│   ├── compose_cache.rs   # compose-cache freshness (sha256 + mtime fast-path)
+│   ├── compose_synth.rs   # ${VAR} substitution + SAMPLE.md synthesis helpers
+│   ├── run.rs             # `run_mirroir` orchestrator (discover+resolve+lock+compose+run_sample)
+│   └── run_io.rs          # config + local-override loading + run-summary JSON
 ├── target/
-│   ├── process.rs    # tokio::process registry (spawn/kill/SIGTERM/log capture)
-│   └── http.rs       # reqwest probe + status/body assertions
+│   ├── mod.rs             # execution targets index (process + http)
+│   ├── process.rs         # tokio::process registry (spawn/kill/SIGTERM/log capture)
+│   ├── process_log.rs     # log-capture plumbing (stream pumping, group signalling, regex)
+│   ├── process_port.rs    # TCP port-readiness polling for `wait_port:`
+│   └── http.rs            # reqwest probe + status/body assertions
 ├── compile/
-│   ├── playwright.rs # YAML web steps → .spec.ts + playwright.config.ts
-│   └── invoke.rs     # spawn `npx playwright test` + parse JSON reporter
+│   ├── mod.rs             # compilation targets index (Playwright only today)
+│   ├── playwright.rs      # YAML web steps → .spec.ts + playwright.config.ts
+│   ├── playwright_emit.rs # per-step Playwright emission (key/modifier/swipe translation)
+│   └── invoke.rs          # spawn `npx playwright test` + parse JSON reporter
 └── oracle/
-    ├── drift.rs      # Fingerprint + Jaccard + Levenshtein verdict
-    └── judge.rs      # OpenAI-compatible HTTP client + profile registry
+    ├── mod.rs             # oracle index (drift + judge + judge profiles)
+    ├── drift.rs           # Fingerprint + Jaccard + Levenshtein verdict
+    ├── judge.rs           # OpenAI-compatible HTTP client + template-hash verification
+    └── judge_profiles.rs  # judge profile registry (built-in + overlay, trust-tiered)
 ```
 
 Single crate; no internal sub-crates until an external consumer appears.
@@ -154,6 +205,14 @@ against which both runtimes operate.
 - A cross-parser fixture test diffs both implementations' parsed AST against
   the same `mirroir-skills/legacy/testing/expo-go/login-flow.yaml` to catch
   drift between the two parsers.
+
+The runner owns its own `.mirroir/` consumer pipeline (`runner/src/mirroir/`): a
+checked-out repo carries a `.mirroir/mirroir.yaml` plan that lists samples plus
+archetype references. The runner discovers it by walking `cwd ↑`, resolves each
+archetype against `~/.mirroir/skills/`, verifies the `mirroir.lock`, composes the
+ready-to-replay tree into `.mirroir/.build/`, and replays it. This `.mirroir/`
+dotfile (a consumer repo's checked-in plan) is distinct from `.mirroir-mcp/`,
+the Swift MCP server's home directory for element patterns and skills.
 
 ## Discipline
 

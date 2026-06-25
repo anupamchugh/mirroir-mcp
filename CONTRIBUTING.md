@@ -179,7 +179,7 @@ mirroir-mcp/
 │       └── SpotlightOverlay.swift   # Spotlight search overlay
 │
 ├── Tests/
-│   ├── MCPServerTests/        # XCTest — server routing, tool handlers, exploration (89 files)
+│   ├── MCPServerTests/        # XCTest — server routing, tool handlers, exploration (94 files)
 │   ├── HelperLibTests/        # Swift Testing — shared library utilities (11 files)
 │   ├── TestRunnerTests/       # Swift Testing — test runner, recorder, skill parser (14 files)
 │   ├── IntegrationTests/      # XCTest — FakeMirroring integration, requires running app (15 files)
@@ -326,7 +326,7 @@ Add tests in `Tests/MCPServerTests/` for tool handler logic and `Tests/HelperLib
 
 | Target | Framework | Files | Purpose |
 |--------|-----------|-------|---------|
-| `MCPServerTests` | XCTest | 89 | Server routing, tool handlers, exploration algorithms, component detection, graph algorithms |
+| `MCPServerTests` | XCTest | 94 | Server routing, tool handlers, exploration algorithms, component detection, graph algorithms |
 | `HelperLibTests` | Swift Testing | 11 | Key mapping, permissions, protocol types, OCR coordinates, layout translation |
 | `TestRunnerTests` | Swift Testing | 14 | Skill parsing, step execution, element matching, event classification, reporters |
 | `IntegrationTests` | XCTest | 15 | Full workflows with FakeMirroring app (requires running FakeMirroring, skipped in CI unit tests) |
@@ -525,7 +525,7 @@ Unit test mocks return a pre-defined sequence of screens. Integration tests use 
 
 Component definitions are `.md` files that describe iOS UI patterns (table rows, summary cards, modal sheets). The BFS explorer matches OCR elements against these definitions to decide what to tap.
 
-Definitions live in the sibling [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo at `components/ios/`. They're loaded at runtime from `~/.mirroir-mcp/skills/components/ios/` or `<cwd>/.mirroir-mcp/skills/components/ios/` or `../mirroir-skills/components/ios/`.
+Definitions live in the sibling [mirroir-skills](https://github.com/jfarcand/mirroir-skills) repo at `patterns/elements/`. They're loaded at runtime from `<cwd>/.mirroir-mcp/skills/patterns/elements/`, `~/.mirroir-mcp/skills/patterns/elements/`, or `../mirroir-skills/patterns/elements/`, with the older `components/ios/` paths kept as a fallback. (`.mirroir-mcp/` is the Swift MCP home directory; do not confuse it with `.mirroir/`, the runner's consumer dotfile.)
 
 Each definition has: Match Rules (zone, element count, chevron/numeric patterns), Interaction (click target, expected result), Exploration (explorable flag, role, priority), and Grouping (row absorption).
 

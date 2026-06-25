@@ -237,6 +237,8 @@ Steps are intents — the AI maps each to the appropriate MCP tool calls:
 | `remember: "instruction"` | AI reads dynamic data from screen and holds it for later steps |
 | `condition:` | Branch based on screen state — see below |
 | `repeat:` | Loop over steps until a screen condition is met — see below |
+| `verify: "instruction"` | AI-only step — the AI interprets the instruction against the current screen |
+| `summarize: "instruction"` | AI-only step — the AI interprets the instruction against the current screen |
 
 ### Conditions
 

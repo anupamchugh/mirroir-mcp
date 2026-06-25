@@ -1,9 +1,11 @@
 # Scenario grammar reference
 
 This document is the canonical reference for the YAML grammar `mirroir-run`
-parses. Every `SkillStep` variant is listed below with the YAML shape, its
-dispatch target (process / http / web / oracle / unwired), and which `--mode`
-exercises it end-to-end.
+parses. Every `SkillStep` variant is listed below with the YAML shape and its
+dispatch target (process / http / web / oracle / unwired). Which run path
+exercises a step end-to-end depends on the invocation flag
+(`--sample` / `--validate` / `--run-scenario` / `--compile-scenario` /
+`--diff-text`).
 
 Source of truth: `runner/src/parser/step.rs`. Run `cargo doc --open` from
 `runner/` for the auto-generated rustdoc; this file gives the prose view
@@ -253,8 +255,10 @@ condition; it parses for grammar compatibility.
 
 ### `report`
 
-Emit a final verdict. Currently parses; runtime emission lands when the
-JSON report artifact (`--report`) is wired.
+Emit a final verdict. The `report:` step itself parses and is skipped at
+runtime — it does not yet drive the verdict. The JSON report artifact is a
+separate, wired path: `--report` (default `mirroir-run-report.json`) is always
+written by the run summary regardless of this step.
 
 ```yaml
 - report: pass                                       # or fail | drift | cross_surface_pass
@@ -273,7 +277,7 @@ for the profile registry.
 ```yaml
 - judge:
     profile: byte-stable                             # fast-ci | byte-stable | cheap-local
-    user_prompt_template_hash: "sha256:abc123…"      # pinned for reproducibility
+    user_prompt_template_hash: "sha256:abc123…"      # pinned; verified every run, hard-fails on mismatch
     response_selector: "[data-test=reply]"           # for diagnostics; capture is via response_text / response_file
     pass_threshold: 0.85
     pass_threshold_tolerance: 0.05                   # optional; effective = threshold - tolerance
@@ -286,7 +290,7 @@ for the profile registry.
 ```
 
 Errors: `JudgeUnknownProfile`, `JudgeMissingApiKey`, `JudgeTransport`,
-`JudgeDecode`, `JudgeBelowThreshold`, `DriftDetected`.
+`JudgeDecode`, `JudgeBelowThreshold`, `JudgeTemplateMismatch`, `DriftDetected`.
 
 ### `cross_surface`
 
