@@ -106,16 +106,8 @@ export default defineConfig({
 
 // scenario.spec.ts
 import { test, expect } from '@playwright/test';
-// Helper: pass through raw CSS and Playwright locator-engine strings
-// (role=, text=, xpath=, css=, id=, data-testid=); otherwise prefer the
-// data-test attribute selector and fall back to visible text.
-const _by = (page, label) => {
-  if (/^[\[#.:>*]/.test(label)) return page.locator(label);
-  if (/^(role|text|xpath|css|id|data-testid)=/.test(label)) return page.locator(label);
-  return page
-    .locator(`[data-test="${label}"]`)
-    .or(page.getByText(label, { exact: true }));
-};
+const _by = (page, label) =>
+  page.locator(`[data-test="${label}"]`).or(page.getByText(label, { exact: true }));
 
 test("smoke", async ({ page }) => {
   await page.goto("http://localhost:8081/");
@@ -165,15 +157,9 @@ continues with process / http / oracle steps.
 The `_by(page, label)` helper in every emitted spec resolves a mirroir
 label by trying, in order:
 
-1. Raw CSS / `page.locator(label)` pass-through when the label starts with a
-   CSS-selector character (`[`, `#`, `.`, `:`, `>`, `*`).
-2. Playwright locator-engine pass-through when the label is prefixed with an
-   engine (`role=`, `text=`, `xpath=`, `css=`, `id=`, `data-testid=`).
-3. `[data-test="<label>"]` attribute selector.
-4. `page.getByText(<label>, { exact: true })` — visible text exact match.
+1. `[data-test="<label>"]` attribute selector.
+2. `page.getByText(<label>, { exact: true })` — visible text exact match.
 
-Raw CSS and the `role=` / `text=` (and other engine-prefixed) forms therefore
-already work — pass them as the label directly. Authors who want a different
-strategy can override the spec emission via `--compile-scenario` and hand-edit.
-A declarative `selector_strategy: data-test|text|aria|css` config option is the
-only piece not yet present.
+Authors who want a different strategy can override the spec emission via
+`--compile-scenario` and hand-edit (the planned alternative is a config
+option `selector_strategy: data-test|text|aria|css`).

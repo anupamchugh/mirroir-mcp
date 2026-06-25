@@ -85,11 +85,8 @@ jobs:
         run: swift build -c release
 
       - name: Run tests (XCTest)
-        # --no-parallel: the parallel XCTest runner deadlocks on the low-core
-        # macos-15 runner (passes serially + on higher-core machines). Matches
-        # the Swift Testing step below, which is already serial.
-        timeout-minutes: 30
-        run: swift test --skip IntegrationTests --disable-swift-testing --no-parallel
+        timeout-minutes: 15
+        run: swift test --skip IntegrationTests --disable-swift-testing
 
       - name: Run tests (Swift Testing)
         timeout-minutes: 5

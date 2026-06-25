@@ -29,7 +29,6 @@ Env-var names are derived from the camelCase key by inserting `_` before every u
 | `ocrBackend` | `"auto"` | OCR backend: `"auto"`, `"vision"` (text only), `"yolo"` (icons only), or `"both"` |
 | `ocrRecognitionLevel` | `"accurate"` | Apple Vision OCR quality: `"accurate"` or `"fast"` |
 | `ocrLanguageCorrection` | `true` | Enable language correction during OCR text recognition |
-| `ocrMinImageWidth` | `600` | Minimum screenshot pixel width before OCR. Images narrower than this are upscaled before text recognition to improve detection on small zoom modes |
 | `ocrLanguages` | `["en-US"]` | BCP-47 language codes for `VNRecognizeTextRequest.recognitionLanguages`. Add languages to recognise non-Latin scripts (e.g. `["ja-JP","en-US"]`). Also configurable via `MIRROIR_OCR_LANGUAGES` env var (comma-separated) |
 | `describeScreenOmitScreenshot` | `false` | Omit the screenshot image from `describe_screen` responses to save context window space in long automation sessions |
 | `yoloModelURL` | `""` | URL to download a YOLO `.mlmodel` on first use |
@@ -88,7 +87,6 @@ Env-var names are derived from the camelCase key by inserting `_` before every u
 |---------|---------|---------|-------------|
 | `mirroringBundleID` | `"com.apple.ScreenContinuity"` | `MIRROIR_BUNDLE_ID` | Bundle ID of the window to target. Override to point at a stand-in app (e.g. FakeMirroring) for local/CI runs |
 | `mirroringProcessName` | `"iPhone Mirroring"` | `MIRROIR_PROCESS_NAME` | Process name of the target window, used alongside the bundle ID for window lookup |
-| `cursorFreeInput` | `false` | `MIRROIR_CURSOR_FREE` | Post mouse events directly to the target PID via `postToPid` instead of global HID posting. Works for regular macOS apps (e.g. FakeMirroring) for local integration tests without cursor interference, but NOT for iPhone Mirroring — per-process injection does not register taps there |
 
 ## AI Provider Timeouts
 
@@ -100,7 +98,6 @@ Env-var names are derived from the camelCase key by inserting `_` before every u
 | `embacleTimeoutSeconds` | `60` | Timeout for embacle FFI/API requests |
 | `commandTimeoutSeconds` | `60` | Timeout for command-based AI agent processes |
 | `defaultAIMaxTokens` | `1024` | Maximum tokens for AI model responses |
-| `visionMaxTokens` | `8192` | Maximum tokens for vision chat-completion responses. Higher than `defaultAIMaxTokens` because home screens with 20+ elements need more output room |
 
 ## Patterns
 
@@ -109,8 +106,6 @@ Patterns are not configured via `settings.json` — they are file-based. See [Pa
 - **Element patterns** (`patterns/elements/`) — row-level UI recognition definitions
 - **Screen patterns** (`patterns/screens/`) — archetype recipes matching element compositions to navigation models
 - **App patterns** (`patterns/apps/`) — APP.md files with `archetype`, obstacles, skip lists, and credentials
-
-Element patterns are discovered from both the project-local `.mirroir-mcp/skills/patterns/elements/` and the home `~/.mirroir-mcp/skills/patterns/elements/` directories, so a `git clone … ~/.mirroir-mcp/skills` install is picked up automatically. The MCP home directory `.mirroir-mcp/` is distinct from the runner consumer dotfile `.mirroir/`.
 
 ## Advanced Tuning
 

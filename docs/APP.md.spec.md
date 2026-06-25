@@ -143,9 +143,9 @@ Geometric hints for the edge-control finder. Without this section, the explorer 
 - edge: right               # top | bottom | left | right (default: bottom)
 ```
 
-When declared, `TabTargetInjector.findTargets` (`Sources/mirroir-mcp/TabTargetInjector.swift`) uses the layout hint to pick which window edge to sample (a 12%-wide band) and which axis the bar runs along. Text-match remains the primary strategy; the layout hint only governs the geometric fallback when OCR text matching leaves tabs unmatched. The fallback does **not** sort detected candidates and ordinal-map them. Instead, `synthesizeAnchors` (TabTargetInjector.swift:124–156) computes N evenly-spaced anchor points from the **declared tab count** and the bar geometry — each anchor's main-axis position is `(index + 0.5) × axis / tabCount`, independent of which individual icons were detected. The cross-axis position comes from the median of the band's detected (text-less) icon points, falling back to a geometric edge offset. Synthesis is gated by a presence check: the declared band must hold at least `EnvConfig.tabSynthesisMinZoneEvidence` elements, so a detail screen whose band happens to hold a stray element gets no phantom anchors. `BFSExplorerHelpers` only *calls* `TabTargetInjector.inject`, which wraps `findTargets`.
+When declared, `findTabTargets` in `BFSExplorerHelpers` samples the declared edge (a 12%-wide band) and sorts candidates along the declared axis before ordinal-mapping them to the tab names. Text-match remains the primary strategy; the layout hint only changes the fallback sampling when OCR text matching fails.
 
-For the tab-synthesis fallback the axis is fixed by the declared `orientation` (horizontal → main axis X, vertical → main axis Y); the geometry comes from APP.md, not from inspecting the detections. The separate general icon-detection helper `IconDetector.interpolateEvenSpacing` does auto-detect a dominant axis from raw detections (extrapolating vertically when detections span a larger Y range than X range, otherwise horizontally), but that step backfills the icon list earlier in the pipeline and does not decide which axis `synthesizeAnchors` walks.
+`IconDetector.interpolateEvenSpacing` also auto-detects the dominant axis. If detections span a larger Y range than X range, it extrapolates vertically (clamped to the zone's Y bounds); otherwise it walks horizontally. No explicit axis argument is needed from APP.md — the cluster geometry decides.
 
 ### `## Obstacles` (optional)
 
@@ -198,7 +198,7 @@ Free-form exploration hints. Appended to the generated skill's context so the AI
 
 ### `## Simulator …` family (optional — FakeMirroring scene graph)
 
-When an app is ported to the FakeMirroring multi-app simulator, its APP.md gains a declarative scene graph alongside the guidance fields above. On the **mirroir-mcp** side, `SimulatorSpecParser.parse` extracts these into a `SimulatorSpec` carried on `AppDescription.simulator` (`AppDescription.swift:150`), but no runtime consumer reads that field — it is **parsed only** there. **FakeMirroring re-parses the same APP.md independently**: `AppPackLoader.makePack` reads the file from disk and calls `SimulatorSpecParser.parse` again to build a runnable `AppPack` at startup (`AppRegistry.swift:95–105`). The two processes never exchange the `SimulatorSpec` value; each derives its own from the file. The parser returns nil — leaving `simulator` unset (and FakeMirroring skipping the file) — when none of these sections are present, so guidance-only APP.md files are unaffected.
+When an app is ported to the FakeMirroring multi-app simulator, its APP.md gains a declarative scene graph alongside the guidance fields above. `SimulatorSpecParser.parse` extracts these into a `SimulatorSpec` (on `AppDescription.simulator`); FakeMirroring builds a runnable `AppPack` from it at startup. The parser returns nil — leaving `simulator` unset — when none of these sections are present, so guidance-only APP.md files are unaffected.
 
 Three H2 section shapes are recognized:
 
@@ -291,12 +291,12 @@ Outside those three points, the systems are disjoint. `AppDescription.credential
 | `reset_before_explore` | `GenerateSkillHandlers.handleExplore` — force-quit via App Switcher |
 | `obstacle_mode`, `obstacles` | `BFSExplorerExploring` — passed to `ExplorerUtilities.dismissAlertIfPresent` |
 | `skipElements` | `GenerateSkillHandlers.handleExplore` — merged into `ExplorationBudget.skipPatterns` |
-| `tabs` | `TabTargetInjector.inject`/`findTargets` — injected as high-priority breadth-navigation targets (called from `BFSExplorerHelpers`) |
-| `tabLayout` | `TabTargetInjector.findTargets` — picks which edge to sample and which axis the bar runs along for the geometric synthesis fallback |
+| `tabs` | `BFSExplorerHelpers.findTabTargets` — injected as high-priority targets |
+| `tabLayout` | `BFSExplorerHelpers.findTabTargets` — picks which edge to sample and which axis to sort on for ordinal fallback |
 | `context` | `SkillMdGenerator` — written verbatim into generated skill's "App Context" section |
 | `credentials` | `SkillMdGenerator` — declared **key names only** rendered as a `## Required Credentials` section in the generated skill. Resolved env-var **values never leak** into the skill file. |
 | `hints` | `SkillMdGenerator` — rendered as a `## Tips` section in the generated skill (parsed from `## Tips`; intentionally excluded from `context` to avoid duplicate rendering). |
-| `simulator` | Parsed-only on the mirroir-mcp side: `AppDescriptionLoader` carries it on `AppDescription`, but no runtime consumer reads it. FakeMirroring re-parses the same APP.md independently (`AppPackLoader.makePack`) to build its `AppPack`; the two never exchange the value. nil for guidance-only APP.md files not yet ported to the simulator. |
+| `simulator` | `AppDescriptionLoader` carries it on `AppDescription`; FakeMirroring builds a runnable `AppPack` from it. nil for guidance-only APP.md files not yet ported to the simulator. |
 
 ## Examples
 
@@ -338,7 +338,8 @@ pan joystick, mic, phone handoff).
 
 What the code does with this file:
 - Text matching runs first. If any OCR element's text matches a tab name (e.g. "Camera") it becomes a breadth-navigation target.
-- For names that didn't match text, `TabTargetInjector.findTargets` samples the right-edge 12% band (the declared `edge: right`). When that band holds at least `EnvConfig.tabSynthesisMinZoneEvidence` elements, `synthesizeAnchors` computes 5 evenly-spaced anchors down the rail — anchor *i* sits at `y = (i + 0.5) × height / 5`, with the shared rail X read from the median of the band's detected icon points. The anchors come from the declared tab **count**, not from sorting individual detections, so noisy 3-of-5 icon detection does not mis-assign tabs.
+- `IconDetector.interpolateEvenSpacing` detects the cluster spans more along Y than X and extrapolates along the Y axis (within the declared zone bounds), so a 3-of-5 detection backfills the missing 2 positions before `findTabTargets` runs.
+- For names that didn't match text, `findTabTargets` samples the right-edge 12% band, sorts candidates by Y, and maps them in declared order. With 5 candidates (detected + interpolated) the ordinal fallback activates.
 - The `Permission dialog → tap "Allow"` rule auto-dismisses the iOS privacy prompt on first launch via `ExplorerUtilities.dismissAlertIfPresent`.
 
 ## Known Gaps

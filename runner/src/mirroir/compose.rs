@@ -18,7 +18,6 @@ use crate::mirroir::compose_synth::{
     synthesize_sample_md,
 };
 use crate::mirroir::resolve::ResolvedArchetype;
-use crate::parser::archetype::ArchetypeRequiredEnv;
 use crate::parser::mirroir::{PlanEntry, PlanEntrySource};
 
 pub use crate::mirroir::compose_cache::compose_needed;
@@ -117,12 +116,7 @@ fn compose_archetype_entry(
         source,
     })?;
 
-    // Fold archetype-declared `requires.env` defaults into the effective
-    // boot.env before substitution + SAMPLE.md synthesis. A default applies
-    // only when the plan entry's boot.env omits that key; explicit boot.env
-    // always wins. The original `entry` is kept for the plan-entry cache hash.
-    let effective = apply_required_env_defaults(entry, &resolved.manifest.requires.env);
-    let env = build_substitution_env(&effective, suite_env, &resolved.manifest.requires.vars);
+    let env = build_substitution_env(entry, suite_env, &resolved.manifest.requires.vars);
     let mut source_records = Vec::new();
 
     // Copy + substitute APP.md and SKILL.md if present in the archetype.
@@ -193,9 +187,8 @@ fn compose_archetype_entry(
         })?;
     }
 
-    // Synthesize SAMPLE.md from the plan entry's boot + flow list. Uses the
-    // effective entry so archetype `requires.env` defaults reach boot.env.
-    let sample_md = synthesize_sample_md(&effective, &env);
+    // Synthesize SAMPLE.md from the plan entry's boot + flow list.
+    let sample_md = synthesize_sample_md(entry, &env);
     fs::write(build.join("SAMPLE.md"), sample_md).map_err(|source| RunnerError::Io {
         context: "write composed SAMPLE.md".to_owned(),
         source,
@@ -231,26 +224,6 @@ fn compose_archetype_entry(
         directory: build,
         local: false,
     })
-}
-
-/// Clone `entry` with archetype `requires.env` defaults folded into `boot.env`
-/// for any key the entry omits. Explicit `boot.env` values always win; a
-/// declared env var with no `default` is left for the boot process to supply.
-fn apply_required_env_defaults(
-    entry: &PlanEntry,
-    required_env: &[ArchetypeRequiredEnv],
-) -> PlanEntry {
-    let mut merged = entry.clone();
-    for spec in required_env {
-        if let Some(default) = &spec.default {
-            merged
-                .boot
-                .env
-                .entry(spec.name.clone())
-                .or_insert_with(|| default.clone());
-        }
-    }
-    merged
 }
 
 #[cfg(test)]
@@ -395,43 +368,6 @@ mod tests {
         let composed = compose_sample(&entry, &HashMap::new(), None, project)?;
         assert!(composed.local);
         assert_eq!(composed.directory, apps_dir);
-        Ok(())
-    }
-
-    #[test]
-    fn compose_folds_required_env_defaults_into_sample() -> TestResult {
-        let tmp = tempfile::tempdir()?;
-        let project = tmp.path().join("proj");
-        fs::create_dir_all(&project)?;
-        let archetype_dir = tmp.path().join("arch");
-        write_archetype_tree(&archetype_dir)?;
-        // Re-author the manifest with a requires.env default + a defaultless var.
-        fs::write(
-            archetype_dir.join("archetype.md"),
-            "```yaml\nversion: 1\nname: test/sample\narchetype_version: 1.0.0\nrequires:\n  env:\n    - name: LLM_MODE\n      default: fake\n    - name: RUNTIME_SECRET\nprovides:\n  flows:\n    - chat-stream\n```\n",
-        )?;
-        let resolved = fixture_resolved(&archetype_dir)?;
-
-        // Entry omits LLM_MODE → archetype default lands in the synthesized boot.env.
-        let entry = fixture_entry("sample-env", "8080");
-        let composed = compose_sample(&entry, &HashMap::new(), Some(&resolved), &project)?;
-        let sample_md = fs::read_to_string(composed.directory.join("SAMPLE.md"))?;
-        // synthesize_sample_md quotes both key and value for boot.env entries.
-        assert!(sample_md.contains("\"LLM_MODE\": \"fake\""));
-        // A declared var without a default is not invented.
-        assert!(!sample_md.contains("RUNTIME_SECRET"));
-
-        // Explicit boot.env wins over the archetype default.
-        let mut entry_override = fixture_entry("sample-env-override", "8080");
-        entry_override
-            .boot
-            .env
-            .insert("LLM_MODE".to_owned(), "real".to_owned());
-        let composed2 =
-            compose_sample(&entry_override, &HashMap::new(), Some(&resolved), &project)?;
-        let sample_md2 = fs::read_to_string(composed2.directory.join("SAMPLE.md"))?;
-        assert!(sample_md2.contains("\"LLM_MODE\": \"real\""));
-        assert!(!sample_md2.contains("\"LLM_MODE\": \"fake\""));
         Ok(())
     }
 }

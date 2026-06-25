@@ -34,7 +34,6 @@ enum ComponentLoader {
             URL(fileURLWithPath: home + "/" + configDir + "/components"),
             // New structure: patterns/elements/
             URL(fileURLWithPath: cwd + "/" + configDir + "/skills/patterns/elements"),
-            URL(fileURLWithPath: home + "/" + configDir + "/skills/patterns/elements"),
             URL(fileURLWithPath: cwd + "/../mirroir-skills/patterns/elements"),
             // Legacy fallback: components/ios/
             URL(fileURLWithPath: cwd + "/" + configDir + "/skills/components/ios"),

@@ -13,29 +13,30 @@ if (token) {
   headers.Authorization = `Bearer ${token}`;
 }
 
-// Read a frontmatter `key: value` from the leading --- block of a SKILL.md.
-function frontmatterField(content, key) {
-  const fm = content.match(/^---\n([\s\S]*?)\n---/);
-  const block = fm ? fm[1] : content;
-  const m = block.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
-  return m ? m[1].trim() : "";
-}
-
-// A SKILL.md's description is the first prose paragraph after the frontmatter,
-// before the first markdown heading.
-function descriptionField(content) {
-  const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
-  const para = [];
-  for (const line of body.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "") {
-      if (para.length > 0) break;
-      continue;
+function yamlValue(content, key) {
+  const lineMatch = content.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
+  if (!lineMatch) return "";
+  const rest = lineMatch[1].trim();
+  if (rest && rest !== ">" && rest !== "|") return rest;
+  const lines = content.split("\n");
+  const startIdx = lines.findIndex((l) => l.match(new RegExp(`^${key}:`)));
+  if (startIdx < 0) return rest;
+  const blockLines = [];
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^\s+\S/.test(lines[i])) {
+      blockLines.push(lines[i].trim());
+    } else if (lines[i].trim() === "") {
+      blockLines.push("");
+    } else {
+      break;
     }
-    if (trimmed.startsWith("#")) break;
-    para.push(trimmed);
   }
-  return para.join(" ");
+  const firstPara = [];
+  for (const line of blockLines) {
+    if (line === "") break;
+    firstPara.push(line);
+  }
+  return firstPara.join(" ");
 }
 
 async function main() {
@@ -52,16 +53,14 @@ async function main() {
   }
 
   const tree = await treeRes.json();
-  // Canonical corpus: Agent-Skills SKILL.md files under skills/. Excludes
-  // legacy *.yaml, archetypes/, and .github/ CI workflows.
-  const skillFiles = (tree.tree ?? []).filter(
-    (f) => f.path.startsWith("skills/") && f.path.endsWith(".md")
+  const yamlFiles = (tree.tree ?? []).filter(
+    (f) => f.path.endsWith(".yaml") || f.path.endsWith(".yml")
   );
 
-  console.log(`Found ${skillFiles.length} skill files`);
+  console.log(`Found ${yamlFiles.length} YAML files`);
 
   const skills = [];
-  for (const f of skillFiles) {
+  for (const f of yamlFiles) {
     const res = await fetch(
       `https://api.github.com/repos/${REPO}/contents/${f.path}`,
       { headers }
@@ -71,15 +70,13 @@ async function main() {
       continue;
     }
     const data = await res.json();
-    // Decode the base64 blob as UTF-8 (atob yields latin1 → mojibake on accents).
-    const content = Buffer.from(data.content, "base64").toString("utf-8");
+    const content = atob(data.content.replace(/\n/g, ""));
     const parts = f.path.split("/");
-    // Drop the leading `skills/` segment from the displayed category.
-    const category = parts.slice(1, -1).join("/");
+    const category = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
     skills.push({
-      name: frontmatterField(content, "name") || f.path,
-      description: descriptionField(content),
-      app: frontmatterField(content, "app"),
+      name: yamlValue(content, "name") || f.path,
+      description: yamlValue(content, "description"),
+      app: yamlValue(content, "app"),
       path: f.path,
       category,
       url: `${SKILLS_BASE}/blob/main/${f.path}`,

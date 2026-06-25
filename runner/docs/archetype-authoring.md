@@ -99,10 +99,7 @@ Prose describing the archetype.
   - `required: true` → instance must supply this in `vars:`.
   - `default: "..."` → falls back at compose time when instance omits it.
 - `requires.env[]` — environment variables the boot process expects.
-  Each `default:` is folded into the instance's `boot.env` for any key the
-  plan entry omits, and the synthesized `SAMPLE.md` carries it. An explicit
-  `boot.env` value always wins; a declared env var with no `default` is left
-  for the boot process to supply.
+  Defaults are merged into the instance's `boot.env`.
 - `provides.flows[]` — names of flows under `scenarios/`. Each must have
   a matching `scenarios/<name>.yaml`.
 - `compatible_with` — informational; not enforced at compose time.

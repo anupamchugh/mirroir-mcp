@@ -113,19 +113,6 @@ final class ComponentLoaderTests: XCTestCase {
             "Should include .mirroir-mcp/skills/components/ios for CI environments")
     }
 
-    func testSearchPathsIncludeHomePatternsElements() {
-        let paths = ComponentLoader.searchPaths()
-        let pathStrings = paths.map { $0.path }
-        let home = ("~" as NSString).expandingTildeInPath
-        let expected = home + "/.mirroir-mcp/skills/patterns/elements"
-
-        // The documented install (`git clone ... ~/.mirroir-mcp/skills`) drops
-        // element patterns under the home skills dir; without this path they were
-        // never discovered.
-        XCTAssertTrue(pathStrings.contains(expected),
-            "Should include home-rooted .mirroir-mcp/skills/patterns/elements")
-    }
-
     // MARK: - Catalog Completeness
 
     func testAllBuiltInComponentsHaveDescriptions() {

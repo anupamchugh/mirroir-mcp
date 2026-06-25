@@ -180,9 +180,7 @@ extension MirroirMCP {
         )
     }
 
-    static func handleFinish(
-        session: ExplorationSession, emit: Bool, outputDir: String?
-    ) -> MCPToolResult {
+    static func handleFinish(session: ExplorationSession) -> MCPToolResult {
         guard session.active else {
             return .error("No active exploration session. Call generate_skill with action=\"start\" first.")
         }
@@ -212,12 +210,6 @@ extension MirroirMCP {
 
         var text = ExplorationResultFormatter.formatBundle(
             bundle, preamble: "Generated \(bundle.skills.count) skills from exploration:")
-
-        if emit {
-            text += mirroirEmitNote(
-                appName: data.appName, flow: data.goal, screens: data.screens, outputDir: outputDir)
-        }
-
         if !remaining.isEmpty {
             text += "\n\n---\nGoal \(goalNum)/\(totalGoals) complete. "
             text += "Next goal: \"\(remaining[0])\". "
@@ -346,8 +338,6 @@ extension MirroirMCP {
         let seed = args["seed"]?.asInt().map { UInt64($0) }
         let skipCalibration = args["skip_calibration"]?.asBool() ?? false
         let explorerChoice = args["explorer"]?.asString() ?? "bfs"
-        let emit = args["emit"]?.asBool() ?? false
-        let outputDir = args["output_dir"]?.asString()
         let explicitStrategy = args["strategy"]?.asString()
         let strategyChoice = StrategyDetector.detect(
             targetType: ctx.targetType,
@@ -473,19 +463,9 @@ extension MirroirMCP {
                 // Persist the completed graph for future incremental runs
                 let snapshot = explorer.graph.finalize()
                 GraphPersistence.save(snapshot: snapshot, bundleID: appName)
-                var resultText = ExplorationResultFormatter.formatExploreResult(
-                    bundle: bundle, explorer: explorer)
-                if emit {
-                    // Emit the primary explored path as the iOS leg, named after the path.
-                    let primary = GraphPathFinder.findInterestingPaths(in: snapshot).first
-                    let screens = primary.map {
-                        GraphPathFinder.pathToExploredScreens(path: $0.edges, snapshot: snapshot)
-                    } ?? []
-                    let flow = primary?.name ?? goal
-                    resultText += mirroirEmitNote(
-                        appName: appName, flow: flow, screens: screens, outputDir: outputDir)
-                }
-                return .text(resultText)
+                return .text(
+                    ExplorationResultFormatter.formatExploreResult(
+                        bundle: bundle, explorer: explorer))
             case .trapped(let reason):
                 // The explorer hit a screen it cannot dismiss in-app (e.g. the
                 // Story camera). It has already reset its position to root; physically
@@ -541,28 +521,6 @@ extension MirroirMCP {
             merged.append(pattern)
         }
         return merged
-    }
-
-    /// Emit the runner-consumable `.mirroir/` iOS leg for a finished flow and
-    /// return an MCP-text note appended to the result. Returns an empty string
-    /// when there is nothing to emit, and a non-fatal note when emit fails.
-    static func mirroirEmitNote(
-        appName: String, flow: String, screens: [ExploredScreen], outputDir: String?
-    ) -> String {
-        guard !screens.isEmpty else { return "" }
-        do {
-            let result = try MirroirAppTreeEmitter.emit(
-                appName: appName, flow: flow, screens: screens, outputDir: outputDir)
-            return "\n\n---\nEmitted .mirroir/ iOS leg (validate with " +
-                "`mirroir-run --validate`):\n" +
-                "  scenario: \(result.scenarioPath.path)\n" +
-                "  baseline: \(result.baselinePath.path)\n" +
-                "  parity:   \(result.parityPath.path) " +
-                "(fails closed until the web baseline exists)\n" +
-                "  plan: \(result.planNote)"
-        } catch {
-            return "\n\n(emit skipped: \(error.localizedDescription))"
-        }
     }
 
 }

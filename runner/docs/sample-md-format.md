@@ -73,9 +73,8 @@ When `boot_once: true`:
    Scenarios that declare `spawn: { from: SAMPLE.md, id: session }` see
    the id is already live and the spawn becomes an idempotent no-op
    (logged as `ensure_spawned: id already live; skipping re-spawn`).
-5. Any scenario-level `kill:` step is a no-op when `boot_once` is on (the
-   no-op is gated on session-shared mode, not on the killed id) — the shared
-   subprocess survives across scenarios.
+5. Scenario-level `kill: { id: session }` is a no-op when `boot_once` is on —
+   the shared subprocess survives across scenarios.
 6. After the last scenario, the runner tears down the shared subprocess
    (SIGTERM → grace → SIGKILL).
 
@@ -107,7 +106,7 @@ in parallel don't observe the change). Example:
 mirroir-run --sample samples/mega-sample
 
 # Run nice_to_pass set
-mirroir-run --sample samples/mega-sample --scenarios nice-to-pass
+mirroir-run --sample samples/mega-sample --scenarios nice-pass
 
 # Run both, in order: must_pass first then nice_to_pass
 mirroir-run --sample samples/mega-sample --scenarios all
