@@ -16,7 +16,9 @@ use crate::parser::env::substitute;
 use crate::parser::sample::{SAMPLE_SCHEMA_VERSION, SampleManifest, extract_yaml_block};
 use crate::parser::scenario::{SCHEMA_VERSION, Scenario};
 use crate::parser::step::{JudgeArgs, SkillStep};
-use crate::replay_dispatch::{dispatch_cross_surface, dispatch_judge, judge_capture_file};
+use crate::replay_dispatch::{
+    cross_surface_capture, dispatch_cross_surface, dispatch_judge, judge_capture_file,
+};
 use crate::replay_sample::resolve_spawn_args;
 use crate::target::http::HttpClient;
 use crate::target::process::ProcessRegistry;
@@ -206,10 +208,15 @@ pub async fn run_scenario_with_context(
         // judge: step needs its response scraped from the live DOM, capture the
         // selector's text during this final flush and read it back below.
         let judge_capture = judge_capture_file(step, &web_buffer, options)?;
-        let capture_specs: Vec<ResponseCapture> = judge_capture
+        let mut capture_specs: Vec<ResponseCapture> = judge_capture
             .as_ref()
             .map(|(_, cap)| vec![cap.clone()])
             .unwrap_or_default();
+        // A cross_surface: step with a `capture` scrapes its web baseline during
+        // this same flush, then reads it back when the step dispatches below.
+        if let Some(cap) = cross_surface_capture(step, &web_buffer, options) {
+            capture_specs.push(cap);
+        }
         flush_web_buffer(&mut web_buffer, &scenario.name, options, &capture_specs).await?;
         info!(idx, kind = step_kind(step), "dispatching step");
         match step {

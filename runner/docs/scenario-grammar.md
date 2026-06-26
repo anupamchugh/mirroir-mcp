@@ -303,7 +303,15 @@ surface). Uses Jaccard fingerprint similarity over normalized token sets.
       - "${MIRROIR_SAMPLE_DIR}/baselines/surface-web.txt"
       - "${MIRROIR_SAMPLE_DIR}/baselines/surface-ios.txt"
     min_similarity: 0.7                              # default 0.7
+    capture:                                         # optional: produce the web baseline
+      selector: "main"                               #   scrape this selector's textContent()
+      to: "${MIRROIR_SAMPLE_DIR}/baselines/surface-web.txt"  #   into this file (one of response_files)
 ```
+
+With `capture`, the runner scrapes `selector`'s text into `to` during the
+preceding web batch (reusing the `judge:` Playwright capture path), so the web
+baseline is produced at run time rather than hand-authored. Without it, all
+`response_files` must already exist.
 
 Errors: `CrossSurfaceTooFewFiles`, `CrossSurfaceMismatch`.
 

@@ -335,10 +335,26 @@ steps:
       min_similarity: 0.5
 ```
 
-The runner only **compares** files — it does not produce the web baseline. Write
-`baselines/<flow>.web.txt` from the web leg (a Playwright step calling
-`page.locator(...).textContent()` to that path). Until it exists the parity step
-**fails closed** — a missing file is an error, never a silent pass.
+The runner can **produce** the web baseline itself: give `cross_surface` a
+`capture: { selector, to }` and it scrapes that selector's `textContent()` into
+`to` during the preceding web batch (the same Playwright mechanism `judge:`
+uses) — no hand-authored Playwright spec needed:
+
+```yaml
+  - target: { kind: web, url: "http://localhost:3000/" }
+  # …navigate to the equivalence point…
+  - cross_surface:
+      capture: { selector: "main", to: "${MIRROIR_SAMPLE_DIR}/baselines/<flow>.web.txt" }
+      response_files:
+        - "${MIRROIR_SAMPLE_DIR}/baselines/<flow>.web.txt"
+        - "${MIRROIR_SAMPLE_DIR}/baselines/<flow>.ios.txt"
+      min_similarity: 0.5
+```
+
+Without `capture` the runner only **compares** pre-existing files — write
+`baselines/<flow>.web.txt` yourself from the web leg. Either way, until the web
+baseline exists the parity step **fails closed** — a missing file is an error,
+never a silent pass.
 
 `min_similarity` defaults to `0.5` for iOS↔web phrasing divergence; raise it for
 high-entropy screens, and treat low-vocabulary screens (e.g. a bare login form)

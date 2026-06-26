@@ -116,6 +116,22 @@ pub struct CrossSurfaceArgs {
     /// Minimum pairwise fingerprint similarity in `[0, 1]`. Defaults to 0.7.
     #[serde(default)]
     pub min_similarity: Option<f64>,
+    /// Optional runner-driven web capture: scrape `selector`'s text into `to`
+    /// during the preceding web batch (the same Playwright mechanism `judge:`
+    /// uses), producing one of the `response_files` baselines instead of
+    /// requiring a hand-authored Playwright spec.
+    #[serde(default)]
+    pub capture: Option<CrossSurfaceCapture>,
+}
+
+/// A web text capture that produces a `cross_surface` baseline during replay.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct CrossSurfaceCapture {
+    /// CSS / Playwright selector whose `textContent()` is scraped.
+    pub selector: String,
+    /// File path the scraped text is written to (should be one of
+    /// `response_files`). `${MIRROIR_SAMPLE_DIR}` is resolved at load time.
+    pub to: String,
 }
 
 impl<'de> Deserialize<'de> for ReportArgs {

@@ -108,6 +108,31 @@ pub fn judge_capture_file(
     Ok(Some((tmp, capture)))
 }
 
+/// If `step` is a `cross_surface:` with a `capture` and a web batch is pending,
+/// build a [`ResponseCapture`] that scrapes the capture selector's text into the
+/// capture's `to` path — the persistent web baseline the equivalence check then
+/// reads. Returns `None` under `--no-playwright`, with no pending web batch, or
+/// when the step has no `capture`. Unlike the judge capture this targets a real
+/// file (not a temp), so no handle needs to outlive the call.
+#[must_use]
+pub fn cross_surface_capture(
+    step: &SkillStep,
+    web_buffer: &[SkillStep],
+    options: ReplayOptions,
+) -> Option<ResponseCapture> {
+    let SkillStep::CrossSurface(args) = step else {
+        return None;
+    };
+    let capture = args.capture.as_ref()?;
+    if options.skip_playwright || web_buffer.is_empty() || capture.selector.trim().is_empty() {
+        return None;
+    }
+    Some(ResponseCapture {
+        selector: capture.selector.clone(),
+        out_path: capture.to.clone(),
+    })
+}
+
 /// Dispatch a `judge:` step: load the response, run the judge registry,
 /// enforce the pass threshold, and optionally run drift detection against a
 /// baseline file.
@@ -167,4 +192,80 @@ fn load_response_text(args: &JudgeArgs) -> Result<String> {
     Err(RunnerError::JudgeDecode {
         reason: "no response source: set response_text or response_file".to_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::result::Result as StdResult;
+
+    use serde_yaml::from_str;
+
+    use super::*;
+    use crate::parser::step_args::{CrossSurfaceArgs, CrossSurfaceCapture};
+
+    type TestResult = StdResult<(), String>;
+
+    fn cross_surface(capture: Option<CrossSurfaceCapture>) -> SkillStep {
+        SkillStep::CrossSurface(CrossSurfaceArgs {
+            response_files: vec!["a.txt".to_owned(), "b.txt".to_owned()],
+            min_similarity: Some(0.5),
+            capture,
+        })
+    }
+
+    #[test]
+    fn capture_emitted_with_pending_web_batch() -> TestResult {
+        let step = cross_surface(Some(CrossSurfaceCapture {
+            selector: "main".to_owned(),
+            to: "/tmp/b.web.txt".to_owned(),
+        }));
+        let web_buffer = vec![SkillStep::Tap("Go".to_owned())];
+        let Some(cap) = cross_surface_capture(&step, &web_buffer, ReplayOptions::default()) else {
+            return Err("expected a capture".to_owned());
+        };
+        if cap.selector != "main" || cap.out_path != "/tmp/b.web.txt" {
+            return Err(format!("wrong capture: {cap:?}"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn no_capture_when_empty_batch_missing_field_or_skip_playwright() {
+        let with_cap = cross_surface(Some(CrossSurfaceCapture {
+            selector: "main".to_owned(),
+            to: "b.txt".to_owned(),
+        }));
+        let buffer = vec![SkillStep::Tap("Go".to_owned())];
+        // Empty web batch → nothing to scrape.
+        assert!(cross_surface_capture(&with_cap, &[], ReplayOptions::default()).is_none());
+        // No capture field → no capture.
+        assert!(
+            cross_surface_capture(&cross_surface(None), &buffer, ReplayOptions::default())
+                .is_none()
+        );
+        // --no-playwright disables the scrape.
+        let skip = ReplayOptions {
+            skip_playwright: true,
+        };
+        assert!(cross_surface_capture(&with_cap, &buffer, skip).is_none());
+    }
+
+    #[test]
+    fn capture_field_parses_and_is_optional() -> TestResult {
+        let with: CrossSurfaceArgs = from_str(
+            "response_files: [a.txt, b.txt]\nmin_similarity: 0.5\ncapture:\n  selector: main\n  to: b.txt\n",
+        )
+        .map_err(|e| e.to_string())?;
+        match with.capture {
+            Some(c) if c.selector == "main" && c.to == "b.txt" => {}
+            other => return Err(format!("capture not parsed: {other:?}")),
+        }
+        // Backward compatible: scenarios without capture still parse.
+        let without: CrossSurfaceArgs =
+            from_str("response_files: [a.txt, b.txt]\n").map_err(|e| e.to_string())?;
+        if without.capture.is_some() {
+            return Err("capture should default to None".to_owned());
+        }
+        Ok(())
+    }
 }
