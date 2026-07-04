@@ -95,8 +95,11 @@ extension MirroirMCP {
             description: """
                 Perform a swipe gesture on the mirrored iPhone screen. \
                 Coordinates are relative to the iPhone Mirroring window. \
-                Common gestures: swipe up (scroll down), swipe down (scroll up), \
-                swipe left/right for navigation.
+                Content follows the finger: swipe up (scroll down), swipe down \
+                (scroll up), swipe left to reveal content on the right. \
+                Fast swipes (short duration_ms) end with flick momentum, so \
+                paging surfaces like video feeds snap to the next page; use a \
+                long duration_ms for a slow precise scroll without inertia.
                 """,
             inputSchema: [
                 "type": .string("object"),

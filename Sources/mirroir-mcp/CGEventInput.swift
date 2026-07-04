@@ -32,6 +32,10 @@ enum CGEventInput {
     /// position and the MayBegin priming event before actual scroll events arrive.
     private static let warpSettleUs: UInt32 = 100_000
 
+    /// Microseconds between momentum-tail scroll frames (~60fps), matching
+    /// the frame pacing of physical trackpad momentum events.
+    private static let momentumFrameUs: UInt32 = 16_000
+
     /// Click (tap) at a screen-absolute point.
     static func click(at point: CGPoint, targetPID: pid_t? = nil) -> Bool {
         guard let down = makeMouseEvent(.leftMouseDown, at: point),
@@ -121,33 +125,21 @@ enum CGEventInput {
         // Send a zero-delta "may begin" scroll event to engage the window's
         // scroll handler. After a focus switch, iPhone Mirroring silently drops
         // scroll wheel events until the scroll subsystem is primed. MayBegin
-        // (phase 32) simulates a finger touching the trackpad before movement,
-        // waking the handler without any visible effect on the iOS screen.
+        // simulates a finger touching the trackpad before movement, waking the
+        // handler without any visible effect on the iOS screen. Phase values
+        // follow the CGScrollPhase convention observed in real trackpad traces:
+        // MayBegin=128, Began=1, Changed=2, Ended=4.
         let scrollPhaseField = CGEventField(rawValue: 99)!    // kCGScrollWheelEventScrollPhase
         let momentumPhaseField = CGEventField(rawValue: 123)!  // kCGScrollWheelEventMomentumPhase
-        let isContinuousField = CGEventField(rawValue: 88)!    // kCGScrollWheelEventIsContinuous
-        let pointDeltaY = CGEventField(rawValue: 96)!          // kCGScrollWheelEventPointDeltaAxis1
-        let pointDeltaX = CGEventField(rawValue: 97)!          // kCGScrollWheelEventPointDeltaAxis2
 
-        let phaseMayBegin: Int64 = 32
+        let phaseMayBegin: Int64 = 128
 
-        if let prime = CGEvent(
-            scrollWheelEvent2Source: nil, units: .pixel,
-            wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0
-        ) {
-            prime.location = midpoint
-            prime.setIntegerValueField(isContinuousField, value: 1)
+        if let prime = makeScrollEvent(SwipeWheelStep(wheel1: 0, wheel2: 0), at: midpoint) {
             prime.setIntegerValueField(scrollPhaseField, value: phaseMayBegin)
             prime.setIntegerValueField(momentumPhaseField, value: 0)
-            prime.setIntegerValueField(pointDeltaY, value: 0)
-            prime.setIntegerValueField(pointDeltaX, value: 0)
             post(prime, targetPID: targetPID)
             usleep(warpSettleUs)
         }
-
-        // Split into steps for a smooth scroll gesture
-        let steps = max(5, durationMs / 16) // ~60fps step rate
-        let stepDelay = UInt32(durationMs) * 1000 / UInt32(steps)
 
         // Both axes use direct-manipulation sign: the content follows the
         // finger, matching real iOS touch and keeping horizontal and vertical
@@ -156,73 +148,98 @@ enum CGEventInput {
         // content left, revealing content further right. iPhone Mirroring maps
         // positive wheel1 to content-down and positive wheel2 to content-right,
         // so each wheel delta carries the same sign as its pixel delta.
-        // Scale factor: continuous trackpad gestures with phase flags have
-        // smaller per-pixel displacement than legacy scroll wheel events.
-        // Amplify to match physical trackpad scroll distance.
-        let scrollAmplification = 3.0
-        let totalWheel1 = Int32(deltaY * scrollAmplification)
-        let totalWheel2 = Int32(deltaX * scrollAmplification)
+        // SwipeGestureProfile splits the amplified distance into a drag phase
+        // and, for fast flicks, a decaying momentum tail.
+        let plan = SwipeGestureProfile.plan(
+            deltaX: deltaX, deltaY: deltaY, durationMs: durationMs
+        )
+        let stepDelay = UInt32(durationMs) * 1000 / UInt32(plan.drag.count)
 
         // Trackpad-style continuous scroll requires gesture phase flags and
         // precise point-delta fields. iPhone Mirroring ignores bare scroll
-        // wheel events that lack these trackpad attributes.
+        // wheel events that lack these trackpad attributes. Momentum phase
+        // values follow the CGMomentumScrollPhase convention observed in real
+        // trackpad traces: Begin=1, Continue=2, End=3.
         let phaseBegan: Int64 = 1
         let phaseChanged: Int64 = 2
         let phaseEnded: Int64 = 4
         let phaseNone: Int64 = 0
+        let momentumBegin: Int64 = 1
+        let momentumContinue: Int64 = 2
+        let momentumEnd: Int64 = 3
 
-        for i in 1...steps {
-            let prevFraction = Double(i - 1) / Double(steps)
-            let fraction = Double(i) / Double(steps)
-            let w1 = Int32(Double(totalWheel1) * fraction) - Int32(Double(totalWheel1) * prevFraction)
-            let w2 = Int32(Double(totalWheel2) * fraction) - Int32(Double(totalWheel2) * prevFraction)
-
-            guard let scroll = CGEvent(
-                scrollWheelEvent2Source: nil,
-                units: .pixel,
-                wheelCount: 2,
-                wheel1: w1,
-                wheel2: w2,
-                wheel3: 0
-            ) else { continue }
-            scroll.location = midpoint
-
-            // Mark as continuous trackpad gesture with precise pixel deltas
-            scroll.setIntegerValueField(isContinuousField, value: 1)
-            scroll.setIntegerValueField(pointDeltaY, value: Int64(w1))
-            scroll.setIntegerValueField(pointDeltaX, value: Int64(w2))
-
-            let phase: Int64
-            if i == 1 { phase = phaseBegan }
-            else if i == steps { phase = phaseEnded }
-            else { phase = phaseChanged }
+        // Drag phase: the finger is in contact and moving.
+        for (index, step) in plan.drag.enumerated() {
+            guard let scroll = makeScrollEvent(step, at: midpoint) else { continue }
+            let phase = index == 0 ? phaseBegan : phaseChanged
             scroll.setIntegerValueField(scrollPhaseField, value: phase)
             scroll.setIntegerValueField(momentumPhaseField, value: phaseNone)
-
             post(scroll, targetPID: targetPID)
             usleep(stepDelay)
         }
 
-        // Send a zero-delta momentum-end event to fully close the gesture.
-        // Without this, iPhone Mirroring may wait for momentum events and
-        // ignore the next gesture's phaseBegan, causing stuck scrolls.
-        if let momentumEnd = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 2,
-            wheel1: 0, wheel2: 0, wheel3: 0
-        ) {
-            momentumEnd.location = midpoint
-            momentumEnd.setIntegerValueField(isContinuousField, value: 1)
-            momentumEnd.setIntegerValueField(scrollPhaseField, value: phaseNone)
-            momentumEnd.setIntegerValueField(momentumPhaseField, value: phaseEnded)
-            momentumEnd.setIntegerValueField(pointDeltaY, value: 0)
-            momentumEnd.setIntegerValueField(pointDeltaX, value: 0)
-            post(momentumEnd, targetPID: targetPID)
+        // Finger lift: a zero-delta phaseEnded event, matching a physical
+        // trackpad trace. Ending the gesture while deltas are still flowing
+        // reads as a stalled drag to iOS paging surfaces, which then settle
+        // between pages instead of advancing.
+        if let lift = makeScrollEvent(SwipeWheelStep(wheel1: 0, wheel2: 0), at: midpoint) {
+            lift.setIntegerValueField(scrollPhaseField, value: phaseEnded)
+            lift.setIntegerValueField(momentumPhaseField, value: phaseNone)
+            post(lift, targetPID: targetPID)
+            usleep(momentumFrameUs)
+        }
+
+        // Momentum tail: decaying deltas after the lift, present only for
+        // flicks. iOS reads these momentum semantics as a native flick, so
+        // paging surfaces (feeds, carousels) snap to the next page. A real
+        // trackpad emits no momentum events at all for a slow drag-scroll,
+        // so non-flick swipes close with the finger lift alone.
+        for (index, step) in plan.momentum.enumerated() {
+            guard let scroll = makeScrollEvent(step, at: midpoint) else { continue }
+            scroll.setIntegerValueField(scrollPhaseField, value: phaseNone)
+            let momentumPhase = index == 0 ? momentumBegin : momentumContinue
+            scroll.setIntegerValueField(momentumPhaseField, value: momentumPhase)
+            post(scroll, targetPID: targetPID)
+            usleep(momentumFrameUs)
+        }
+
+        // Close the momentum tail with a zero-delta momentum-end event,
+        // matching the real trackpad trace. Without it, iPhone Mirroring
+        // waits for further momentum events and ignores the next gesture's
+        // phaseBegan, causing stuck scrolls.
+        if !plan.momentum.isEmpty,
+           let close = makeScrollEvent(SwipeWheelStep(wheel1: 0, wheel2: 0), at: midpoint) {
+            close.setIntegerValueField(scrollPhaseField, value: phaseNone)
+            close.setIntegerValueField(momentumPhaseField, value: momentumEnd)
+            post(close, targetPID: targetPID)
             usleep(stepDelay)
         }
 
         return true
+    }
+
+    /// Create a continuous scroll wheel event carrying one gesture frame.
+    /// Phase fields are left for the caller to set.
+    private static func makeScrollEvent(
+        _ step: SwipeWheelStep, at location: CGPoint
+    ) -> CGEvent? {
+        guard let scroll = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: step.wheel1,
+            wheel2: step.wheel2,
+            wheel3: 0
+        ) else { return nil }
+        scroll.location = location
+        // Mark as continuous trackpad gesture with precise pixel deltas
+        let isContinuousField = CGEventField(rawValue: 88)!   // kCGScrollWheelEventIsContinuous
+        let pointDeltaY = CGEventField(rawValue: 96)!         // kCGScrollWheelEventPointDeltaAxis1
+        let pointDeltaX = CGEventField(rawValue: 97)!         // kCGScrollWheelEventPointDeltaAxis2
+        scroll.setIntegerValueField(isContinuousField, value: 1)
+        scroll.setIntegerValueField(pointDeltaY, value: Int64(step.wheel1))
+        scroll.setIntegerValueField(pointDeltaX, value: Int64(step.wheel2))
+        return scroll
     }
 
     /// Drag (sustained mouse contact) from one screen-absolute point to another.
