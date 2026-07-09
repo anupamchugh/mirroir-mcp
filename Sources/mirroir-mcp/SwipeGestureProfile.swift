@@ -75,8 +75,8 @@ enum SwipeGestureProfile {
     /// pixels over `durationMs` milliseconds.
     static func plan(deltaX: Double, deltaY: Double, durationMs: Int) -> Plan {
         let dragStepCount = max(minimumDragSteps, durationMs / frameMs)
-        let totalWheel1 = Int32(deltaY * scrollAmplification)
-        let totalWheel2 = Int32(deltaX * scrollAmplification)
+        let totalWheel1 = wheelDelta(deltaY * scrollAmplification)
+        let totalWheel2 = wheelDelta(deltaX * scrollAmplification)
 
         let seconds = Double(max(durationMs, 1)) / 1000.0
         let velocity = (deltaX * deltaX + deltaY * deltaY).squareRoot() / seconds
@@ -110,6 +110,17 @@ enum SwipeGestureProfile {
             momentum.removeLast()
         }
         return Plan(drag: drag, momentum: momentum)
+    }
+
+    /// Convert an amplified pixel distance into a wheel delta, saturating at
+    /// the `Int32` range. A plain `Int32(_:)` conversion traps on an
+    /// out-of-range or non-finite value; saturating keeps `plan` a total
+    /// function for any caller input.
+    private static func wheelDelta(_ amplifiedPixels: Double) -> Int32 {
+        guard amplifiedPixels.isFinite else { return 0 }
+        if amplifiedPixels >= Double(Int32.max) { return Int32.max }
+        if amplifiedPixels <= Double(Int32.min) { return Int32.min }
+        return Int32(amplifiedPixels)
     }
 
     /// Apportion each axis total across frames proportionally to `weights`,

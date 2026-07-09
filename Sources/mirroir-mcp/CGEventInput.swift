@@ -36,6 +36,22 @@ enum CGEventInput {
     /// the frame pacing of physical trackpad momentum events.
     private static let momentumFrameUs: UInt32 = 16_000
 
+    /// Lower bound for a caller-supplied gesture duration, in milliseconds.
+    private static let minGestureDurationMs = 1
+
+    /// Upper bound for a caller-supplied gesture duration, in milliseconds.
+    /// A duration outside `[min, max]` would trap the `UInt32` microsecond
+    /// conversion (negative input) or overflow the millisecond-to-microsecond
+    /// multiply (extreme input). 60s is far beyond any real gesture while
+    /// keeping every derived timing value well inside `UInt32`.
+    private static let maxGestureDurationMs = 60_000
+
+    /// Clamp a caller-supplied gesture duration into the safe range so the
+    /// downstream microsecond conversions can never trap or overflow.
+    private static func safeDurationMs(_ durationMs: Int) -> Int {
+        min(max(durationMs, minGestureDurationMs), maxGestureDurationMs)
+    }
+
     /// Click (tap) at a screen-absolute point.
     static func click(at point: CGPoint, targetPID: pid_t? = nil) -> Bool {
         guard let down = makeMouseEvent(.leftMouseDown, at: point),
@@ -54,6 +70,7 @@ enum CGEventInput {
 
     /// Long press at a screen-absolute point for the specified duration.
     static func longPress(at point: CGPoint, durationMs: Int, targetPID: pid_t? = nil) -> Bool {
+        let durationMs = safeDurationMs(durationMs)
         guard let down = makeMouseEvent(.leftMouseDown, at: point),
               let up = makeMouseEvent(.leftMouseUp, at: point) else {
             return false
@@ -104,6 +121,7 @@ enum CGEventInput {
     /// wheel as swipe gestures (page scrolling, list scrolling).
     static func swipe(from start: CGPoint, to end: CGPoint, durationMs: Int,
                       targetPID: pid_t? = nil) -> Bool {
+        let durationMs = safeDurationMs(durationMs)
         let deltaX = end.x - start.x
         let deltaY = end.y - start.y
 
@@ -247,6 +265,7 @@ enum CGEventInput {
     /// adjusting sliders, and drag-and-drop operations.
     static func drag(from start: CGPoint, to end: CGPoint, durationMs: Int,
                      targetPID: pid_t? = nil) -> Bool {
+        let durationMs = safeDurationMs(durationMs)
         guard let down = makeMouseEvent(.leftMouseDown, at: start),
               let up = makeMouseEvent(.leftMouseUp, at: end) else {
             return false

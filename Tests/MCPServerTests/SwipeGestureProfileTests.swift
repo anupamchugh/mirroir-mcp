@@ -182,4 +182,29 @@ final class SwipeGestureProfileTests: XCTestCase {
         XCTAssertEqual(plan.drag.count, SwipeGestureProfile.minimumDragSteps)
         XCTAssertEqual(totalWheel1(plan), Int32(-100 * SwipeGestureProfile.scrollAmplification))
     }
+
+    // MARK: - Totality (never traps on extreme input)
+
+    func testNegativeDurationDoesNotCrash() {
+        let plan = SwipeGestureProfile.plan(deltaX: 0, deltaY: -100, durationMs: -5000)
+        XCTAssertEqual(plan.drag.count, SwipeGestureProfile.minimumDragSteps)
+        XCTAssertEqual(totalWheel1(plan), Int32(-100 * SwipeGestureProfile.scrollAmplification))
+    }
+
+    func testExtremeCoordinatesSaturateWithoutTrapping() {
+        // A delta whose amplified value exceeds Int32 must saturate, not trap.
+        let plan = SwipeGestureProfile.plan(deltaX: 0, deltaY: 1e12, durationMs: 300)
+        XCTAssertEqual(totalWheel1(plan), Int32.max)
+    }
+
+    func testExtremeNegativeCoordinatesSaturateWithoutTrapping() {
+        let plan = SwipeGestureProfile.plan(deltaX: -1e12, deltaY: 0, durationMs: 300)
+        XCTAssertEqual(totalWheel2(plan), Int32.min)
+    }
+
+    func testNonFiniteCoordinatesProduceZeroDelta() {
+        let plan = SwipeGestureProfile.plan(deltaX: .nan, deltaY: .infinity, durationMs: 300)
+        XCTAssertEqual(totalWheel1(plan), 0)
+        XCTAssertEqual(totalWheel2(plan), 0)
+    }
 }
