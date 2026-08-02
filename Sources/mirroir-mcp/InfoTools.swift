@@ -12,6 +12,21 @@ extension MirroirMCP {
         server: MCPServer,
         registry: TargetRegistry
     ) {
+        server.registerTool(MCPToolDefinition(
+            name: "request_screen_recording_access",
+            description: "Request macOS Screen Recording permission for Mirroir. macOS displays a system prompt; no screen content is captured by this request.",
+            inputSchema: [
+                "type": .string("object"),
+                "properties": .object([:]),
+            ],
+            handler: { _ in
+                if ScreenCapturePermission.requestFromSystem() {
+                    return .text("Screen Recording access is already granted or was granted by macOS.")
+                }
+                return .text("macOS Screen Recording permission was requested. Allow Mirroir's host in the system prompt, then restart the MCP server.")
+            }
+        ))
+
         // get_orientation — report device orientation
         server.registerTool(MCPToolDefinition(
             name: "get_orientation",

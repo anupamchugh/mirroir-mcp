@@ -3,6 +3,15 @@
 // ABOUTME: Deployment target is macOS 14 for API availability; iPhone Mirroring requires macOS 15+ at runtime.
 
 import PackageDescription
+import Foundation
+
+let embacleLibraryPaths = [
+    "/opt/homebrew/opt/embacle-ffi/lib/libembacle.a",
+    "/opt/homebrew/lib/libembacle.a",
+    "/usr/local/opt/embacle-ffi/lib/libembacle.a",
+    "/usr/local/lib/libembacle.a",
+]
+let hasEmbacleFFI = embacleLibraryPaths.contains { FileManager.default.fileExists(atPath: $0) }
 
 let package = Package(
     name: "mirroir-mcp",
@@ -28,7 +37,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "mirroir-mcp",
-            dependencies: ["HelperLib", "CEmbacle"],
+            dependencies: hasEmbacleFFI ? ["HelperLib", "CEmbacle"] : ["HelperLib"],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("CoreGraphics"),

@@ -214,7 +214,7 @@ enum DoctorCommand {
                 name: "Screen capture",
                 status: .failed,
                 detail: "not permitted",
-                fixHint: "Open System Settings > Privacy & Security > Screen Recording and enable the terminal app you're using."
+                fixHint: "Call request_screen_recording_access, allow the macOS prompt, then restart Mirroir."
             )
         }
 
